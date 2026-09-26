@@ -18,6 +18,7 @@ test.skipIf(!HAS_WASI || !HAS_CORE)(
             corpusPath: join(CORE, "test", "contract_qutil.cpp"),
             contractPath: join(CORE, "src", "contracts", "QUtil.h"),
             contractKind: "system",
+            profile: "core-gtest",
             contractName: "QUTIL",
             stateType: "QUTIL",
             slot: 4,

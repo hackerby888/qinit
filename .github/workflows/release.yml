@@ -18,8 +18,15 @@ env:
   BUN_VERSION: "1.3.14"
 
 jobs:
+  # a tag must never publish a commit that fails the test workflow.
+  ci:
+    uses: ./.github/workflows/test.yml
+
   release:
+    needs: ci
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.t.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -43,8 +50,7 @@ jobs:
       - name: Build all targets
         run: bun run build:all
 
-      # Nothing else runs the shipped artifact. The runner is linux-x64, so only that target can be
-      # executed here; the cross-compiled ones ship unverified until a runner matrix exists.
+      # a fast check before anything is published; the verify job then installs every target on its own OS.
       - name: Verify the linux-x64 binary runs wasm crypto
         run: |
           out=$(./dist/qinit-linux-x64 smoke 2>&1 | sed 's/\x1b\[[0-9;]*[mGKHA]//g')
@@ -63,17 +69,76 @@ jobs:
           gh release create "$TAG" dist/qinit-* dist/SHA256SUMS install.sh install.ps1 --title "$TAG" --notes "$NOTES" \
           || gh release upload "$TAG" dist/qinit-* dist/SHA256SUMS install.sh install.ps1 --clobber
 
+  # every shipped binary, installed by its real installer on its own OS, before latest.txt points users at it.
+  verify:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x64, runner: ubuntu-latest }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm }
+          - { target: darwin-arm64, runner: macos-15 }
+          - { target: darwin-x64, runner: macos-15-intel }
+          - { target: windows-x64, runner: windows-2022 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      QINIT_TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      # the installers at the tag are what users run, so they are part of what is verified.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Isolate the install
+        shell: bash
+        run: |
+          echo "QINIT_BIN=$RUNNER_TEMP/qinit-bin" >> "$GITHUB_ENV"
+          echo "QINIT_CACHE=$RUNNER_TEMP/qinit-cache" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/qinit-bin" >> "$GITHUB_PATH"
+
+      - name: Install with install.sh
+        if: runner.os != 'Windows'
+        run: sh install.sh
+
+      - name: Install with install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./install.ps1
+
+      # a user's first hour: the stamped version, a new project, a clang build, a spec run, and a detached simulator.
+      - name: Exercise the installed binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          V="${QINIT_TAG#qinit-cli-}"; V="${V#v}"
+          qinit version --json | grep -F "\"$V\""
+          qinit smoke
+          cd "$RUNNER_TEMP" && qinit new probe && cd probe
+          qinit build --compiler clang
+          qinit test --runtime simulator --compiler typescript --json
+          qinit node run --runtime simulator --rpc http://127.0.0.1:47141 --peer-port 47142 --scratch-dir "$RUNNER_TEMP/qinit-node"
+          qinit node stop --rpc http://127.0.0.1:47141 --scratch-dir "$RUNNER_TEMP/qinit-node" | tee stop.log
+          grep -q "node stopped" stop.log
+
+  # latest.txt is what install.sh, install.ps1 and `qinit update` follow, so it moves only after every platform passed.
+  promote:
+    needs: [release, verify]
+    if: startsWith(needs.release.outputs.tag, 'qinit-cli-v')
+    runs-on: ubuntu-latest
+    steps:
       - name: Update latest pointer
-        if: startsWith(steps.t.outputs.tag, 'qinit-cli-v')
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          TAG="${{ steps.t.outputs.tag }}"
-          printf '%s\n' "$TAG" > dist/latest.txt
+          TAG="${{ needs.release.outputs.tag }}"
+          printf '%s\n' "$TAG" > latest.txt
           if gh release view qinit-cli-latest >/dev/null 2>&1; then
-            gh release upload qinit-cli-latest dist/latest.txt --clobber
+            gh release upload qinit-cli-latest latest.txt --clobber
           else
-            gh release create qinit-cli-latest dist/latest.txt \
+            gh release create qinit-cli-latest latest.txt \
               --title "Latest Qinit CLI pointer" \
               --notes "Points clients to the newest published Qinit CLI release." \
               --latest=false

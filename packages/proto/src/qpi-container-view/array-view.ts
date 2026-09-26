@@ -4,12 +4,14 @@ import { arrayGeometry } from "../qpi-layout";
 import { QpiIncompleteReadError } from "./errors";
 import { readQpiBytes, type QpiByteSource } from "./source";
 
+// e.g. { index: 1, value: 42n, isZeroBytes: false }; isZeroBytes covers the whole stride, padding included
 export interface QpiArrayEntry {
     index: number;
     value: unknown;
     isZeroBytes: boolean;
 }
 
+// dense reader over N slots of stride roundUp(size, align); no flags, so empty means an all-zero stride
 export class QpiArrayView {
     readonly kind = AbiTypeKind.ARRAY;
     readonly capacity: number;
@@ -47,6 +49,7 @@ export class QpiArrayView {
         yield* this.readEntries(true);
     }
 
+    // pages of floor(maxReadLength / stride) elements; an all-zero page is skipped before any element is decoded
     private async *readEntries(skipZeroBytes: boolean): AsyncIterable<QpiArrayEntry> {
         if (!this.capacity) {
             return;

@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { systemContracts } from "@qinit/build";
+import { CORE_BUILD_PROFILE } from "@qinit/core";
 import { AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import {
     AssetIssuance,
@@ -11,8 +12,10 @@ import {
     AssetPossessionChange,
     AssetPossessionManagingContractChange,
     Burning,
+    OcInvocationStatusChange,
     QuTransfer,
 } from "@qinit/proto/mutation-log";
+import { OC_INTERFACES } from "@qinit/engine/oc-interfaces/registry";
 import { ORACLE_INTERFACES } from "@qinit/engine/oracle-interfaces/registry";
 
 const coreArg = process.env.QINIT_CORE;
@@ -35,6 +38,7 @@ const mutationLogLayouts = [
     ["AssetOwnershipManagingContractChange", AssetOwnershipManagingContractChange],
     ["AssetPossessionManagingContractChange", AssetPossessionManagingContractChange],
     ["Burning", Burning],
+    ["OcInvocationStatusChange", OcInvocationStatusChange],
 ] as const;
 
 function extractStruct(source: string, structName: string): string {
@@ -193,21 +197,24 @@ function assertType(contract: string, path: string, type: AbiType, nativeType: s
     }
 }
 
-function assertOracleLayout(
+function assertInterfaceLayout(
+    namespaceName: "OI" | "OCI",
     interfaceName: string,
-    layoutName: "OracleQuery" | "OracleReply",
+    layoutName: "OracleQuery" | "OracleReply" | "OcRequest",
     layout: {
         readonly SIZE: number;
         readonly OFFSETS: Readonly<Record<string, number>>;
     },
 ): void {
     const path = `${interfaceName}.${layoutName}`;
-    const nativeType = `OI::${interfaceName}::${layoutName}`;
+    const nativeType = `${namespaceName}::${interfaceName}::${layoutName}`;
 
-    lines.push(`static_assert(sizeof(${nativeType}) == ${layout.SIZE}, ${message("OI", path, "size", layout.SIZE)});`);
+    lines.push(`static_assert(sizeof(${nativeType}) == ${layout.SIZE}, ${message(namespaceName, path, "size", layout.SIZE)});`);
 
     for (const [fieldName, offset] of Object.entries(layout.OFFSETS)) {
-        lines.push(`static_assert(__builtin_offsetof(${nativeType}, ${fieldName}) == ${offset}, ${message("OI", `${path}.${fieldName}`, "offset", offset)});`);
+        lines.push(
+            `static_assert(__builtin_offsetof(${nativeType}, ${fieldName}) == ${offset}, ${message(namespaceName, `${path}.${fieldName}`, "offset", offset)});`,
+        );
     }
 }
 
@@ -259,8 +266,22 @@ for (const [interfaceIndex, oracleInterface] of ORACLE_INTERFACES.entries()) {
     lines.push(
         `static_assert(OI::${oracleInterface.name}::oracleInterfaceIndex == ${oracleInterface.index}, ${message("OI", `${oracleInterface.name}.oracleInterfaceIndex`, "value", oracleInterface.index)});`,
     );
-    assertOracleLayout(oracleInterface.name, "OracleQuery", oracleInterface.query);
-    assertOracleLayout(oracleInterface.name, "OracleReply", oracleInterface.reply);
+    assertInterfaceLayout("OI", oracleInterface.name, "OracleQuery", oracleInterface.query);
+    assertInterfaceLayout("OI", oracleInterface.name, "OracleReply", oracleInterface.reply);
+}
+
+lines.push(`static_assert(OCI::ocInterfacesCount == ${OC_INTERFACES.length}, ${message("OCI", "ocInterfaces", "count", OC_INTERFACES.length)});`);
+
+// an oc interface has a request and no reply, so only the request layout can be compared.
+for (const [interfaceIndex, ocInterface] of OC_INTERFACES.entries()) {
+    if (ocInterface.index !== interfaceIndex) {
+        throw new Error(`${ocInterface.name} registry index ${interfaceIndex} does not match declared index ${ocInterface.index}`);
+    }
+
+    lines.push(
+        `static_assert(OCI::${ocInterface.name}::ocInterfaceIndex == ${ocInterface.index}, ${message("OCI", `${ocInterface.name}.ocInterfaceIndex`, "value", ocInterface.index)});`,
+    );
+    assertInterfaceLayout("OCI", ocInterface.name, "OcRequest", ocInterface.request);
 }
 
 for (const [structName, layout] of mutationLogLayouts) {
@@ -274,7 +295,19 @@ try {
     const source = join(scratch, "probe.cpp");
     writeFileSync(source, lines.join("\n"));
     const result = Bun.spawnSync(
-        [nativeClang, "-std=c++20", "-fno-access-control", "-fshort-wchar", "-w", "-DNO_UEFI", `-I${core}`, `-I${join(core, "src")}`, "-fsyntax-only", source],
+        [
+            nativeClang,
+            "-std=c++20",
+            "-fno-access-control",
+            "-fshort-wchar",
+            "-w",
+            "-DNO_UEFI",
+            ...[...CORE_BUILD_PROFILE].map(([name, value]) => `-D${name}=${value}`),
+            `-I${core}`,
+            `-I${join(core, "src")}`,
+            "-fsyntax-only",
+            source,
+        ],
         {
             cwd: scratch,
             stdout: "pipe",
@@ -288,7 +321,7 @@ try {
     }
 
     console.log(
-        `native IDL ABI OK — ${catalog.length} contracts, ${typeIndex} checked types, ${ORACLE_INTERFACES.length} oracle interfaces, ${mutationLogLayouts.length} mutation log messages`,
+        `native IDL ABI OK — ${catalog.length} contracts, ${typeIndex} checked types, ${ORACLE_INTERFACES.length} oracle interfaces, ${OC_INTERFACES.length} oc interfaces, ${mutationLogLayouts.length} mutation log messages`,
     );
 } finally {
     rmSync(scratch, {

@@ -72,3 +72,82 @@ test("governance guards: callee lacks the sysproc + self-call -> INVALID_PROPOSA
     expect(sim.setShareholderProposal(29, 28, PROP, 0n, ORIG)).toBe(0xffff); // callee lacks the sysproc
     expect(sim.setShareholderProposal(28, 28, PROP, 0n, ORIG)).toBe(0xffff); // self-call
 });
+
+const proposeInput = (target: number): Uint8Array => {
+    const input = new Uint8Array(2);
+    new DataView(input.buffer).setUint16(0, target, true);
+    return input;
+};
+
+const words = (bytes: Uint8Array): bigint[] => {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return Array.from({ length: bytes.length >> 3 }, (_, index) => view.getBigUint64(index * 8, true));
+};
+
+// the callback path is core's __qpiCallSystemProc: no fee gate, a re-entry guard, and an abort for a callee that is out of service.
+test("governance: proposal and votes reach the callee and return its answer", async () => {
+    await initK12();
+
+    const sim = new QubicSimulator({ fees: "metered" });
+    sim.deploy(28, await wasm("ShareReceiver"));
+    sim.deploy(29, await wasm("ShareProposer"));
+    // a system callback skips the fee check, so a callee with nothing in reserve still answers.
+    sim.setContractFeeReserve(28, 0n);
+
+    sim.procedure(29, 1, proposeInput(28));
+    sim.procedure(29, 2, proposeInput(28));
+
+    // byte0, proposals, votes, the vote's proposal index, and the refused call back into the proposer.
+    expect(words(sim.query(28, 1))).toEqual([222n, 1n, 1n, 7n, 0xffffn]);
+    expect(words(sim.query(29, 1))).toEqual([7n, 1n]);
+});
+
+test("governance guards: every refused input returns the default", async () => {
+    await initK12();
+
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("ShareReceiver"));
+    sim.deploy(29, await wasm("ShareProposer"));
+    const originator = new Uint8Array(32);
+    const proposal = new Uint8Array(1024);
+    const vote = new Uint8Array(104);
+
+    for (const [callee, reward] of [
+        [29, 0n],
+        [0, 0n],
+        [28, -1n],
+    ] as const) {
+        expect(sim.setShareholderProposal(29, callee, proposal, reward, originator)).toBe(0xffff);
+        expect(sim.setShareholderVotes(29, callee, vote, reward, originator)).toBe(0);
+    }
+    expect(sim.setShareholderVotes(29, 27, vote, 0n, originator)).toBe(0);
+    expect(words(sim.query(28, 1))[1]).toBe(0n);
+
+    // a callee at or past core's contract count is refused even though it defines the callback.
+    const bounded = new QubicSimulator({ contractCount: 28 });
+    bounded.deploy(28, await wasm("ShareReceiver"));
+    bounded.deploy(29, await wasm("ShareProposer"));
+    expect(bounded.setShareholderProposal(29, 28, proposal, 0n, originator)).toBe(0xffff);
+    expect(words(bounded.query(28, 1))[1]).toBe(0n);
+});
+
+test("governance: a callee out of service aborts the caller instead of answering", async () => {
+    await initK12();
+
+    const failedIpo = new QubicSimulator({ haltOnContractFault: false });
+    failedIpo.deploy(28, await wasm("ShareReceiver"));
+    failedIpo.deploy(29, await wasm("ShareProposer"));
+    failedIpo.ipo(28, 0n);
+    expect(() => failedIpo.procedure(29, 1, proposeInput(28))).toThrow(/abort\(8\)/);
+    expect(words(failedIpo.query(28, 1))[1]).toBe(0n);
+
+    const inactive = new QubicSimulator({ haltOnContractFault: false });
+    inactive.deploy(28, await wasm("ShareReceiver"));
+    inactive.deploy(29, await wasm("ShareProposer"));
+    inactive.setContractLifetime(28, 5, 10);
+    expect(() => inactive.procedure(29, 2, proposeInput(28))).toThrow(/abort\(4\)/);
+
+    inactive.currentEpoch = 5;
+    inactive.procedure(29, 2, proposeInput(28));
+    expect(words(inactive.query(28, 1))[2]).toBe(1n);
+});

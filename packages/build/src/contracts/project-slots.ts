@@ -36,7 +36,7 @@ export function assignSlots<T extends SlotInput>(
     registry?: DynamicContractRegistry,
 ): Array<T & SlotAssignment> {
     if (layout.slotCount <= 0) {
-        throw new Error("no dynamic contract slots are available");
+        throw new Error("no deployable smart contract slots are available");
     }
 
     const byStateType = new Map<string, SlotInput>();

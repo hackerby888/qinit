@@ -78,6 +78,52 @@ inline void appendU64(unsigned long long u) {
     }
 }
 
+// fixed point with up to six decimals, trailing zeros dropped; a magnitude past 1e18 goes scientific since its integer part outgrows u64.
+inline void appendF64(double v) {
+    if (v != v) {
+        appendStr("nan");
+        return;
+    }
+    if (v < 0) {
+        appendStr("-");
+        v = -v;
+    }
+    if (v > 1.7976931348623157e308) {
+        appendStr("inf");
+        return;
+    }
+    int exponent = 0;
+    if (v >= 1e18) {
+        while (v >= 10) {
+            v /= 10;
+            exponent++;
+        }
+    }
+    unsigned long long whole = (unsigned long long)v;
+    unsigned long long micros = (unsigned long long)((v - (double)whole) * 1e6 + 0.5);
+    if (micros == 1000000) {
+        whole++;
+        micros = 0;
+    }
+    appendU64(whole);
+    if (micros) {
+        char digits[7] = {'.', 0, 0, 0, 0, 0, 0};
+        for (int i = 6; i >= 1; i--) {
+            digits[i] = (char)('0' + micros % 10);
+            micros /= 10;
+        }
+        int end = 7;
+        while (digits[end - 1] == '0') {
+            end--;
+        }
+        appendBytes(digits, (unsigned int)end);
+    }
+    if (exponent) {
+        appendStr("e+");
+        appendU64((unsigned long long)exponent);
+    }
+}
+
 inline void appendHex(const void* p, unsigned int n) {
     const unsigned char* b = (const unsigned char*)p;
     for (unsigned int i = 0; i < n; ++i) {
@@ -87,8 +133,8 @@ inline void appendHex(const void* p, unsigned int n) {
     }
 }
 
-// Render a compared value into the failure message: bool -> true/false, integral -> decimal, any 32-byte
-// value -> hex (that is QPI::id, which the corpora compare constantly), else -> "(value)".
+// Render a compared value into the failure message: bool -> true/false, integral -> decimal, floating -> decimal,
+// any 32-byte value -> hex (that is QPI::id, which the corpora compare constantly), else -> "(value)".
 template <typename T>
 inline void appendVal(const T& v) {
     if constexpr (std::is_same_v<T, bool>) {
@@ -99,6 +145,8 @@ inline void appendVal(const T& v) {
         } else {
             appendU64((unsigned long long)v);
         }
+    } else if constexpr (std::is_floating_point_v<T>) {
+        appendF64((double)v);
     } else if constexpr (sizeof(T) == 32) {
         appendHex(&v, 32);
     } else {
@@ -131,6 +179,20 @@ struct Registrar {
     }
 };
 
+// the SCOPED_TRACEs a failure happens inside, innermost first, so a failure in a loop names its iteration.
+struct Trace {
+    const char*  file;
+    int          line;
+    const char*  text;
+    const Trace* outer;
+};
+static const Trace* g_trace = nullptr;
+
+// googletest's EXPECT_NEAR: |a - b| <= error in double, spelled without fabs so the harness stays free of <cmath>.
+inline bool withinError(double a, double b, double error) {
+    return a - b <= error && b - a <= error;
+}
+
 inline void failAt(const char* file, int line, const char* what) {
     g_ctx.failed = true;
     appendStr("\n  ");
@@ -139,6 +201,14 @@ inline void failAt(const char* file, int line, const char* what) {
     appendI64(line);
     appendStr(": ");
     appendStr(what);
+    for (const Trace* trace = g_trace; trace; trace = trace->outer) {
+        appendStr("\n    trace ");
+        appendStr(trace->file);
+        appendStr(":");
+        appendI64(trace->line);
+        appendStr(": ");
+        appendStr(trace->text);
+    }
 }
 
 } // namespace qinit_gtest
@@ -155,7 +225,73 @@ static inline Environment* AddGlobalTestEnvironment(Environment* e) {
     e->SetUp();
     return e;
 }
+
+// the text a SCOPED_TRACE carries. the corpora stream only strings and integers into it.
+class Message {
+public:
+    char         text[160] = {};
+    unsigned int len = 0;
+
+    Message& operator<<(const char* s) {
+        while (*s) {
+            put(*s++);
+        }
+        return *this;
+    }
+
+    Message& operator<<(const Message& other) {
+        return *this << other.text;
+    }
+
+    template <typename T>
+    Message& operator<<(const T& v) {
+        if constexpr (std::is_same_v<T, bool>) {
+            return *this << (v ? "true" : "false");
+        } else if constexpr (std::is_integral_v<T> || std::is_enum_v<T>) {
+            unsigned long long u = (unsigned long long)v;
+            if (std::is_signed_v<T> && (long long)v < 0) {
+                put('-');
+                u = 0ull - u;
+            }
+            char digits[24];
+            int  n = 0;
+            do {
+                digits[n++] = (char)('0' + (int)(u % 10));
+                u /= 10;
+            } while (u);
+            while (n > 0) {
+                put(digits[--n]);
+            }
+            return *this;
+        } else {
+            return *this << "(value)";
+        }
+    }
+
+private:
+    void put(char c) {
+        if (len < sizeof(text) - 1) {
+            text[len++] = c;
+        }
+    }
+};
 } // namespace testing
+
+namespace qinit_gtest {
+// keeps its own copy of the text, since the Message it was built from is a temporary.
+struct ScopedTrace {
+    ::testing::Message message;
+    Trace              trace;
+
+    ScopedTrace(const char* file, int line, const ::testing::Message& m) : message(m), trace{file, line, message.text, g_trace} {
+        g_trace = &trace;
+    }
+
+    ~ScopedTrace() {
+        g_trace = trace.outer;
+    }
+};
+} // namespace qinit_gtest
 
 // ---- googletest-compatible macros ----
 #define TEST(suite, name)                                                                       \
@@ -187,6 +323,12 @@ static inline Environment* AddGlobalTestEnvironment(Environment* e) {
         }                                                                                       \
     } while (0)
 
+#define QINIT_GTEST_JOIN2(a, b) a##b
+#define QINIT_GTEST_JOIN(a, b)  QINIT_GTEST_JOIN2(a, b)
+#define SCOPED_TRACE(message)                                                                   \
+    ::qinit_gtest::ScopedTrace QINIT_GTEST_JOIN(qinit_gtest_trace_, __LINE__)(__FILE__, __LINE__, \
+                                                                          ::testing::Message() << (message))
+
 #define EXPECT_TRUE(x)  QINIT_GTEST_BOOL((x), "EXPECT_TRUE(" #x ")", false)
 #define EXPECT_FALSE(x) QINIT_GTEST_BOOL(!(x), "EXPECT_FALSE(" #x ")", false)
 #define ASSERT_TRUE(x)  QINIT_GTEST_BOOL((x), "ASSERT_TRUE(" #x ")", true)
@@ -204,6 +346,24 @@ static inline Environment* AddGlobalTestEnvironment(Environment* e) {
 #define ASSERT_LE(a, b) QINIT_GTEST_CMP(a, b, <=, "ASSERT_LE", true)
 #define ASSERT_GT(a, b) QINIT_GTEST_CMP(a, b, >,  "ASSERT_GT", true)
 #define ASSERT_GE(a, b) QINIT_GTEST_CMP(a, b, >=, "ASSERT_GE", true)
+
+#define QINIT_GTEST_NEAR(a, b, error, label, fatal)                                                \
+    do {                                                                                        \
+        auto qinit_gtest_va = (a);                                                                 \
+        auto qinit_gtest_vb = (b);                                                                 \
+        if (!::qinit_gtest::withinError(qinit_gtest_va, qinit_gtest_vb, (error))) {                   \
+            ::qinit_gtest::failAt(__FILE__, __LINE__, label "(" #a ", " #b ", " #error ")");       \
+            ::qinit_gtest::appendStr(" (");                                                        \
+            ::qinit_gtest::appendVal(qinit_gtest_va);                                                 \
+            ::qinit_gtest::appendStr(" vs ");                                                      \
+            ::qinit_gtest::appendVal(qinit_gtest_vb);                                                 \
+            ::qinit_gtest::appendStr(")");                                                         \
+            if (fatal) return;                                                                  \
+        }                                                                                       \
+    } while (0)
+
+#define EXPECT_NEAR(a, b, error) QINIT_GTEST_NEAR(a, b, error, "EXPECT_NEAR", false)
+#define ASSERT_NEAR(a, b, error) QINIT_GTEST_NEAR(a, b, error, "ASSERT_NEAR", true)
 
 // ---- runner exports the engine calls to enumerate + run tests ----
 extern "C" {

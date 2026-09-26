@@ -24,7 +24,7 @@ const [, , command = "help", ...args] = process.argv;
 if (command === "__serve") {
     const { serveEngine } = await import("./ops/serve");
     const commandArgs = parseArgs(args, {
-        strings: ["rpc", "tick-ms", "system", "peer-port", "slot-base", "slot-count", "compiler", "history-ticks"],
+        strings: ["rpc", "tick-ms", "system", "peer-port", "slot-base", "slot-count", "compiler", "history-ticks", "fees"],
         booleans: ["full-tick"],
     });
     const rpc = commandArgs.get("rpc") || DEFAULT_RPC_BASE;
@@ -50,6 +50,7 @@ if (command === "__serve") {
         compiler === "typescript" ? "typescript" : "clang",
         historyTicks !== undefined ? Number(historyTicks) : undefined,
         liteTicking,
+        commandArgs.get("fees") === "off" ? "off" : undefined,
     );
 }
 

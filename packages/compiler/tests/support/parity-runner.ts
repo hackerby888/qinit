@@ -10,8 +10,15 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 export const PARITY_SLOT = 27;
 export const PARITY_ARENA_BYTES = 1 << 20;
 
-/** Deploy, invoke the single registered procedure, and read the first uint64 of state. */
-export function runState(wasm: Uint8Array): bigint {
+export interface ProbeState {
+    // where every probe folds its answer, so a pinned value stays one readable number.
+    resultWord: bigint;
+    // every byte of state: two compilers are compared on all of it, not on the answer alone.
+    stateHex: string;
+}
+
+/** Deploy, invoke the single registered procedure, and read back the state it left. */
+export function runState(wasm: Uint8Array): ProbeState {
     const simulator = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     const user = new Uint8Array(32).fill(7);
 
@@ -21,10 +28,13 @@ export function runState(wasm: Uint8Array): bigint {
 
     const state = simulator.contracts.get(PARITY_SLOT)!.state();
 
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
+    return {
+        resultWord: new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true),
+        stateHex: Buffer.from(state).toString("hex"),
+    };
 }
 
-export async function clangState(name: string, source: string, tempPrefix: string): Promise<bigint> {
+export async function clangState(name: string, source: string, tempPrefix: string): Promise<ProbeState> {
     const directory = mkdtempSync(join(tmpdir(), `${tempPrefix}-${name}-`));
 
     try {

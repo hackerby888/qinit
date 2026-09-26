@@ -212,7 +212,7 @@ export function resolveProjectSourceDetails(options: { filePath: string; workspa
     try {
         mainSource = readFileSync(mainPath, "utf8");
     } catch {}
-    const mainName = config.contractName ?? contractStateType(mainSource) ?? basename(mainPath).replace(/\.[^.]+$/, "");
+    const mainName = contractStateType(mainSource) ?? config.contractName ?? basename(mainPath).replace(/\.[^.]+$/, "");
     // A sibling that fails to resolve is rolled out of the plan, which afterwards is indistinguishable
     // from a header that belongs to no project at all. Collecting the reasons is what tells them apart.
     const dropped = new Map<string, string>();

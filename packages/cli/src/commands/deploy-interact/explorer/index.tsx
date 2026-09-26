@@ -1,8 +1,8 @@
 // Interactive chain explorer — a TUI port of core-lite's web explorer; this file is the navigation and key-handling shell around the views.
 import { useEffect, useRef, useState } from "react";
 import { Box, useApp, useInput } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
-import { loadConfig, savedTheme, setSavedTheme } from "../../../config";
+import { LiteRpc } from "@qinit/core";
+import { loadConfig, savedTheme, setSavedTheme, resolveRpc } from "../../../config";
 import { loadContractIdls, type ContractIdls } from "../../../contracts/idl-lookup";
 import { Header, THEME_NAMES, applyTheme, useTerminalSize } from "../../../ui";
 import { invalidArgs, output, type CommandArguments } from "../../../args";
@@ -43,7 +43,7 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
     // Before the first hook, so an unresolvable argument is refused rather than half-rendered.
     const opening = initialView(commandArgs);
 
-    const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), loadConfig());
     const { exit } = useApp();
     const rpc = useRef(new LiteRpc(rpcBaseUrl)).current;
     const { columns, rows } = useTerminalSize();

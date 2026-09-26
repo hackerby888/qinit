@@ -4,6 +4,9 @@ import { MAX_ORACLE_QUERY_SIZE } from "@qinit/proto";
 export const ORACLE_INTERFACE_INDEX = 2;
 export const QUERY_FEE = 1_000n;
 
+// the reply layout as type-format text, so a dev tool can encode a reply from what the user typed
+export const REPLY_FORMAT = "uint32, bit";
+
 const fixedQueryFields = {
     jobId: u64,
     solutionTime: array(u8, 4),

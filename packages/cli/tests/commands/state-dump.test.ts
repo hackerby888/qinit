@@ -111,3 +111,37 @@ test("an empty state is reported as an undeployed slot, not an empty dump", asyn
     await expect(dumpContractState(stateRpc(new Uint8Array(0)), 40, "40", { out: path })).rejects.toThrow("slot 40 has no state");
     expect(existsSync(path)).toBe(false);
 });
+
+// A node with the raw route never sees a hex read; one that 404s it is served by hex for the rest of the dump.
+test("a dump takes the raw route when the node has it and falls back to hex reads when it does not", async () => {
+    const state = new Uint8Array(STATE_READ_CHUNK_BYTES + 3).map((_, index) => index % 253);
+    const hexReads: number[] = [];
+    const rawReads: number[] = [];
+    const rawRpc: StateDumpRpc = {
+        ...stateRpc(state, hexReads),
+        stateBytes: async (_slot, off, len) => {
+            rawReads.push(off);
+            return { bytes: state.slice(off, off + len), stateSize: state.length };
+        },
+    };
+
+    const rawPath = join(workDir, "raw.bin");
+    expect((await dumpContractState(rawRpc, 29, "Counter", { out: rawPath })).size).toBe(state.length);
+    expect(new Uint8Array(readFileSync(rawPath))).toEqual(state);
+    expect(rawReads).toEqual([0, STATE_READ_CHUNK_BYTES]);
+    expect(hexReads).toEqual([]);
+
+    let probes = 0;
+    const oldNode: StateDumpRpc = {
+        ...stateRpc(state, hexReads),
+        stateBytes: async () => {
+            probes++;
+            return null;
+        },
+    };
+    const hexPath = join(workDir, "fallback.bin");
+    expect((await dumpContractState(oldNode, 29, "Counter", { out: hexPath })).size).toBe(state.length);
+    expect(new Uint8Array(readFileSync(hexPath))).toEqual(state);
+    expect(probes).toBe(1);
+    expect(hexReads).toEqual(Array.from({ length: 17 }, (_, index) => index * 262144));
+});

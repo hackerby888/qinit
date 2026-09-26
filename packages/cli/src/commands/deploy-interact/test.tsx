@@ -1,20 +1,21 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { resolve, join, basename } from "node:path";
+import { resolve, join } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
-import { loadConfig, resolveCompilerBackend, resolveCoreDir, resolveRuntime } from "../../config";
+import { loadConfig, projectContractName, projectContractPath, resolveCompilerBackend, resolveCoreDir, resolveRuntime, resolveRpc } from "../../config";
 import type { DeploymentEvent } from "../../ops/deploy";
 import { deployProjectContracts } from "../../ops/project-deploy";
 import { activeNodeScratchDir, ensureNodeBinary, killNode, launchNode, scratchForRpc, waitTicking } from "../../ops/node";
 import { portFromRpc } from "../../ops/serve";
-import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
+import { ensureSpecProject, installSpecTypes } from "../../ops/spec-project";
+import { DEFAULT_FUNDED_SEED, LiteRpc } from "@qinit/core";
 import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { testRuntimeSource, generateClient, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import { EngineServer } from "@qinit/engine/server";
+import { testRunLogSink } from "../../ops/test-log";
 import { VirtualNode } from "@qinit/engine";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
-import { DEFAULT_IDL_PATH, loadContractIdlFile } from "../../contracts/idl-file";
 import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
 import { output, type CommandArguments } from "../../args";
@@ -56,9 +57,18 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
     const cfg = loadConfig();
     const root = process.cwd();
-    const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
-    const contractPath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "contracts/" + (cfg.contractName ?? "") + ".h");
-    const contractName = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), cfg);
+    // resolved at render for the names below; a missing contract is reported as the first step rather than a crash.
+    let contractPath = "",
+        contractName = "",
+        contractErr = "";
+    try {
+        const requested = commandArgs.get("contract") ?? commandArgs.positionals[0];
+        contractPath = projectContractPath("test", requested, cfg);
+        contractName = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
+    } catch (e: any) {
+        contractErr = String(e?.message ?? e);
+    }
     const requestedCompiler = commandArgs.get("compiler");
     const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
     const explicitCallees = parseCallees(commandArgs.getAll("callee"));
@@ -81,9 +91,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
 
         (async () => {
             try {
-                // bun is required to run the test files. (Bun.which is cross-platform — no `sh` on Windows.)
-                if (!Bun.which("bun")) {
-                    add("bun", false, "not found — qinit test needs bun (https://bun.sh)");
+                if (contractErr) {
+                    add("contract", false, contractErr);
                     setS({ phase: "done", lines, ok: false, output: "", rows: [] });
                     return;
                 }
@@ -111,6 +120,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                         spin("starting in-process simulator");
                         // same window the node runs, so a slot a test exercises is the slot production gets.
                         engineSrv = new EngineServer(new VirtualNode(loadCoreWasmSlotLayout(core)));
+                        engineSrv.engine.onLog = testRunLogSink((line) => add("node", null, line));
                         activeRpc = (await engineSrv.start()).rpcBaseUrl;
                         // A test run reads assertions, not traces — skip the per-call state snapshot a node keeps.
                         engineSrv.engine.setDebug(false);
@@ -218,7 +228,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
                 const clientNames = [contractName, ...calleeClients.map((deployment) => deployment.name)];
                 const exportLines = clientNames.map((name) => `export { ${name} } from "./${name}";`);
-                writeFileSync(join(sdkDir, "index.ts"), `export * from "./runtime";\n${exportLines.join("\n")}\n`);
+                // BUN_BE_BUN is inherited, so a qinit the spec spawns comes up as bun; this clears it for a spawn given `env: process.env`, all a bun process can reach.
+                writeFileSync(join(sdkDir, "index.ts"), `delete process.env.BUN_BE_BUN;\nexport * from "./runtime";\n${exportLines.join("\n")}\n`);
                 const testsDir = join(root, "tests");
                 const calleeNote = calleeClients.length ? ` · ${calleeClients.map((deployment) => deployment.name).join(", ")}` : "";
                 add("sdk", true, `tests/.qinit/ (${idl.functions.length} fn / ${idl.procedures.length} proc${calleeNote})`);
@@ -229,11 +240,13 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     );
                 }
 
-                // The generated SDK bundles its own crypto, so the project needs no dependency — only ESM.
-                const pkgPath = join(root, "package.json");
-                const pkg: any = existsSync(pkgPath) ? JSON.parse(readFileSync(pkgPath, "utf8")) : { name: basename(root), private: true };
-                pkg.type ??= "module";
-                writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+                ensureSpecProject(root);
+                const types = await installSpecTypes(root);
+                if (types === "failed") {
+                    add("types", false, "@types/bun not installed — run `bun install` for editor typing");
+                } else if (types !== "skipped") {
+                    add("types", true, `@types/bun ${types}`);
+                }
 
                 const testSeed = seed || (await new LiteRpc(activeRpc).fundedSeed()) || DEFAULT_FUNDED_SEED;
                 setS({ phase: "testing", lines: [...lines] });
@@ -242,10 +255,12 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     QINIT_RPC: activeRpc,
                     QINIT_SEED: testSeed,
                     QINIT_CONTRACT: String(dep.slot),
+                    // the release binary is bun underneath, and this makes it act as one; from a checkout the executable is bun already.
+                    BUN_BE_BUN: "1",
                 };
                 // generous per-test timeout — procedures wait ~tick offset (settle), well past bun's 5s default.
                 const bunArgs = ["test", existsSync(testsDir) ? "tests" : ".", "--timeout", timeout, ...(filter ? ["-t", filter] : [])];
-                const p = Bun.spawn(["bun", ...bunArgs], {
+                const p = Bun.spawn([process.execPath, ...bunArgs], {
                     cwd: root,
                     env,
                     stdout: "pipe",
@@ -253,23 +268,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 });
                 const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
                 await p.exited;
-                let output = stripAnsi((out + err).trim());
+                const output = stripAnsi((out + err).trim());
                 const ok = p.exitCode === 0;
-                if (!ok) {
-                    // append a source-mapped backtrace of the latest node trap (node.log + the slot's line map)
-                    try {
-                        const idl = loadContractIdlFile(join(root, DEFAULT_IDL_PATH));
-                        const log = join(activeNodeScratchDir(), "node.log");
-                        if (existsSync(log)) {
-                            const bt = resolveTrapBacktrace(readFileSync(log, "utf8"), {
-                                lineMapPath: idl.contracts[String(dep.slot)]?.linesJson,
-                            });
-                            if (bt?.frames.length) output += "\n\n" + formatTrapBacktrace(bt);
-                        }
-                    } catch (error: any) {
-                        output += `\n\n${String(error?.message ?? error)}`;
-                    }
-                }
                 add("tests", ok, ok ? "all passed" : "failures (see below)");
 
                 setS({

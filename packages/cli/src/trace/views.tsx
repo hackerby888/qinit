@@ -1,6 +1,7 @@
 // Compact views over trace-format's decoded data, rendered identically by `qinit debug`, `qinit call --trace`, and `qinit state`.
 import { Box, Text } from "ink";
 import { type DebugEntry } from "@qinit/core";
+import { hostCallError } from "@qinit/proto";
 import { Status, theme, truncEnd, truncMid, termCols } from "../ui";
 import { type DecodedTrace } from "./format";
 import { type DecodedState, type StateContainer, type ValueBlocks } from "./state-read";
@@ -13,15 +14,37 @@ type TraceRow = { label: string; node: React.ReactNode } | { blocks: ValueBlocks
 
 const execµs = (ns: number) => (ns < 1_000_000 ? `${(ns / 1000) | 0}µs` : `${(ns / 1e6).toFixed(1)}ms`);
 
+// the value sits in its own box, so a wrapped line continues under the value and never under the label column.
+export function LabelRow({
+    label,
+    labelWidth,
+    wrap,
+    children,
+}: {
+    label: React.ReactNode;
+    labelWidth: number;
+    wrap?: "wrap" | "truncate-end";
+    children: React.ReactNode;
+}) {
+    return (
+        <Box>
+            <Box width={labelWidth + 1} flexShrink={0}>
+                {label}
+            </Box>
+            <Text wrap={wrap}>{children}</Text>
+        </Box>
+    );
+}
+
 // `truncate` pins every row to a single line, which is what lets a bounded caller budget rows as lines.
 function Rows({ rows, width, truncate }: { rows: { label: string; node: React.ReactNode }[]; width?: number; truncate?: boolean }) {
     const w = width ?? Math.max(1, ...rows.map((r) => r.label.length));
     return (
         <Box flexDirection="column" marginLeft={2}>
             {rows.map((r, i) => (
-                <Text key={i} wrap={truncate ? "truncate-end" : undefined}>
-                    <Text color={theme.info}>{r.label.padEnd(w)}</Text> {r.node}
-                </Text>
+                <LabelRow key={i} label={<Text color={theme.info}>{r.label}</Text>} labelWidth={w} wrap={truncate ? "truncate-end" : undefined}>
+                    {r.node}
+                </LabelRow>
             ))}
         </Box>
     );
@@ -30,12 +53,19 @@ function Rows({ rows, width, truncate }: { rows: { label: string; node: React.Re
 // The one row every block of decoded state draws: a bracket-token label, then its value.
 function StateRow({ label, text, filled, width, wrap, warn = false }: StateLine & { width: number; wrap?: "wrap" | "truncate-end"; warn?: boolean }) {
     return (
-        <Text wrap={wrap} dimColor={!filled}>
-            <Text color={filled ? theme.accent : undefined} bold={filled}>
-                {label.padEnd(width)}
-            </Text>{" "}
-            <Text color={warn ? theme.warn : undefined}>{text}</Text>
-        </Text>
+        <LabelRow
+            label={
+                <Text color={filled ? theme.accent : undefined} bold={filled} dimColor={!filled}>
+                    {label}
+                </Text>
+            }
+            labelWidth={width}
+            wrap={wrap}
+        >
+            <Text color={warn ? theme.warn : undefined} dimColor={!filled}>
+                {text}
+            </Text>
+        </LabelRow>
     );
 }
 
@@ -142,7 +172,7 @@ export function TraceView({
 
     // bounded (the `qinit debug` split pane) still clamps, because Ink cannot erase a frame taller than
     // the screen; unbounded (`qinit call --trace`) wraps, so a 60-character id does not eat the rest.
-    const decoded = (text: string) => (bounded ? <Text>{truncEnd(text, cols - 8)}</Text> : <Text wrap="wrap">{text}</Text>);
+    const decoded = (text: string) => (bounded ? <Text>{truncEnd(text, cols - 8)}</Text> : <Text>{text}</Text>);
     const callRows: { label: string; node: React.ReactNode }[] = [
         { label: "in", node: decoded(view.inDecoded) },
         { label: "out", node: decoded(view.outDecoded) },
@@ -155,7 +185,7 @@ export function TraceView({
     if (e.kind === 1)
         callRows.push({
             label: "caller",
-            node: bounded ? <Text>{truncMid(view.caller, Math.max(12, cols - 12))}</Text> : <Text wrap="wrap">{view.caller}</Text>,
+            node: bounded ? <Text>{truncMid(view.caller, Math.max(12, cols - 12))}</Text> : <Text>{view.caller}</Text>,
         });
 
     // A row is either one line the shared label column owns, or a whole decoded value: a printed struct takes Boxes, which cannot live inside a row's Text.
@@ -210,23 +240,23 @@ export function TraceView({
                 </Text>
             ),
         });
-    for (const h of e.hostCalls)
+    for (const h of e.hostCalls) {
+        // a nested call the host refused: the frame itself succeeded, so the row is where the failure shows.
+        const error = hostCallError(h.detail);
         rows.push({
             label: "host",
             node: (
                 <Text>
-                    <Text color={theme.accent}>{h.name}</Text> <Text dimColor>{h.detail}</Text>
+                    <Text color={theme.accent}>{h.name}</Text> <Text dimColor>{error ? h.detail.slice(0, -` ✗ err ${error.code}`.length) : h.detail}</Text>
+                    {error ? <Text color={theme.warn}> ⚠ {error.reason}</Text> : null}
                 </Text>
             ),
         });
+    }
     if (e.trap)
         rows.push({
             label: "trap",
-            node: (
-                <Text color={theme.err} wrap={bounded ? undefined : "wrap"}>
-                    {e.trap}
-                </Text>
-            ),
+            node: <Text color={theme.err}>{e.trap}</Text>,
         });
     // One label column across both blocks, so the state block does not sit at its own indent.
     const labelWidth = Math.max(5, ...[...callRows, ...rows].map((row) => ("label" in row ? row.label.length : 0)));
@@ -349,7 +379,7 @@ export function StateBlocks({
                 <Rows
                     rows={state.fields.map((field) => ({
                         label: field.name,
-                        node: <Text wrap="wrap">{field.value}</Text>,
+                        node: <Text>{field.value}</Text>,
                     }))}
                     width={fieldWidth}
                 />

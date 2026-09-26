@@ -194,7 +194,7 @@ export class PeerServer {
             tick,
             numberOfAlignedVotes: sim.alignedVotes(tick),
             numberOfMisalignedVotes: 0,
-            initialTick: epoch * sim.epochLength,
+            initialTick: sim.initialTick,
         });
         return codec.frame(MSG.RESPOND_CURRENT_TICK_INFO, payload, dejavu);
     }
@@ -236,7 +236,7 @@ export class PeerServer {
             version: 1,
             epoch,
             tick,
-            initialTick: epoch * sim.epochLength,
+            initialTick: sim.initialTick,
             latestCreatedTick: tick,
             numberOfEntities: sim.numberOfEntities(),
             numberOfTransactions: sim.txCount(),

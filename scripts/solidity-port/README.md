@@ -39,9 +39,11 @@ clang, and fails in both directions: a divergence that is not listed is a regres
 belongs only on a run that exercises every variant, because a smoke tier can leave a listed archetype
 agreeing on the one variant it happens to run.
 
-`both-rejected` counts as agreement rather than divergence: neither backend built the contract, so the
-two agree it is invalid. That is what a fix produces when clang refuses something the TypeScript
-backend used to compile.
+`both-rejected` fails the gate. Clang runs Qinit's own build gate before clang sees the file, so a gate
+regression that refuses valid contracts shows up on both sides at once and would otherwise read as
+agreement. A contract that is meant to be refused — what a fix produces when clang refuses something
+the TypeScript backend used to compile — sets `expectReject: true`, which scores both-rejected as a
+match.
 
 **The result depends on the core version.** clang compiles against core's real `qpi.h`, so which
 contracts diverge moves when core-lite does. CI resolves the ref in `config/repositories.json`; a local
@@ -57,11 +59,11 @@ the generated corpus:
     T_BASE=$PWD/corpus/solidity-port/triage/F203-k12-expression T_NAME=K12Struct \
     bun run scripts/solidity-port/triage-probe.ts
 
-| variable | meaning |
-| --- | --- |
+| variable | meaning                                                                                                                                                                                                                                                                           |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `T_BASE` | Absolute path to the triage directory. **Must be absolute** — the clang wrapper compiles from its own output directory, so a relative path resolves against the wrong cwd and returns `fatal error: '...' file not found`, which reads exactly like clang rejecting the contract. |
-| `T_NAME` | The contract name, i.e. the struct inheriting `ContractBase`. |
-| `T_FILE` | The header's basename when it differs from `T_NAME`. Passing the file name as the contract name makes clang report undeclared identifiers, which also reads like a rejection. |
+| `T_NAME` | The contract name, i.e. the struct inheriting `ContractBase`.                                                                                                                                                                                                                     |
+| `T_FILE` | The header's basename when it differs from `T_NAME`. Passing the file name as the contract name makes clang report undeclared identifiers, which also reads like a rejection.                                                                                                     |
 
 State prints as little-endian u64 words rather than hex, so a wrong digest is readable and a
 `StateData`'s fields line up one per column.
@@ -69,7 +71,7 @@ State prints as little-endian u64 words rather than hex, so a wrong digest is re
 ## The third oracle
 
 Two backends sharing one build gate, one `qpi.h` and one `QubicSimulator` can only ever be shown to
-agree with each other. `wamr-probe.ts` and `wamr-sweep.ts` run each backend's *artifact* on the
+agree with each other. `wamr-probe.ts` and `wamr-sweep.ts` run each backend's _artifact_ on the
 runtime core actually uses, asking a different question of each backend separately: does this artifact
 behave the same on the qinit simulator and on core's real runtime? A contract where both backends
 agree with each other and both differ from WAMR is a finding no two-backend round can produce.

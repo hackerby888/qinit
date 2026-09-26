@@ -94,21 +94,21 @@ describe.skipIf(!ENABLED)("native QPI container view oracle", () => {
                             const entries = await view.entries();
                             expect(view.capacity).toBe(16);
                             expect(entries).toEqual([
-                                { slot: 0, key: 31n, value: 22n },
-                                { slot: 1, key: 47n, value: 30n },
-                                { slot: 2, key: 111n, value: 11n },
-                                { slot: 4, key: 100n, value: 0n },
-                                { slot: 5, key: 101n, value: 1n },
-                                { slot: 6, key: 102n, value: 2n },
-                                { slot: 7, key: 103n, value: 3n },
-                                { slot: 8, key: 104n, value: 4n },
-                                { slot: 9, key: 105n, value: 5n },
-                                { slot: 10, key: 106n, value: 6n },
-                                { slot: 11, key: 107n, value: 7n },
-                                { slot: 12, key: 108n, value: 8n },
-                                { slot: 13, key: 109n, value: 9n },
-                                { slot: 14, key: 110n, value: 10n },
-                                { slot: 15, key: 63n, value: 40n },
+                                { elementIndex: 0, key: 31n, value: 22n },
+                                { elementIndex: 1, key: 47n, value: 30n },
+                                { elementIndex: 2, key: 111n, value: 11n },
+                                { elementIndex: 4, key: 100n, value: 0n },
+                                { elementIndex: 5, key: 101n, value: 1n },
+                                { elementIndex: 6, key: 102n, value: 2n },
+                                { elementIndex: 7, key: 103n, value: 3n },
+                                { elementIndex: 8, key: 104n, value: 4n },
+                                { elementIndex: 9, key: 105n, value: 5n },
+                                { elementIndex: 10, key: 106n, value: 6n },
+                                { elementIndex: 11, key: 107n, value: 7n },
+                                { elementIndex: 12, key: 108n, value: 8n },
+                                { elementIndex: 13, key: 109n, value: 9n },
+                                { elementIndex: 14, key: 110n, value: 10n },
+                                { elementIndex: 15, key: 63n, value: 40n },
                             ]);
                             expect(outputWords[1]).toBe(BigInt(entries.length));
                             break;
@@ -121,21 +121,21 @@ describe.skipIf(!ENABLED)("native QPI container view oracle", () => {
                             const entries = await view.entries();
                             expect(view.capacity).toBe(16);
                             expect(entries).toEqual([
-                                { slot: 0, key: 31n },
-                                { slot: 1, key: 47n },
-                                { slot: 2, key: 111n },
-                                { slot: 4, key: 100n },
-                                { slot: 5, key: 101n },
-                                { slot: 6, key: 102n },
-                                { slot: 7, key: 103n },
-                                { slot: 8, key: 104n },
-                                { slot: 9, key: 105n },
-                                { slot: 10, key: 106n },
-                                { slot: 11, key: 107n },
-                                { slot: 12, key: 108n },
-                                { slot: 13, key: 109n },
-                                { slot: 14, key: 110n },
-                                { slot: 15, key: 63n },
+                                { elementIndex: 0, key: 31n },
+                                { elementIndex: 1, key: 47n },
+                                { elementIndex: 2, key: 111n },
+                                { elementIndex: 4, key: 100n },
+                                { elementIndex: 5, key: 101n },
+                                { elementIndex: 6, key: 102n },
+                                { elementIndex: 7, key: 103n },
+                                { elementIndex: 8, key: 104n },
+                                { elementIndex: 9, key: 105n },
+                                { elementIndex: 10, key: 106n },
+                                { elementIndex: 11, key: 107n },
+                                { elementIndex: 12, key: 108n },
+                                { elementIndex: 13, key: 109n },
+                                { elementIndex: 14, key: 110n },
+                                { elementIndex: 15, key: 63n },
                             ]);
                             expect(outputWords[1]).toBe(BigInt(entries.length));
                             break;
@@ -149,35 +149,35 @@ describe.skipIf(!ENABLED)("native QPI container view oracle", () => {
                             expect(view.capacity).toBe(16);
                             expect(entries).toEqual([
                                 {
-                                    povSlot: 1,
+                                    povIndex: 1,
                                     elementIndex: 0,
                                     pov: pov1,
                                     priority: 5n,
                                     value: 0x9358942en,
                                 },
                                 {
-                                    povSlot: 1,
+                                    povIndex: 1,
                                     elementIndex: 1,
                                     pov: pov1,
                                     priority: 5n,
                                     value: 20n,
                                 },
                                 {
-                                    povSlot: 1,
+                                    povIndex: 1,
                                     elementIndex: 2,
                                     pov: pov1,
                                     priority: -1n,
                                     value: 30n,
                                 },
                                 {
-                                    povSlot: 2,
+                                    povIndex: 2,
                                     elementIndex: 3,
                                     pov: pov17,
                                     priority: 7n,
                                     value: 40n,
                                 },
                                 {
-                                    povSlot: 3,
+                                    povIndex: 3,
                                     elementIndex: 4,
                                     pov: pov33,
                                     priority: 9n,
@@ -196,10 +196,10 @@ describe.skipIf(!ENABLED)("native QPI container view oracle", () => {
                             const entries = await view.entries();
                             expect(view.capacity).toBe(8);
                             expect(entries).toEqual([
-                                { slot: 1, value: 20n },
-                                { slot: 3, value: 40n },
-                                { slot: 0, value: 10n },
-                                { slot: 2, value: 30n },
+                                { elementIndex: 1, value: 20n },
+                                { elementIndex: 3, value: 40n },
+                                { elementIndex: 0, value: 10n },
+                                { elementIndex: 2, value: 30n },
                             ]);
                             expect(outputWords.slice(0, 2)).toEqual([3n, 4n]);
                             expect(outputWords[1]).toBe(BigInt(entries.length));

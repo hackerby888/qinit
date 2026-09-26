@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
-import { DEFAULT_RPC_BASE, readCurrent, wasiSdkPaths } from "@qinit/core";
+import { readCurrent, wasiSdkPaths } from "@qinit/core";
 import { compilerInfo } from "@qinit/compiler/browser";
 import { output, type CommandArguments } from "../../args";
-import { loadConfig, resolveCoreDir, savedCompilerBackend, savedRuntime } from "../../config";
+import { loadConfig, resolveCoreDir, savedCompilerBackend, savedRuntime, resolveRpc } from "../../config";
 import { nodeStatus, versionDrift } from "../../ops/node";
 import { Header, KV, Panel, Spinner, theme } from "../../ui";
 import { VERSION } from "../../version";
@@ -22,7 +22,7 @@ const short = (value: string | undefined, length = 12): string => (value ? (valu
 
 async function collectSetup(rpcOverride?: string): Promise<Setup> {
     const config = loadConfig();
-    const rpc = rpcOverride || config.rpc || DEFAULT_RPC_BASE;
+    const rpc = resolveRpc(rpcOverride, config);
     const current = readCurrent();
 
     let checkout = "";

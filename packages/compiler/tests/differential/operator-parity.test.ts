@@ -1,5 +1,5 @@
 // The operator edge suite asserts what each declared body should compute; this builds the same source with Clang, so an expectation cannot be wrong in both.
-import { beforeAll, describe, expect } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 import { DiagnosticSeverity } from "../../src/shared/enums";
@@ -139,6 +139,127 @@ const CASES: ParityCase[] = [
         ),
         expected: 1n,
     },
+    // an `auto` local has its initializer's C++ type, so it wraps at that width; every row would differ under a 64-bit local.
+    {
+        name: "AutoFromNarrowMember",
+        source: wrap(
+            "",
+            "uint8 narrow;",
+            `locals.narrow = 200;
+       auto copy = locals.narrow;
+       copy += 100;
+       state.mut().result = copy;`,
+        ),
+        expected: 44n,
+    },
+    {
+        name: "AutoFromSignedNarrowMember",
+        source: wrap(
+            "",
+            "sint8 narrow;",
+            `locals.narrow = 100;
+       auto copy = locals.narrow;
+       copy += 100;
+       state.mut().result = (uint64)(sint64)copy;`,
+        ),
+        expected: 0xffffffffffffffc8n,
+    },
+    {
+        name: "AutoFromUnsignedMember",
+        source: wrap(
+            "",
+            "uint32 counter;",
+            `locals.counter = 4294967295u;
+       auto next = locals.counter;
+       next += 1;
+       state.mut().result = next;`,
+        ),
+        expected: 0n,
+    },
+    {
+        name: "AutoFromArithmetic",
+        source: wrap(
+            "",
+            "uint32 counter;",
+            `locals.counter = 4294967295u;
+       auto next = locals.counter + 0u;
+       next += 1;
+       state.mut().result = next;`,
+        ),
+        expected: 0n,
+    },
+    {
+        name: "AutoFromLiteral",
+        source: wrap(
+            "",
+            "uint64 unused;",
+            `auto value = 4294967295u;
+       value += 2;
+       state.mut().result = value;`,
+        ),
+        expected: 1n,
+    },
+    {
+        name: "AutoFromPromotedSum",
+        source: wrap(
+            "",
+            "uint8 left; uint8 right;",
+            `locals.left = 200;
+       locals.right = 100;
+       auto sum = locals.left + locals.right;
+       state.mut().result = sum;`,
+        ),
+        // two uint8 operands promote to int, so the sum does not wrap at 256.
+        expected: 300n,
+    },
+    {
+        name: "AutoFromComparison",
+        source: wrap(
+            "",
+            "uint64 limit;",
+            `locals.limit = 9;
+       auto over = locals.limit > 5;
+       over += 1;
+       state.mut().result = over;`,
+        ),
+        expected: 1n,
+    },
+    {
+        name: "AutoFromTernary",
+        source: wrap(
+            "",
+            "uint8 left; uint8 right;",
+            `locals.left = 250;
+       locals.right = 1;
+       auto picked = locals.right ? locals.left : locals.right;
+       picked += 10;
+       state.mut().result = picked;`,
+        ),
+        expected: 4n,
+    },
+    {
+        name: "AutoFromContextCall",
+        source: wrap(
+            "",
+            "uint64 unused;",
+            `auto tick = qpi.tick();
+       tick -= tick + 1;
+       state.mut().result = tick;`,
+        ),
+        expected: 4294967295n,
+    },
+    {
+        name: "AutoFromWideMember",
+        source: wrap(
+            "",
+            "uint64 wide;",
+            `locals.wide = 1099511627776;
+       auto copy = locals.wide;
+       copy += 1;
+       state.mut().result = copy;`,
+        ),
+        expected: 1099511627777n,
+    },
 ];
 
 const wasi = wasiToolchain();
@@ -164,10 +285,27 @@ describe.skipIf(!HAS_CORE)("operator lowering matches Clang on the same source",
                 const theirs = await clangState(parityCase.name, parityCase.source, "operator-parity");
 
                 // Parity is the claim; the pinned value says which answer both are expected to reach.
-                expect(ours).toBe(theirs);
-                expect(ours).toBe(parityCase.expected);
+                expect(ours.stateHex).toBe(theirs.stateHex);
+                expect(ours.resultWord).toBe(parityCase.expected);
             },
             180000,
         );
     }
+});
+
+// an initializer whose type cannot be named would leave a 64-bit local that never wraps, so a strict build refuses it.
+describe.skipIf(!HAS_CORE)("an auto local with no deducible type", () => {
+    test("is refused by name", async () => {
+        const compiled = await compileContractWithTypeScript({
+            source: wrap("", "uint64 unused;", "auto nothing = nullptr; state.mut().result = 0;"),
+            contractName: "AutoUndeducible",
+            slot: PARITY_SLOT,
+            qpiHeader: loadQpiHeader(CORE_PATH),
+            arenaSizeBytes: PARITY_ARENA_BYTES,
+        });
+        const errors = compiled.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR).map((diagnostic) => diagnostic.message);
+
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain("type deduction for auto local 'nothing'");
+    });
 });

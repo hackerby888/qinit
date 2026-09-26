@@ -285,7 +285,7 @@ export function TextPrompt({
                 <Text color={theme.mute} dimColor>
                     {" "}
                     {label}
-                    {completionSuffix ? `    ⇥ tab → ${completion}` : value === "" && placeholder ? "    → fill template · ↵ submit" : "    ↵ submit"} esc back
+                    {completionSuffix ? `    ⇥ tab → ${completion}` : value === "" && placeholder ? "    → take sample · ↵ submit" : "    ↵ submit"} esc back
                 </Text>
             ) : (
                 <Text color={theme.mute} dimColor>

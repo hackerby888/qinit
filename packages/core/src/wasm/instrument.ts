@@ -19,7 +19,6 @@ import {
 import {
     ByteReader,
     ByteWriter,
-    WASM_MAGIC,
     WasmBinaryError,
     WasmSectionId,
     decodeVector,
@@ -82,20 +81,6 @@ export interface InstrumentResult {
     readonly stateSize: number;
     readonly storesInstrumented: number;
     readonly bulkInstrumented: number;
-    /** Piecewise pristine -> instrumented offset map, ascending by `from`: an offset at or after `from` moves by `shift`, so a pristine line map resolves. */
-    readonly offsetMap: readonly { from: number; shift: number }[];
-}
-
-/** Applies an `offsetMap` to a pristine-module code offset. */
-export function remapCodeOffset(offsetMap: readonly { from: number; shift: number }[], offset: number): number {
-    let shift = 0;
-    for (const entry of offsetMap) {
-        if (entry.from > offset) {
-            break;
-        }
-        shift = entry.shift;
-    }
-    return offset + shift;
 }
 
 export class InstrumentError extends Error {
@@ -338,11 +323,6 @@ interface BodyRewrite {
     readonly bytes: Uint8Array;
     readonly stores: number;
     readonly bulk: number;
-    /** Positions just after each rewritten site, in old and new body-content coordinates. */
-    readonly sites: { oldContentOffset: number; newContentOffset: number }[];
-    /** Where the body's content (locals vector onward) starts, past the size LEB. */
-    readonly oldContentStart: number;
-    readonly newContentStart: number;
 }
 
 /** Copies a function body verbatim except at write instructions, which are replaced by a call to the matching helper. */
@@ -359,7 +339,6 @@ function rewriteBody(body: Uint8Array, helperOf: (opcode: number, bulkOperation?
     }
     output.bytes(body.subarray(localsStart, reader.position));
 
-    const sites: { oldContentOffset: number; newContentOffset: number }[] = [];
     let stores = 0;
     let bulk = 0;
 
@@ -372,7 +351,6 @@ function rewriteBody(body: Uint8Array, helperOf: (opcode: number, bulkOperation?
             reader.u32("store alignment");
             const offset = reader.u32("store offset");
             output.byte(Op.I32_CONST).i32(offset).byte(Op.CALL).u32(helperOf(opcode));
-            sites.push({ oldContentOffset: reader.position - localsStart, newContentOffset: output.length });
             stores++;
             continue;
         }
@@ -385,7 +363,6 @@ function rewriteBody(body: Uint8Array, helperOf: (opcode: number, bulkOperation?
                     reader.u32("source memory index");
                 }
                 output.byte(Op.CALL).u32(helperOf(opcode, operation));
-                sites.push({ oldContentOffset: reader.position - localsStart, newContentOffset: output.length });
                 bulk++;
                 continue;
             }
@@ -407,9 +384,6 @@ function rewriteBody(body: Uint8Array, helperOf: (opcode: number, bulkOperation?
         bytes: sizePrefix.bytes(encoded).toBytes(),
         stores,
         bulk,
-        sites,
-        oldContentStart: localsStart,
-        newContentStart: new ByteWriter().u32(encoded.length).length,
     };
 }
 
@@ -660,64 +634,8 @@ export function instrumentStateJournal(wasm: Uint8Array, options: InstrumentOpti
         stateSize,
         storesInstrumented,
         bulkInstrumented,
-        offsetMap: buildOffsetMap(wasm, view, sections, rewrites, rewrittenBodies, rewrittenBodies.length + helperBodies.length),
     };
 }
-
-/** Byte length of a section once its header is included. */
-function sectionLength(section: WasmSection): number {
-    return 1 + new ByteWriter().u32(section.payload.length).length + section.payload.length;
-}
-
-/** Where every pristine code offset lands: bodies move because the sections ahead grew, and again because each rewritten site inside them is longer. */
-function buildOffsetMap(
-    wasm: Uint8Array,
-    view: ModuleView,
-    sections: readonly WasmSection[],
-    rewrites: readonly BodyRewrite[],
-    finalBodies: readonly Uint8Array[],
-    totalBodies: number,
-): { from: number; shift: number }[] {
-    const newCodeSection = sectionOf(sections, WasmSectionId.CODE);
-    if (!newCodeSection || view.bodies.length === 0) {
-        return [];
-    }
-
-    let newBodyStart = WASM_MAGIC.length;
-    for (const section of sections) {
-        if (section.id === WasmSectionId.CODE) {
-            break;
-        }
-        newBodyStart += sectionLength(section);
-    }
-    newBodyStart += 1 + new ByteWriter().u32(newCodeSection.payload.length).length + new ByteWriter().u32(totalBodies).length;
-
-    const offsetMap: { from: number; shift: number }[] = [];
-
-    for (let index = 0; index < view.bodies.length; index++) {
-        const rewrite = rewrites[index]!;
-        const oldBody = view.bodies[index]!;
-        const finalBody = finalBodies[index]!;
-        // Read from the body that is actually emitted: the io_size accessor is re-encoded after the rewrite pass, and its size prefix can change width.
-        const sizeReader = new ByteReader(finalBody);
-        sizeReader.u32("final body size");
-        const newContentStart = sizeReader.position;
-
-        const oldContentAt = oldBody.byteOffset - wasm.byteOffset + rewrite.oldContentStart;
-        const baseShift = newBodyStart + newContentStart - oldContentAt;
-
-        offsetMap.push({ from: oldContentAt, shift: baseShift });
-        for (const site of rewrite.sites) {
-            offsetMap.push({ from: oldContentAt + site.oldContentOffset, shift: baseShift + site.newContentOffset - site.oldContentOffset });
-        }
-
-        newBodyStart += finalBody.byteLength;
-    }
-
-    return offsetMap;
-}
-
-
 interface HelperContext {
     readonly accessorIndex: Map<AccessorName, number>;
     readonly layout: HelperLayout;

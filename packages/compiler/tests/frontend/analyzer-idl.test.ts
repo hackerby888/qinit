@@ -701,7 +701,8 @@ struct InvalidExpressionLayout : public ContractBase {
         contractName: "InvalidExpressionLayout",
     });
 
-    expect(result.diagnostics.some((diagnostic) => diagnostic.message.includes("Array length"))).toBe(true);
+    // the layout refuses the dimension before the ABI builder's own check can, and names the constant that does not resolve.
+    expect(result.diagnostics.some((diagnostic) => diagnostic.message.includes("UNKNOWN_CAPACITY"))).toBe(true);
     expect(result.idl).toBeUndefined();
 });
 

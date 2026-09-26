@@ -108,7 +108,7 @@ test("a generated LinkedList reads back in list order, not slot order", async ()
         const written = await writeLinkedList(type, order);
         const read = await new QpiLinkedListView(type, source(written.bytes)).entries();
         expect({ seed, capacity, order, entries: read }).toEqual({ seed, capacity, order, entries: written.entries });
-        expect(read.map((entry) => entry.slot)).toEqual(order);
+        expect(read.map((entry) => entry.elementIndex)).toEqual(order);
     }
     // The property is worthless if every generated chain happened to run in slot order.
     expect(sawOutOfOrder).toBe(true);
@@ -195,7 +195,7 @@ test("a LinkedList with a broken previous link is rejected", async () => {
     const written = await writeLinkedList(type, order);
     const geometry = linkedListGeometry(type.value, type.capacity);
 
-    setSint64(written.bytes, order[2] * geometry.nodeStride + geometry.prevOffset, order[0]);
+    setSint64(written.bytes, order[2] * geometry.nodeStride + geometry.prevIndexOffset, order[0]);
     await expect(new QpiLinkedListView(type, source(written.bytes)).entries()).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 
@@ -204,7 +204,7 @@ test("a LinkedList whose tail is not the end of its chain is rejected", async ()
     const written = await writeLinkedList(type, [5, 1, 6]);
     const geometry = linkedListGeometry(type.value, type.capacity);
 
-    setSint64(written.bytes, geometry.tailOffset, 1);
+    setSint64(written.bytes, geometry.tailIndexOffset, 1);
     await expect(new QpiLinkedListView(type, source(written.bytes)).entries()).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 
@@ -213,7 +213,7 @@ test("a Collection element pointing at the wrong parent is rejected", async () =
     const written = await writeCollection(type, [{ slot: 2, count: 5 }]);
     const geometry = collectionGeometry(type.value, type.capacity);
 
-    setSint64(written.bytes, geometry.elementsOffset + 0 * geometry.elementStride + geometry.elementBstParentOffset, 3);
+    setSint64(written.bytes, geometry.elementsOffset + 0 * geometry.elementStride + geometry.elementBstParentIndexOffset, 3);
     await expect(new QpiCollectionView(type, source(written.bytes)).entries()).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 

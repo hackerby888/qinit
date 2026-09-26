@@ -134,6 +134,26 @@ test("deep nested: array of structs with an inner array", async () => {
     ]);
 });
 
+// QX, QUTIL and the rest take an asset name as a packed uint64; the campaign had to hand-pack 323453475149 for MYTOK.
+test("an asset name spells the packed uint64 with an explicit marker in both dialects", async () => {
+    const packed = new Uint8Array([0x4d, 0x59, 0x54, 0x4f, 0x4b, 0, 0, 0]);
+    expect(await encodeInputFormat("MYTOKasset")).toEqual(packed);
+    expect(await encodeInputFormat("{ 1uint8, MYTOKasset }")).toEqual(new Uint8Array([1, 0, 0, 0, 0, 0, 0, 0, ...packed]));
+    expect(await encodeInputFormatAs(u64, "MYTOKasset")).toEqual(packed);
+    expect(await encodeInputJson([{ name: "assetName", type: "uint64" }], { assetName: "asset:MYTOK" })).toEqual(packed);
+    expect(await encodeInputJson(st(u64), { f0: "asset:MYTOK" })).toEqual(packed);
+
+    // a bare string is never read as a name: "FF" is not a number and not an asset either.
+    await expect(encodeInputJson([{ name: "assetName", type: "uint64" }], { assetName: "MYTOK" })).rejects.toThrow(
+        "uint64 needs an integer, got 'MYTOK' (an asset name is written asset:MYTOK)",
+    );
+    await expect(encodeInputJson(st(u64), { f0: "MYTOK" })).rejects.toThrow("(an asset name is written asset:MYTOK)");
+    await expect(encodeInputFormat("mytokasset")).rejects.toThrow("asset name must be 1–7 chars A-Z0-9 starting with a letter, got 'mytok'");
+    await expect(encodeInputJson([{ name: "assetName", type: "uint64" }], { assetName: "asset:TOOLONGNAME" })).rejects.toThrow("got 'TOOLONGNAME'");
+    await expect(encodeInputFormatAs(u32, "MYTOKasset")).rejects.toThrow("input is uint32, got 'MYTOKasset'");
+    await expect(encodeInputJson([{ name: "n", type: "uint32" }], { n: "asset:MYTOK" })).rejects.toThrow("uint32 needs an integer, got 'asset:MYTOK'");
+});
+
 test("rejects a malformed id (not 60-char identity nor 64-hex)", async () => {
     await expect(encodeInputFormat("abcid")).rejects.toThrow(/id must be/);
     await expect(encodeInputFormat("1id")).rejects.toThrow(/id must be/);

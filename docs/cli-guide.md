@@ -280,7 +280,8 @@ interface CommandArguments {
 
 `CommandArguments` is accessor-only: there is no `flags` or `multi` object to
 read directly, and `get()` has no default-value parameter — commands write
-`commandArgs.get("rpc") || DEFAULT_RPC_BASE`.
+`resolveRpc(commandArgs.get("rpc"), loadConfig())` (`config.ts`), never their own
+`--rpc || default` chain: a test pins that no file under `commands/` does.
 
 Subcommand detection is `findSubcommandCandidate()`: for a command whose `META`
 entry has `subcommands`, it runs a non-strict tokenizing pass over the union of
@@ -359,7 +360,10 @@ and [`packages/core/src/project.ts`](../packages/core/src/project.ts).
 ### 4.1 Project configuration
 
 `loadConfig()` reads exactly `./qinit.json`; it does not search parent
-directories. Its current shape is:
+directories. Every node-facing command, `node run` and `node stop` included, resolves
+the node it talks to as `--rpc`, then `qinit.json` `rpc`, then the default (`resolveRpc`).
+A local node has to bind a loopback address, so `node run`/`node stop` refuse a
+project whose `rpc` names a remote host and ask for `--rpc`. Its current shape is:
 
 ```ts
 interface QinitConfig {
@@ -379,8 +383,9 @@ validated. Typical command precedence is:
 CLI option -> positional where supported -> qinit.json -> built-in default
 ```
 
-Exact details remain command-owned. For example, build's contract default is
-`fixtures/Counter.h`, while deploy requires a path from CLI or config.
+Every contract command resolves its file through `projectContractPath()`: the
+argument, then `qinit.json` `contract`, else an error saying whether there is no
+project or the project names no file. A contract name never implies its file.
 
 Core headers resolve through `resolveCoreDir()` in this order:
 
@@ -449,8 +454,9 @@ Typical contents are:
   run/
 ```
 
-`qinit clean` removes this cache. It does not remove the user configuration
-directory or saved seed.
+`qinit clean --yes` removes this cache (plain `qinit clean` only previews it, and a
+root that holds none of these entries is refused). It does not remove the user
+configuration directory or saved seed.
 
 ## 5. Ink, plain output, JSON, and exit status
 
@@ -463,7 +469,7 @@ owns the shared decoded trace and state views.
 
 `ui/` stays generic. A widget that needs contract or IDL types belongs to the
 command instead — which is why the generic `Select` and `TextPrompt` live in
-`ui/prompt.tsx` while `SchemaBox`, `completerFor`, and `tmplOf` stay in
+`ui/prompt.tsx` while `SchemaBox`, `completerFor`, and `zeroSample` stay in
 `call-interactive.tsx`.
 
 `initOutput()` mutates one shared object before rendering:
@@ -576,9 +582,7 @@ Successful deployment writes [`qinit.idl.json`](../packages/cli/src/contracts/id
 in the current project. Each slot entry may contain:
 
 - the contract IDL;
-- deployed code hash;
-- debug Wasm path;
-- source line-map path.
+- deployed code hash.
 
 Call and debug lookup reject a local artifact when both the local and deployed
 code hashes exist and differ. This prevents an upgraded slot from being decoded
@@ -621,8 +625,11 @@ It writes:
 ```text
 <project>/
   contracts/<Name>.h
+  tests/<Name>.test.ts        bun:test spec against the generated client
   tests/<Name>.test.cpp       when IDL/gtest generation succeeds
   qinit.json
+  package.json                ESM + devDependency @types/bun
+  tsconfig.json
   .gitignore
   README.md
 ```
@@ -630,6 +637,15 @@ It writes:
 The inter-contract template also writes `contracts/Counter.h`. The shared
 dependency resolver discovers it from the caller source. Nested scaffolding is
 refused when `qinit.json` already exists in the working directory.
+
+`package.json` and `tsconfig.json` exist for the editor, not for bun: bun resolves
+`bun:test` itself, but a TypeScript language server needs `@types/bun` under the
+project's own `node_modules`, and a `tsconfig.json` so it roots the project there
+rather than at the editor's workspace folder. [`ensureSpecProject()`](../packages/cli/src/ops/spec-project.ts)
+writes both (never overwriting a developer's own tsconfig or pinned version), and
+`installSpecTypes()` runs `bun install` once when `node_modules/@types/bun` is
+missing — best effort, skipped under `QINIT_NO_UPDATE` or without bun on PATH.
+`qinit test` does the same, so an older project catches up on its next run.
 
 Gtest generation is best-effort: project creation continues if IDL extraction
 fails.
@@ -652,7 +668,7 @@ qinit integrate [<contract.h>]
 ```
 
 Contract selection is `--contract`, then the positional, then `qinit.json`.
-Name selection is `--contract-name`, then `qinit.json`, then the header basename.
+The name is the struct the header declares (`struct Name : public ContractBase`); `--contract-name` and `qinit.json contractName` are checked against it and refused when they differ.
 Output defaults to `../<ContractName>-core`. A new output is a full,
 single-branch clone of the latest `qubic/core` `main`, followed by a
 `qinit/<lowercase-name>` integration branch. In a TTY, initial integration
@@ -680,6 +696,13 @@ in the target Core checkout at a lower index. A same-name local header alone is
 not enough. A referenced callee in the GTest should also have
 `INIT_CONTRACT(Callee)`.
 
+Before any clone, the contract step refuses cheatcodes and build-rule
+violations, then runs contractverify, the checker upstream Core's CI runs on
+every contract. A missing verifier refuses the integration; `qinit setup`
+fetches it. Three findings warn without stopping: a build-gate warning, a
+missing GTest, and a Core header that declares `<Name>` or `<Name>2` outside
+any struct, which the MSVC build may reject.
+
 Qinit updates only the files Core currently needs:
 
 - `src/contracts/<Name>.h`;
@@ -688,8 +711,8 @@ Qinit updates only the files Core currently needs:
 - `test/contract_<name>.cpp`, `test/test.vcxproj`, and
   `test/test.vcxproj.filters` when `tests/<Name>.test.cpp` exists locally.
 
-The GTest is optional. A missing local test does not fail initial integration
-and does not delete an already-wired Core test during an update. The command
+The GTest is optional. A missing local test warns instead of failing initial
+integration, and does not delete an already-wired Core test during an update. The command
 does not edit `Qubic.sln` or any CMake file, and preserves the BOM and CRLF
 format used by Core's Visual Studio project files.
 
@@ -722,8 +745,8 @@ It resolves:
 
 | Value    | Resolution                                                            |
 | -------- | --------------------------------------------------------------------- |
-| Contract | `--contract` -> first positional -> config -> `fixtures/Counter.h`    |
-| Name     | `--contract-name` -> config -> filename without extension             |
+| Contract | `--contract` -> first positional -> config -> error                  |
+| Name     | the declared struct; `--contract-name`/config must match it           |
 | Output   | `--out` -> `dist/contracts`                                           |
 | Slot     | `--slot` -> config -> live registry plan -> offline hypothetical plan |
 | Core     | normal `resolveCoreDir()` chain                                       |
@@ -782,14 +805,29 @@ The shared implementation is
 [`packages/build/src/compile/typescript.ts`](../packages/build/src/compile/typescript.ts); the
 CLI compatibility export remains in `ops/typescript-build.ts`.
 
+#### Build profile
+
+Both paths compile under the profile the shipped node is built with — `TESTNET`,
+`TESTNET_LITE_RAM`, `LITE_WASM_SC` (`CORE_BUILD_PROFILE` in
+[`packages/core/src/wasm/slot-layout-source.ts`](../packages/core/src/wasm/slot-layout-source.ts)).
+Core seats the same 676 computors in every build since it dropped its 8-seat lite committee,
+so `NUMBER_OF_COMPUTORS` and `QUORUM` no longer differ between profiles; the profile still
+decides the `TESTNET_LITE_RAM` constants, and a state field sized by either
+(every `ProposalVoting<…ByComputors<NUMBER_OF_COMPUTORS>>` in the system contracts) has the
+layout the node reports. The system-contract wasm cache carries the profile in its path
+(`system-wasm/testnet-lite/<compiler>`), so a CLI built before the profile applied never
+seeds stale layouts. A contract deployed by an older CLI keeps its old layout until it is
+redeployed; `qinit system add` redeploys a system contract whose code hash changed.
+The one exception is a system contract's own corpus (`qinit gtest --system`, `test:sc:light`):
+core compiles its contract gtests with its default constants, so the runner and the contracts
+under test drop the profile again (`profile: "core-gtest"`, `loadQpiHeader(core, "core-gtest")`).
+
 Successful build artifacts normally include:
 
 ```text
 dist/contracts/<Name>.wasm
 dist/contracts/<Name>.idl.json
 dist/contracts/<Name>.wasm.wrapper.cpp     clang path
-dist/contracts/<Name>.debug.wasm           when debug tools succeed
-dist/contracts/<Name>.lines.json            when line-map generation succeeds
 ```
 
 The built Wasm's K12 digest is shown and included in build JSON.
@@ -900,6 +938,7 @@ preflight active upload
   +-- simulator direct route
   |     -> POST /live/v1/dev/deploy
   |     -> store source metadata
+  |     -> wait one tick for the slot to report constructed
   |     -> save local IDL
   |     -> ready
   |
@@ -912,6 +951,7 @@ preflight active upload
         -> query dyn-upload and resend missing chunks
         -> sign and send DEPLOY
         -> poll dyn-registry for expected slot and code hash
+        -> read dyn-upload's lastDeploy each round; a final refusal ends the deploy with the node's reason
         -> verify armed/constructed/registration state
         -> store source metadata
         -> save local IDL
@@ -941,7 +981,41 @@ chunked protocol encoded by [`packages/proto/src/deploy.ts`](../packages/proto/s
 The protocol path does not equate a successful HTTP broadcast with inclusion.
 It verifies upload ownership, assembly, registry presence, and the code hash.
 
-### 8.3 Metadata after success
+### 8.3 Starting from a state file
+
+`qinit deploy x.h --state <path>` starts the main contract from raw state bytes
+instead of zero state plus `INITIALIZE`; `--state Name=<path>` (repeatable) does
+the same for any contract of the deployment, a system dependency included, and
+`qinit system add QX --state QX=<path>` for a system contract alone. The file
+has no header: a `qinit state --dump` image and a core node's
+`contract????.???` file are both accepted as they are.
+
+| File size                       | Result                                          |
+| ------------------------------- | ----------------------------------------------- |
+| the new `StateData` size        | bytes become the state, `INITIALIZE` is skipped |
+| the MIGRATE `OldStateData` size | `MIGRATE` runs on the file                      |
+| anything else                   | rejected, the resident contract is untouched    |
+
+The mechanism is the same on both runtimes, so there is no state-specific code
+in either deployment branch:
+
+```text
+parseInitialStates()                     contracts/state-stage.ts
+  -> size check against the fresh IDL    ops/deploy/state-layout.ts
+  -> stageContractState()                POST /live/v1/dev/state-stage, 512 KiB chunks
+  -> the ordinary deploy (direct route or protocol)
+       node: the deploy of that slot takes the staged bytes
+  -> any failure after staging clears the entry (total=0)
+```
+
+Staged bytes are inert until a deploy of the slot takes them, and that deploy
+always consumes the entry, used or not. A core node embeds its system
+contracts, so a state staged for one of those slots has no deploy to ride on
+and is applied by the node at its next tick. A contract named by `--state` is
+never skipped as unchanged, and the state-carryover guard does not apply to it:
+the old bytes are replaced, not reinterpreted.
+
+### 8.4 Metadata after success
 
 Source upload and local IDL persistence are best-effort metadata operations. A
 failure there must not change a deployment that the node already accepted.
@@ -977,8 +1051,27 @@ One-shot mode:
 5. Resolves the entry by numeric input type or case-insensitive name.
 
 `--args <json>` uses the IDL's structured ABI type. `--in` uses Qinit's raw
-format language. A numeric entry can be called without IDL if raw formats are
-provided; a named entry cannot.
+value language: one value per field, comma-separated, each spelled as its
+number plus its type. A numeric entry can be called without IDL if raw values
+are provided; a named entry cannot.
+
+| kind   | spelling                                    | example                                                    |
+| ------ | ------------------------------------------- | ---------------------------------------------------------- |
+| scalar | number then type                            | `5uint64`, `-7sint32`, `1bit`, `0uint128`                  |
+| asset  | the name then `asset` (a packed `uint64`)   | `MYTOKasset`; in `--args`, `"asset:MYTOK"`                 |
+| id     | `0`, 60 A-Z chars, or 64 hex, then `id`     | `0id`; `--args` takes `0` or `"0"` too                     |
+| m256i  | `0` or 64 hex, then `m256i`                 | `0m256i`                                                   |
+| struct | `{ … }`                                     | `{ 5uint64, 1bit }`                                        |
+| array  | `[N; …]`, `×N` repeats one value            | `[4; 1uint64, 2uint64, 3uint64, 4uint64]`, `[4; 0uint64 ×4]` |
+
+An empty `--in` is an empty input. The interactive prompt fills in the all-zero
+sample (`zeroInputFormat()`), and a failed parse prints the same sample. A value
+that starts with `-` must be passed as `--in=-5sint64`, since the option parser
+reads the bare form as a flag. `--args` needs every field, and names all the
+missing ones at once (`missing 48 input fields: dst2, …`); a bare string where a
+`uint64` is wanted is refused with the `asset:` hint rather than read as a name.
+A 60-letter identity whose last four letters do not match its key is reported as
+a checksum mismatch, not as the wrong length.
 
 For `BitArray<N>`, typed `--args` and generated clients use an exact-length JSON
 array of `0` and `1` values in logical bit order. Raw `--in` remains the physical
@@ -1035,12 +1128,19 @@ setDebug(true)
 Entry sequences are 1-based on both runtimes and `since` is exclusive, so the poll
 starts at `0` and still sees the first entry of a freshly enabled ring.
 
+A frame records the sequences of the frames it called directly (`children`, on
+both runtimes), and every frame under the dispatch renders beneath it, indented by
+its depth (`depth` in the JSON `callees`). A node too old to record `children`
+leaves the completion window — same tick, completed before the dispatch — minus
+system procedures, and a shared node can still leak an unrelated frame into that.
+A nested call the host refused (`✗ err N` on the host row) shows core's reason
+beside it (`contract inactive — not deployed, or its slot is not below the
+caller's`) and as `error` on the JSON `calls` row; the frame itself stays `ok`
+because the callee never ran. When a callee's frame fell out of the 200-entry
+poll window, a note says how many are missing.
+
 `--trace-full` implies `--trace` and prints the state block with its container
 internals, the same view `ctrl+t` toggles in `qinit debug` (section 11).
-
-Trap enrichment reads the active Qinit node's `node.log` and the matching local
-line-map artifact. This only works when Qinit knows the launched node's scratch
-directory and still has compatible debug artifacts.
 
 ### 9.5 Interactive flow
 
@@ -1235,7 +1335,7 @@ It returns a semantic entry rather than exposing the storage offsets:
 
 ```ts
 {
-  slot: 0,
+  elementIndex: 0,
   key: /* decoded id */,
   value: 42n,
 }
@@ -1342,9 +1442,11 @@ qinit state 29 --dump --out before.bin  # anything else is the file path
 ```
 
 [`dumpContractState()`](../packages/cli/src/contracts/state-dump.ts) pages
-`GET /live/v1/dev/state-read` 4 MiB at a time and streams each chunk to the file, so
-a multi-megabyte state never has to fit in memory. It prints the absolute path and the
-byte count, which equals the `stateSize` that `--digest` reports. The file is the raw
+`GET /live/v1/dev/state-bytes` 4 MiB at a time and streams each raw chunk to the file, so
+a multi-megabyte state never has to fit in memory (a 593 MB QX dump takes about 6 s from a
+core node, 1 s from the simulator). A node without that route answers 404 and the dump
+falls back to the hex `state-read` route, which is about ten times slower. It prints the
+absolute path and the byte count, which equals the `stateSize` that `--digest` reports. The file is the raw
 state image with no header, and a failed read deletes the partial file rather than
 leaving a truncated one.
 
@@ -1406,13 +1508,19 @@ opens partway into a run of flags too long to fit one window.
 
 A `HashMap` or `HashSet` record goes one step further: its rows collapse onto a single
 line named by the key the contract wrote, rather than by the bucket the entry hashed
-into — a placement detail no contract author picks. So `map.slot[31].key  0 → 45` and
-`map.slot[31].value  0 → 46` read as one `map[45]  = 46 (new)`. The key is read from
+into — a placement detail no contract author picks. So `map._elements[31].key  0 → 45` and
+`map._elements[31].value  0 → 46` read as one `map[45]  = 46 (new)`. The key is read from
 the changed window rather than from the rows, because an update leaves the key bytes
 alone and they never produce a row of their own. The occupation flag is what separates
 `(new)`, `(removed)` and a plain update, so a window carrying neither the flag nor the
 key leaves the row on its resolved path instead of guessing. `Collection` and
 `LinkedList` are addressed by index and already read short, so they keep their rows.
+A container held as a keyed container's value is named by every key on the way down:
+an entry of `HashMap<id, HashSet<id, 4>, 2> mapsets` reads `mapsets[PKTG…][IOQK…]  (new)`,
+and the inner set's own counter reads through the outer key, `mapsets[PKTG…]  0 → 1 entries`,
+keeping the `entries` suffix so it is never mistaken for the entry's value. A set held by a
+struct value keeps the member between the keys, `p[3].s[8]`. Any level whose key cannot
+be read leaves the whole row on its physical path.
 
 Resolving that deep also finds bookkeeping a contract author never wrote — free-list
 heads, BST links, per-PoV counters — so each row is classified and the default view
@@ -1425,7 +1533,7 @@ keeps only two of the three classes:
 | internal | occupation flags, `_headIndex`/`_tailIndex`/`_freeHeadIndex`/`_nextUnusedIndex`, `bst*Index`, `povIndex`, per-PoV counters, `_markRemovalCounter`, node `nextIndex`/`prevIndex`, a collapsed entry's own `slot[i].key` | hidden  |
 
 Each row therefore carries two labels: the shown one drops the internal path segments
-(`trail._nodes[1].value` reads as `trail[1]`, `map.slot[31].value` as `map[45]`), and
+(`trail._nodes[1].value` reads as `trail[1]`, `map._elements[31].value` as `map[45]`), and
 the full path returns with the internal rows under `ctrl+t` in `qinit debug` or
 `--trace-full` on `qinit call`.
 Hidden rows are always counted in a tail line, so a call that touched only bookkeeping
@@ -1458,9 +1566,7 @@ state. `stateTruncated` therefore means bytes were genuinely dropped.
 The captured `stateDiff` belongs to that invocation. Trace rendering never reads
 live contract state; use `qinit state` to inspect current container contents.
 
-Host calls and trap text already arrive in each `DebugEntry`. For a failed call,
-the detail view also attempts a source-mapped backtrace from `node.log` and the
-local line map.
+Host calls and trap text already arrive in each `DebugEntry`, the same on both runtimes.
 
 A node records by default — core-lite's ring starts armed and `EngineServer.start()`
 enables the simulator's, so a `debug` session opened after the fact still finds the
@@ -1654,7 +1760,8 @@ an incomplete system graph. The process intentionally waits forever and is
 later reaped by `killNode()`.
 
 Simulator deployment state is memory-only. `--keep` preserves scratch files; it
-does not make simulator contract state survive a restart.
+does not make simulator contract state survive a restart. To carry state across
+one, dump it with `qinit state --dump` and redeploy with `--state` (§8.3).
 
 ### 12.4 `node status`, `stop`, and `get`
 
@@ -1669,6 +1776,95 @@ subcommands:
 `nodeStatus()` samples twice about 1.2 seconds apart. A slow but healthy node may
 therefore appear up but not ticking.
 
+### 12.5 `qinit oracle`: answering a query while developing
+
+A query reaches a value only when an oracle machine answers it. Those are run by
+computors, so neither the simulator nor a node you start has one, and a contract's
+query would end at its timeout. [`commands/node/oracle.tsx`](../packages/cli/src/commands/node/oracle.tsx)
+supplies the answer yourself, over two dev routes both engines serve
+(`/live/v1/dev/oracle-pending` and `/live/v1/dev/oracle-resolve`, wrapped by
+`LiteRpc.oraclePending()` / `oracleResolve()`):
+
+```
+$ qinit oracle pending
+#172596578652000256  Price  slot 30  query 6d6f636b0000000000000000… (104 B)
+
+$ qinit oracle resolve 172596578652000256 --reply "123456sint64, 1000sint64"
+query      172596578652000256
+interface  Price
+reply      40e2010000000000e803000000000000
+accepted   yes — the contract is notified once the reply is revealed
+```
+
+The reply is written in the same value-text grammar as `call --in`, and it is checked
+against the interface's own reply layout, so a wrong member or width is refused before
+any byte is sent:
+
+```
+$ qinit oracle resolve 172596578652000256 --reply "1000uint64, 10uint64"
+ERROR: input.numerator is sint64, got '1000uint64'
+  Price reply looks like: 0sint64, 0sint64
+```
+
+`--reply-hex <hex>` takes raw bytes instead, for the layouts that are impractical to
+type (`EvmLogRead` is 440 bytes, `QubicLogRead` 288). `qinit oracle serve --rules <file>`
+answers every query as it appears, from a file mapping an interface name to reply text:
+
+```json
+{ "Price": "123456sint64, 1000sint64" }
+```
+
+On a node, the reply enters through the same path an oracle machine's message uses, so
+the commit, quorum and reveal rounds still run and the contract is notified a few ticks
+later. The simulator commits on arrival and reveals on the next tick. Either way the
+contract observes `PENDING → COMMITTED → SUCCESS`; only the number of ticks differs,
+which is why `scripts/live-node/ci-oracle-dual-engine.ts` compares the sequence and not
+the timing.
+
+`--status unavailable` reports that the oracle has no value. That is not the same as
+`UNRESOLVABLE`, which is what the quorum records when computors disagree and no single
+machine can force: the query stays pending and ends at its own timeout on both engines.
+
+### 12.6 Outsourced computation has no reply
+
+`INVOKE_OC` is one-way. There is no result on chain, no notification procedure, and no
+`qinit oc` command, because there is nothing to feed: a contract polls
+`qpi.getOcInvocationStatus(id)` and sees `PENDING_AUTH` (1) until the computors'
+signatures reach quorum, then `AUTHORIZED` (2). A node authorizes its own invocations,
+so this works without any OC machine configured; the machine only receives the signed
+bundle afterwards. The invocation fee (10 QU for `OCI::Mock`) is destroyed rather than
+added to a fee reserve, and the record is dropped at the epoch boundary, after which the
+id reads `UNKNOWN` (0). `TIMEOUT` (3) needs authorization to fail to reach quorum, which
+does not happen on a healthy node, so it is unreachable on both engines.
+
+### 12.7 Execution fees and the phase boundary
+
+A contract pays for the CPU time its entries use out of an execution-fee reserve, and a
+contract whose reserve is at or below zero is *dormant*: its procedures are skipped and
+their transfers refunded, while its functions still answer. A metered deploy is seeded
+with 100 000 000 000 qu (core's `LITE_DEV_FEE_RESERVE`), and `qpi.burn` is the only refill
+a contract can perform on itself.
+
+The charge does not land on the call that caused it. Like core, the engine accumulates
+microseconds per contract across a **phase** of `NUMBER_OF_COMPUTORS` ticks — 676 on the
+committee both engines seat — and deducts the phase's total once, at the first tick
+of the next phase, as a `ContractReserveDeduction` log record belonging to no transaction.
+Two consequences worth knowing while developing:
+
+- A contract can outspend its reserve inside a phase and keep running until the boundary.
+  Dormancy begins at the deduction, not mid-tick.
+- `qpi.queryFeeReserve` and `feeReserve` on `/live/v1/dyn-registry` report the *settled*
+  reserve, so neither moves during a call. The open phase's running total is `executionFee`
+  on the same route; poll it to watch a phase fill, since a one-shot read after a call has
+  usually already crossed the boundary.
+
+Costs are microseconds: entering a contract is 80, each priced host call adds its own
+weight, and a state change adds one per megabyte of state. Those figures are calibrated
+against a core node rather than copied from it — core measures real `__rdtsc` time, which
+differs per run, while the engine needs a deterministic number so two machines reach
+byte-identical state. `qinit node run --fees off` turns metering off entirely, leaving
+every contract running regardless of reserve.
+
 ## 13. System contracts, setup, and maintenance commands
 
 ### 13.1 System contracts
@@ -1679,15 +1875,31 @@ therefore appear up but not ticking.
   `{ "backend": "core" }`. The `/live/v1/dev/fault` diagnostic route is never
   used for runtime detection.
 
-- `ls` reads the local core-derived catalog and configured selection.
+- `ls` reads the local core-derived catalog and configured selection. Every
+  command that resolves a contract asks `GET /live/v1/whoami` too: on the
+  simulator a catalog entry the dyn registry does not list is not running, so
+  `state`, `call` and the pickers refuse it with `qinit system add <name>`
+  instead of decoding zero bytes; on core (or a node too old for the route)
+  the system contracts are native and always loaded.
 - On core, `add` records the selection but never uploads built-ins; the core
   already embeds them. `rm` removes only the future simulator selection.
 - On the simulator, `add` resolves and prebuilds the dependency closure with
   the selected compiler, skips identical hashes, and deploys canonical slots.
 - On the simulator, `rm` removes the requested roots and dependencies no longer
-  required by another selected root, in reverse dependency order.
+  required by another selected root, in reverse dependency order. It refuses when
+  a deployed user contract calls one of them (`Sysprobe @ 30 calls QX, QUTIL —
+  remove it first, or pass --force`); the callees come from `qinit.idl.json`, or
+  from the contract's stored source for a slot the file never recorded.
 - The selected names are persisted in `qinit.json.system` for later simulator
-  startup.
+  startup — one root at a time, as soon as its closure runs, so a batch that
+  fails midway still leaves the file describing the node. `deploy`, `dev` and
+  `test` persist the system dependencies they deploy the same way, but only when
+  the project has a `qinit.json`; otherwise they say `system selection not saved`.
+- A deploy that fails with `Out of memory` names the contract and how many are
+  loaded: JSC's fast wasm memories share one ~37 GiB reservation, about a GiB per
+  system contract. The simulator `node run` spawns sets
+  `BUN_JSC_useWasmFastMemory=0`, whose bounds-checked path lifts that to ~62 GiB
+  (measured within noise), so a restart seeds the whole selection.
 
 [`contracts/system-wasm.ts`](../packages/cli/src/contracts/system-wasm.ts) caches
 snapshot builds beneath the current header version and compiler. Explicit Core
@@ -1749,9 +1961,9 @@ resolve, slot, and build the complete project graph
   -> always deploy Main last
   -> generate tests/.qinit runtime and typed client
   -> fail when tests/ holds no .test.ts (qinit new ships one written for its template)
-  -> update/create package.json
-  -> bun install when the public Qubic library is missing
-  -> spawn bun test
+  -> update/create package.json + tsconfig.json (see 7.1)
+  -> bun install @types/bun when node_modules lacks it (QINIT_NO_UPDATE skips)
+  -> spawn bun test through the running executable (BUN_BE_BUN=1), so no separate Bun is needed
   -> inject QINIT_RPC, QINIT_SEED, QINIT_CONTRACT
   -> append a source backtrace on failure when possible
   -> stop a node that this command owns, unless --keep-node
@@ -1760,8 +1972,31 @@ resolve, slot, and build the complete project graph
 This command intentionally mutates the project and may access the network. It is
 an end-to-end client test workflow, not a read-only test invocation.
 
+The release binary embeds Bun, and `BUN_BE_BUN=1` is what makes it run the specs. Child processes inherit
+that variable: a spec that spawns `qinit` must pass `env: process.env` (the generated `tests/.qinit` entry
+deletes it there), or the child starts as Bun and answers `Script not found`.
+
 Its in-process simulator is not the detached `node run` simulator. It has no
 peer port and uses the engine server's faster default tick interval.
+
+A procedure call in a spec resolves to more than the confirmation. `provider()`
+turns the client's `trace` option on, so each call reads its own dispatch back
+from the node's debug trace, matched on tick, slot, procedure, and signer:
+
+| Field           | Meaning                                                                         |
+| --------------- | ------------------------------------------------------------------------------- |
+| `output`        | the procedure's output struct, decoded and typed; absent when it trapped        |
+| `trap`          | the trap message of the procedure, or of the first callee that trapped under it |
+| `traceEntry`    | the dispatch record itself: `ok`, `outHex`, `logs`, ...                         |
+| `failedCallees` | frames under the procedure (by the trace's `children`) that trapped and recovered |
+| `fault`         | the node halted; returned at once with `confirmed: false`, and never resent     |
+
+Tracing snapshots the contract state on every invoke, so a spec against a very
+large contract can run with `QINIT_TRACE=0`. A client from `qinit gen` leaves
+`trace` off unless constructed with `{ trace: true }`: a public node serves no
+debug trace. `fault` needs no tracing. The in-process simulator's engine log is
+routed through `testRunLogSink`: its tick chatter is dropped, and a warning or
+error shows as a `node` step beside the spec's own steps.
 
 ### 14.2 `qinit gtest`: C++ contract tests in an isolated engine
 
@@ -1786,6 +2021,26 @@ how the harness is compiled.
 `--corpus NAME` finds a real system-contract corpus in the core checkout.
 Known memory/pointer-heavy suites automatically use shared-memory mode. User
 suites can request it with `--shared-mem`.
+
+When the test wasm itself fails to build, the panel shows the first clang error
+with the lines that explain it (`clangErrorExcerpt`, 25 lines: notes, carets,
+the include chain), and `--json` carries the same text as `buildError`; the
+old one-row summary cut the cause off after a few dozen characters.
+
+A failed dispatch comes back the way core's harness reports it. `callFunction()`
+returns the code; a procedure or system procedure writes `contractError[index]`,
+which stays set until a new `ContractTesting` fixture clears it, so put a negative
+case last or start a fresh fixture after it. The default `expectSuccess` asserts the
+code is 0; pass `false` to test the failure itself. `checkInputSize` is still
+ignored. Every non-zero code is also echoed to stderr as `[gtest] invoke[i:t] failed
+with code 0x...`, so a failure nobody asserts on is still visible in the run.
+
+| dispatch outcome                         | code                                                     |
+| ---------------------------------------- | -------------------------------------------------------- |
+| success                                  | `0` (`NoContractError`)                                  |
+| `CC_ASSERT` or `qpi.__qpiAbort(c)`       | the abort code, e.g. `0xCC000022` (`0xCC000000 \| line`) |
+| a Wasm trap                              | `0xCC1D0000` (`WASM_TRAP_ERROR_CODE`)                    |
+| unknown function or procedure input type | `ContractErrorFuncProcUnknown` (`9`)                     |
 
 `--filter` takes comma-separated case-insensitive substrings and skips
 non-matching tests in the engine, so they are never executed. The same list can
@@ -1813,12 +2068,13 @@ Chain and contract routes:
 | `whoami()`                | `GET /live/v1/whoami`                      | explicit core/simulator orchestration                   |
 | `raw()`                   | any GET path                               | escape hatch for routes with no method                  |
 | `dynRegistry()`           | `GET /live/v1/dyn-registry`                | deploy/slot planning, call, state, debug, list          |
-| `dynUpload()`             | `GET /live/v1/dyn-upload`                  | upload ownership and assembly                           |
+| `dynUpload()`             | `GET /live/v1/dyn-upload`                  | upload assembly and the last DEPLOY's outcome           |
 | `querySmartContract()`    | `POST /live/v1/querySmartContract`         | function calls                                          |
 | `broadcastTx()`           | `POST /live/v1/broadcast-transaction`      | procedures and deployment protocol                      |
 | `txStatus()`              | `GET /live/v1/tx-status/<tick>/<id>`       | procedure settlement                                    |
 | `balance()`               | `GET /live/v1/balances/<id>`               | seed selector, explorer identity view                   |
 | `directDeploy()`          | `POST /live/v1/dev/deploy`                 | simulator deployment                                    |
+| `stageState()`            | `POST /live/v1/dev/state-stage?slot=N`     | `--state`: initial state for the slot's next deploy     |
 | `undeploy()`              | `POST /live/v1/dev/undeploy?slot=N`        | simulator system removal                                |
 | `putContractSource()`     | `POST /live/v1/dev/contract-source?slot=N` | post-deployment source metadata                         |
 | `fundedSeed()`            | `GET /live/v1/dev/funded-seed`             | development signing fallback                            |
@@ -1826,7 +2082,10 @@ Chain and contract routes:
 | `setDebug()`              | `GET /live/v1/dev/debug?on=0               | 1`                                                      | debug and call trace |
 | `debugTrace()`            | `GET /live/v1/debug-trace?since=N&limit=N` | debug and call trace                                    |
 | `stateRead()`             | `GET /live/v1/dev/state-read?...`          | decoded state and containers                            |
+| `stateBytes()`            | `GET /live/v1/dev/state-bytes?...`         | raw state slice, `--dump`                               |
 | `contractDigest()`        | `GET /live/v1/dev/contract-digest?slot=N`  | canonical state digest                                  |
+| `oraclePending()`         | `GET /live/v1/dev/oracle-pending`          | `oracle pending`, `oracle serve`                        |
+| `oracleResolve()`         | `POST /live/v1/dev/oracle-resolve`         | `oracle resolve`, `oracle serve`                        |
 | `epochInfo()`             | `GET /live/v1/dev/epoch-info`              | tick, epoch, node status                                |
 | `advanceTick()`           | `GET /live/v1/dev/advance-tick?n=N`        | testnet tick controls                                   |
 | `advanceToLast()`         | `GET /live/v1/dev/advance-to-last?gap=N`   | jump to the end of an epoch                             |
@@ -1864,6 +2123,7 @@ Paths below are relative to `packages/cli/src/`.
 | `node run`             | `commands/node/node-run.tsx`          | `ops/node-core.ts`, `ops/node.ts`, engine                   |
 | `node status/stop/get` | `commands/node/node.tsx`              | `ops/node.ts`, `LiteRpc`                                    |
 | `tick`                 | `commands/node/tick.tsx`              | `LiteRpc` testnet controls                                  |
+| `oracle`               | `commands/node/oracle.tsx`            | `LiteRpc` oracle dev routes, `@qinit/proto` input format    |
 | `epoch`                | `commands/node/epoch.tsx`             | `LiteRpc` testnet controls                                  |
 | `new`                  | `commands/develop/new.tsx`            | `contracts/templates.ts`, IDL/gtest generators              |
 | `integrate`            | `commands/develop/integrate.tsx`      | `ops/core-integration.ts`, Git, Core Visual Studio projects |
@@ -1903,6 +2163,7 @@ The smallest useful validation depends on the boundary changed.
 | Core integration                    | `contracts/core-integration.test.ts`, `commands/args.test.ts`, `commands/meta.test.ts`                   |
 | Slot planning                       | `contracts/project-slots.test.ts`, `proto/tests/protocol/call.test.ts`                                   |
 | Deployment state machine            | `contracts/deploy-ops.test.ts`, `contracts/project-deploy.test.ts`, `integration/simulator.test.ts`      |
+| `--state` staging                   | `contracts/state-stage.test.ts`, `contracts/deploy-ops.test.ts`, engine `network/server.test.ts`         |
 | Contract/IDL selection              | `contracts/contracts.test.ts`, `format/idl-file.test.ts`                                                 |
 | State and trace decoding            | `format/trace-format.test.ts`, `commands/state-digest*.test.ts`                                          |
 | Node preparation/process tracking   | `commands/node-run-core.test.ts`, `rpc/node-ops.test.ts`                                                 |

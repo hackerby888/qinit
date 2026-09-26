@@ -38,6 +38,11 @@ export class ContractLayoutResolver {
             return layout;
         }
 
+        // most of these names are optional, and an entry that declares none has nothing to size.
+        if (!this.programAnalysis.namesAType(name)) {
+            return fallback;
+        }
+
         const size = this.programAnalysis.sizeOfType(type);
 
         if (size <= 0) {

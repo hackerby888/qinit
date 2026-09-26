@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
-import { resolveDeploymentSlot, sendTransfer } from "../../src/call";
+import { LiteRpc, deriveIdentity, type DebugEntry, type DynamicContractRegistryEntry } from "@qinit/core";
+import { invokeProcedure, resolveDeploymentSlot, sendTransfer } from "../../src/call";
+import { u64 } from "../codec/abi-builders";
 
 const realFetch = globalThis.fetch;
 
@@ -151,6 +152,197 @@ test("a transaction with an unknown fate is never resent", async () => {
 
         expect(node.broadcasts.length).toBe(1);
         expect(result).toMatchObject({ confirmed: false });
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+const SIGNER_SEED = "a".repeat(55);
+const TX_TICK = 108;
+const SLOT = 30;
+const PROCEDURE_ID = 1;
+
+function traceEntry(fields: Partial<DebugEntry>): DebugEntry {
+    return {
+        seq: 0,
+        tick: TX_TICK,
+        index: SLOT,
+        entry: PROCEDURE_ID,
+        kind: 1,
+        ok: true,
+        execNs: 0,
+        inSize: 0,
+        outSize: 0,
+        stateSize: 0,
+        stateTruncated: false,
+        invocator: "0".repeat(64),
+        invocationReward: 0,
+        inHex: "",
+        outHex: "",
+        stateDiff: [],
+        hostCalls: [],
+        logs: [],
+        cheats: [],
+        ...fields,
+    };
+}
+
+// A dev node: includes every tx, serves the debug trace with since/limit, and can report a halt instead of processing.
+function devNode(options: { before: DebugEntry[]; afterBroadcast: DebugEntry[]; fault?: object; traceRoute?: boolean }) {
+    let broadcasts = 0;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+        const parsed = new URL(String(url));
+        const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+        switch (parsed.pathname) {
+            case "/live/v1/tick-info":
+                return json({ tick: 100, epoch: 1 });
+            case "/live/v1/broadcast-transaction":
+                broadcasts++;
+                return json({ peersBroadcasted: 1, transactionId: "tx" });
+            case "/live/v1/dev/fault":
+                return json(options.fault ?? null);
+            case "/live/v1/dev/advance-tick":
+                // core-lite holds an advance open for its whole time budget once the node has halted.
+                if (options.fault) {
+                    await new Promise((resolve) => setTimeout(resolve, 3000));
+                    return json({ from: 100, requested: 9, target: 109, reached: 100, epochLastTick: 9999, cappedAtEpochEnd: false });
+                }
+                return json({ code: 404 }, 404);
+            case "/live/v1/dev/debug":
+                return options.traceRoute === false ? json({ code: 404 }, 404) : json({ enabled: true });
+            case "/live/v1/debug-trace": {
+                const since = Number(parsed.searchParams.get("since"));
+                const limit = Number(parsed.searchParams.get("limit"));
+                const recorded = broadcasts ? [...options.before, ...options.afterBroadcast] : options.before;
+
+                return json({ enabled: true, entries: recorded.filter((entry) => entry.seq > since).slice(-limit) });
+            }
+        }
+        if (parsed.pathname.startsWith("/live/v1/tx-status/")) {
+            return json({ processed: !options.fault, found: !options.fault, moneyFlew: false, currentTick: 120 });
+        }
+        return json({ code: 404 }, 404);
+    }) as typeof fetch;
+
+    return { broadcastCount: () => broadcasts };
+}
+
+const invoke = (trace: boolean) =>
+    invokeProcedure({
+        seed: SIGNER_SEED,
+        contractIndex: SLOT,
+        procedureId: PROCEDURE_ID,
+        amount: 0,
+        input: new Uint8Array(0),
+        rpcBaseUrl: "http://node",
+        rpc: new LiteRpc("http://node"),
+        tick: TX_TICK,
+        confirm: true,
+        confirmTimeoutMs: 2000,
+        trace,
+        outputType: u64,
+    });
+
+const OUTPUT_42 = "2a00000000000000";
+
+test("a traced procedure returns its own dispatch, decoded, and the callees that trapped under it", async () => {
+    const signerHex = (await deriveIdentity(SIGNER_SEED)).publicKeyHex;
+    devNode({
+        // an older run of the same procedure by the same signer: before the armed seq, so never a candidate.
+        before: [traceEntry({ seq: 4, invocator: signerHex, outHex: "0100000000000000" })],
+        afterBroadcast: [
+            // another contract's frame that trapped in the same tick: without the trace's own parenthood it would pass for a callee.
+            traceEntry({ seq: 5, index: 29, kind: 1, entry: 7, ok: false, trap: "integer divide by zero", children: [] }),
+            traceEntry({ seq: 6, index: 29, kind: 1, entry: 8, ok: false, trap: "unreachable", children: [] }),
+            traceEntry({ seq: 7, invocator: "b".repeat(64), outHex: "0900000000000000", children: [] }),
+            // the signer's own parallel call to the same procedure, landed one tick earlier.
+            traceEntry({ seq: 8, tick: TX_TICK - 1, invocator: signerHex, outHex: "0300000000000000", children: [] }),
+            traceEntry({ seq: 9, invocator: signerHex.toUpperCase(), outHex: OUTPUT_42, children: [6] }),
+            // a later tx of the same tick that trapped: after this dispatch, so not one of its callees.
+            traceEntry({ seq: 10, index: 29, kind: 1, entry: 7, ok: false, trap: "unreachable", children: [] }),
+        ],
+    });
+
+    try {
+        const result = await invoke(true);
+
+        expect(result).toMatchObject({ confirmed: true, included: true, output: 42n });
+        expect(result.traceEntry?.seq).toBe(9);
+        expect(result.failedCallees?.map((entry) => entry.seq)).toEqual([6]);
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+// a node too old to record children leaves the completion window; a sysproc is the one frame a user call never made.
+test("without recorded children the callees are the same-tick frames before the dispatch, sysprocs aside", async () => {
+    const signerHex = (await deriveIdentity(SIGNER_SEED)).publicKeyHex;
+    devNode({
+        before: [],
+        afterBroadcast: [
+            traceEntry({ seq: 5, index: 29, kind: 1, entry: 7, ok: false, trap: "integer divide by zero" }),
+            traceEntry({ seq: 6, index: 5, kind: 2, entry: 3, ok: false, trap: "unreachable" }),
+            traceEntry({ seq: 7, invocator: signerHex, outHex: OUTPUT_42 }),
+        ],
+    });
+
+    try {
+        const result = await invoke(true);
+
+        expect(result.traceEntry?.seq).toBe(7);
+        expect(result.failedCallees?.map((entry) => entry.seq)).toEqual([5]);
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+test("a procedure that trapped carries its trace entry and no output", async () => {
+    const signerHex = (await deriveIdentity(SIGNER_SEED)).publicKeyHex;
+    devNode({ before: [], afterBroadcast: [traceEntry({ seq: 1, invocator: signerHex, ok: false, trap: "unreachable" })] });
+
+    try {
+        const result = await invoke(true);
+
+        expect(result.traceEntry?.trap).toBe("unreachable");
+        expect(result.output).toBeUndefined();
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+test("without trace, or on a node that serves none, the result is the plain confirmation", async () => {
+    const signerHex = (await deriveIdentity(SIGNER_SEED)).publicKeyHex;
+    const entries = { before: [], afterBroadcast: [traceEntry({ seq: 1, invocator: signerHex, outHex: OUTPUT_42 })] };
+
+    try {
+        devNode(entries);
+        const untraced = await invoke(false);
+        expect(untraced).toMatchObject({ confirmed: true, included: true });
+        expect(untraced.traceEntry).toBeUndefined();
+
+        devNode({ ...entries, traceRoute: false });
+        const unserved = await invoke(true);
+        expect(unserved).toMatchObject({ confirmed: true, included: true });
+        expect(unserved.traceEntry).toBeUndefined();
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+// A halted node never processes the target tick; the fault is the answer, and a resend could run the tx twice after a restart.
+test("a halted node is reported at once and the tx is never resent", async () => {
+    const fault = { message: "slot 30 procedure 1 trapped", phase: "transaction", failedTick: TX_TICK, slot: SLOT };
+    const node = devNode({ before: [], afterBroadcast: [], fault });
+
+    try {
+        const started = Date.now();
+        const result = await invoke(true);
+
+        expect(result).toMatchObject({ confirmed: false, fault });
+        expect(result.included).toBeUndefined();
+        expect(node.broadcastCount()).toBe(1);
+        expect(Date.now() - started).toBeLessThan(1500);
     } finally {
         globalThis.fetch = realFetch;
     }

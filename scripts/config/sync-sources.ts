@@ -179,10 +179,6 @@ function editsFor(path: (typeof synchronizedSourceFiles)[number], repositories: 
                     pattern: /irm https:\/\/raw\.githubusercontent\.com\/[^\s]+\/install\.ps1 \| iex/g,
                     replacement: `irm ${rawBase}/install.ps1 | iex`,
                 },
-                {
-                    pattern: /Use Bun [A-Za-z0-9._-]+, matching CI:/g,
-                    replacement: `Use Bun ${toolchains.bun.version}, matching CI:`,
-                },
             ];
         case "AGENTS.md":
             return [

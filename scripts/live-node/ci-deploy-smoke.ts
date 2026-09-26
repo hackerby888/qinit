@@ -154,6 +154,15 @@ for (const [index, entry] of outerProxyCalls.entries()) {
     if (entry.stateDiff.length || entry.stateTruncated || !invokesCounter) {
         fail(`Proxy BumpCounter #${index + 1} trace ownership is wrong: ` + JSON.stringify(entry));
     }
+    // the caller records the frames it made, so a reader nests the Counter frame under it without guessing from the seq window.
+    if (!entry.children || entry.children.length !== 1 || entry.children[0] !== nestedCounterCalls[index]?.seq) {
+        fail(`Proxy BumpCounter #${index + 1} children should be its Counter frame ${nestedCounterCalls[index]?.seq}: ` + JSON.stringify(entry.children));
+    }
+}
+for (const [index, entry] of nestedCounterCalls.entries()) {
+    if (!entry.children || entry.children.length) {
+        fail(`nested Counter #${index + 1} called nothing, children should be empty: ` + JSON.stringify(entry.children));
+    }
 }
 for (const [index, entry] of outerProxyReads.entries()) {
     const callsCounter = entry.hostCalls.some((call) => call.name === "callFunction" && call.detail.includes(expectedCallee));

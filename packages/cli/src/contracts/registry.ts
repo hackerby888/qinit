@@ -9,6 +9,8 @@ export type ContractSets = {
     system: SystemContract[];
     /** Set when the node did not answer, so an empty `user` means "unknown", not "none deployed". */
     nodeError?: string;
+    /** Which runtime answered; absent when the node is down or too old to say. */
+    backend?: "simulator" | "core";
 };
 
 export function parseContractSlot(value: unknown): number {
@@ -39,15 +41,28 @@ export function loadSystem(): SystemContract[] {
 export async function loadContracts(rpc: LiteRpc): Promise<ContractSets> {
     let user: DynamicContractRegistryEntry[] = [];
     let nodeError: string | undefined;
+    let backend: ContractSets["backend"];
 
     try {
-        user = ((await rpc.dynRegistry()).contracts ?? []).filter((contract) => contract.armed);
+        // a node too old for the whoami route reads as core: its system contracts are native either way.
+        const [registry, identity] = await Promise.all([rpc.dynRegistry(), rpc.whoami().catch(() => undefined)]);
+        user = (registry.contracts ?? []).filter((contract) => contract.armed);
+        backend = identity?.backend;
     } catch (error) {
         // System contracts remain available while the node is down.
         nodeError = String((error as Error)?.message ?? error);
     }
 
-    return { user, system: loadSystem(), ...(nodeError ? { nodeError } : {}) };
+    return { user, system: loadSystem(), ...(backend ? { backend } : {}), ...(nodeError ? { nodeError } : {}) };
+}
+
+// the simulator lists every system contract it runs in its dyn registry, so one found only in the catalog is not running there; core embeds them all.
+export function systemLoaded(sets: ContractSets): boolean {
+    return sets.backend !== "simulator";
+}
+
+export function notLoadedMessage(name: string): string {
+    return `${name} is not running on this simulator — qinit system add ${name}`;
 }
 
 // A registry the node never answered is not an empty registry, and reporting no contract would send the developer off to redeploy something still there.
@@ -56,9 +71,19 @@ export function missingContractMessage(sets: ContractSets, target?: string): str
         return `the node did not answer, so its contracts are unknown — is it running or busy? (\`qinit node status\`)  [${sets.nodeError}]`;
     }
 
+    // QUOTTERY is a struct name, not a contract name: the developer wants QTRY.
+    const byStruct =
+        target &&
+        sets.system.find(
+            (contract) => contract.stateType.toLowerCase() === target.trim().toLowerCase() && contract.name.toLowerCase() !== target.trim().toLowerCase(),
+        );
+    if (byStruct) {
+        return `${byStruct.stateType} is ${byStruct.name}'s state struct — use ${byStruct.name}`;
+    }
+
     return target
-        ? `no contract '${target}' (deployed or system — run \`qinit node run\` to load system contracts)`
-        : "no contracts — deploy one, or run `qinit node run` to load system contracts";
+        ? `no contract '${target}' (deployed or system — \`qinit system add <name>\` loads a system contract on the simulator)`
+        : "no contracts — deploy one, or `qinit system add <name>` to load a system contract on the simulator";
 }
 
 export function systemAsDyn(contract: SystemContract): DynamicContractRegistryEntry {
@@ -122,6 +147,8 @@ export type ResolvedContract = {
     idl?: ContractIdl;
     stateType?: string;
     codeHash?: string;
+    // a system contract the node runs; false only on a simulator that never added it.
+    loaded?: boolean;
 };
 
 export function resolveContract(target: string, sets: ContractSets): ResolvedContract | null {
@@ -149,6 +176,7 @@ export function resolveContract(target: string, sets: ContractSets): ResolvedCon
             source: systemContract.source,
             idl: systemContract.idl,
             stateType: systemContract.stateType,
+            loaded: systemLoaded(sets),
         };
     }
 

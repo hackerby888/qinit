@@ -8,15 +8,20 @@ import COUNTER_SOURCE from "../fixtures/Counter.h" with { type: "text" };
 import COUNTER_V2_SOURCE from "../fixtures/CounterV2.h" with { type: "text" };
 import DIGEST_PROBE_SOURCE from "../fixtures/DigestProbe.h" with { type: "text" };
 import DIVIDEND_SOURCE from "../fixtures/Dividend.h" with { type: "text" };
+import EPOCH_WITNESS_SOURCE from "../fixtures/EpochWitness.h" with { type: "text" };
 import FAULT_ZOO_SOURCE from "../fixtures/FaultZoo.h" with { type: "text" };
+import HOOK_FAULT_SOURCE from "../fixtures/HookFault.h" with { type: "text" };
 import HOOKS_SOURCE from "../fixtures/Hooks.h" with { type: "text" };
 import HOST_WRITE_SOURCE from "../fixtures/HostWrite.h" with { type: "text" };
 import INCOMING_LOGGER_SOURCE from "../fixtures/IncomingLogger.h" with { type: "text" };
+import INIT_WITNESS_SOURCE from "../fixtures/InitWitness.h" with { type: "text" };
 import MIGRATE_TRAP_SOURCE from "../fixtures/MigrateTrap.h" with { type: "text" };
 import MIGRATE_TRAP_V1_SOURCE from "../fixtures/MigrateTrapV1.h" with { type: "text" };
 import CHEATS_SOURCE from "../fixtures/Cheats.h" with { type: "text" };
 import CHEAT_OPS_SOURCE from "../fixtures/CheatOps.h" with { type: "text" };
 import CHEAT_SHAPES_SOURCE from "../fixtures/CheatShapes.h" with { type: "text" };
+import OC_PROBE_SOURCE from "../fixtures/OcProbe.h" with { type: "text" };
+import ORACLE_INLINE_SOURCE from "../fixtures/OracleInline.h" with { type: "text" };
 import ORACLE_PROBE_SOURCE from "../fixtures/OracleProbe.h" with { type: "text" };
 import PROXY_SOURCE from "../fixtures/Proxy.h" with { type: "text" };
 import QPI_DUAL_SOURCE from "../fixtures/QpiDual.h" with { type: "text" };
@@ -87,12 +92,17 @@ export const wasmFixtureManifest = {
     DigestProbe: fixture("DigestProbe.h", DIGEST_PROBE_SOURCE, "DigestProbe", 29),
     DigestProbeDyn0: fixture("DigestProbe.h", DIGEST_PROBE_SOURCE, "DigestProbe", TEST_SLOT_LAYOUT.slotBase),
     Dividend: fixture("Dividend.h", DIVIDEND_SOURCE, "Dividend", 28),
+    EpochWitness: fixture("EpochWitness.h", EPOCH_WITNESS_SOURCE, "EpochWitness", 28),
     FaultZoo: fixture("FaultZoo.h", FAULT_ZOO_SOURCE, "FaultZoo", 28),
+    HookFault: fixture("HookFault.h", HOOK_FAULT_SOURCE, "HookFault", 29),
     Hooks: fixture("Hooks.h", HOOKS_SOURCE, "Hooks", 28),
     HostWrite: fixture("HostWrite.h", HOST_WRITE_SOURCE, "HostWrite", 28),
     IncomingLogger: fixture("IncomingLogger.h", INCOMING_LOGGER_SOURCE, "IncomingLogger", 29),
+    InitWitness: fixture("InitWitness.h", INIT_WITNESS_SOURCE, "InitWitness", 28),
     MigrateTrap: fixture("MigrateTrap.h", MIGRATE_TRAP_SOURCE, "MigrateTrap", 28),
     MigrateTrapV1: fixture("MigrateTrapV1.h", MIGRATE_TRAP_V1_SOURCE, "MigrateTrap", 28),
+    OcProbe: fixture("OcProbe.h", OC_PROBE_SOURCE, "OcProbe", 28),
+    OracleInline: fixture("OracleInline.h", ORACLE_INLINE_SOURCE, "OracleInline", 29),
     OracleProbe: fixture("OracleProbe.h", ORACLE_PROBE_SOURCE, "OracleProbe", 29),
     Proxy: fixture("Proxy.h", PROXY_SOURCE, "Proxy", 29, ["Counter"]),
     QpiDualCallee: fixture("QpiDualCallee.h", QPI_DUAL_CALLEE_SOURCE, "QpiDualCallee", 28),

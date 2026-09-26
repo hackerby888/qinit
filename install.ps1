@@ -26,13 +26,18 @@ if ($arch -eq "AMD64" -or $arch -eq "x86" -or $arch -eq "ARM64") {
 }
 $asset = "qinit-windows-$assetArch.exe"
 
-Show-InstallStep 1 "Resolving latest qinit release"
-$pointer = "https://github.com/$Repo/releases/download/qinit-cli-latest/latest.txt"
-try {
-  $tag = (Invoke-RestMethod -UseBasicParsing -Uri $pointer).Trim()
-} catch {
-  Write-Error "qinit: could not download the qinit CLI release pointer ($($_.Exception.Message))"
-  return
+Show-InstallStep 1 "Resolving qinit release"
+# QINIT_TAG pins a release (CI installs a tag before it becomes latest); otherwise follow the latest pointer.
+if ($env:QINIT_TAG) {
+  $tag = $env:QINIT_TAG
+} else {
+  $pointer = "https://github.com/$Repo/releases/download/qinit-cli-latest/latest.txt"
+  try {
+    $tag = (Invoke-RestMethod -UseBasicParsing -Uri $pointer).Trim()
+  } catch {
+    Write-Error "qinit: could not download the qinit CLI release pointer ($($_.Exception.Message))"
+    return
+  }
 }
 if ($tag -cnotmatch '^qinit-cli-[A-Za-z0-9._-]+$') {
   Write-Error "qinit: invalid qinit CLI release pointer"

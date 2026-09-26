@@ -57,6 +57,24 @@ Consensus is not at risk: `CMakeLists.txt:72` makes `LITE_WASM_SC` a fatal error
 the wasm contract engine only exists in testnet builds. The `#if defined(TESTNET)` guards inside the
 handler are a second layer, not the first.
 
+### Warp and prank scope
+
+Both runtimes follow Foundry's split. A warp works like `vm.warp`: it applies to the whole call tree. A
+prank works like `vm.prank(who, who)`: `msg.sender` changes for one hop, `tx.origin` changes for the whole
+subtree.
+
+| Cheat         | Scope                                                                                                                                                                                                                                                                              |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CC_WARP_*`   | Lasts for one root dispatch. Every transaction, query and system procedure starts unwarped; nested calls see the caller's warp, and a callee's warp stays visible to its caller.                                                                                                   |
+| `CC_PRANK`    | The frame reads `invocator = originator = who` and the given reward. Every call, callback and incoming transfer it causes sees `originator = who`, with the calling contract as invocator, and `issueAsset` accepts `who` as the issuer. The reward that moves stays the real one. |
+| `CC_UNPRANK`  | Restores the frame's own dispatched caller and reward. A prank never outlives its frame, so an unpaired `CC_PRANK` cannot reach a later call.                                                                                                                                      |
+| every mutator | Refused (`-3`) in any function frame, including a function another contract calls. Allowed in procedures, system procedures, `INITIALIZE` and `MIGRATE`.                                                                                                                           |
+
+`runContractTesting` makes every call a root dispatch. `runCompiledGtest` runs a test's steps inside the
+runner's own procedure, so a warp made in one step is still in effect in the next steps of that test.
+`fixtures/QpiDual.h` `Cheat` checks every row above, and `ci-qpi-dual-engine.ts` runs it on both compilers and
+both runtimes.
+
 ## 3. Strings cost nothing
 
 The TypeScript backend has no string codegen at all, and QPI bans string literals. Both problems go away
@@ -78,10 +96,10 @@ repeats.
 
 What a value part carries depends on whether the argument has an address:
 
-| Argument                                                                                                                        | Wire                                                          | IDL type                                                                                                                                                                 |
-| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| anything addressable — `input`, `locals.abc.ab`, `state.get().items.get(0)`, `state.get().orders.element(i)`, `qpi.invocator()` | its bytes, at the layout's size (an empty struct is one byte) | the declared type — a container accessor's element, key or PoV under the instance's template arguments — so the reader decodes it                                        |
-| a scalar temporary — `output.value + 2`, `qpi.tick()`, `orders.priority(i)`, `bits.get(i)`                                      | the value in the register slot, no bytes                      | a method's declared return type (`sint64`, `bit`), so a priority reads signed; `uint64` for arithmetic, which prints unsigned, so print the lvalue when the sign matters |
+| Argument                                                                                                                        | Wire                                                          | IDL type                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| anything addressable — `input`, `locals.abc.ab`, `state.get().items.get(0)`, `state.get().orders.element(i)`, `qpi.invocator()` | its bytes, at the layout's size (an empty struct is one byte) | the declared type — a container accessor's element, key or PoV under the instance's template arguments — so the reader decodes it                                                                         |
+| a scalar temporary — `output.value + 2`, `qpi.tick()`, `orders.priority(i)`, `bits.get(i)`                                      | the value in the register slot, no bytes                      | a method's declared return type (`sint64`, `bit`), so a priority reads signed; the C++ type of an arithmetic expression, so `input.neg + 1` reads as a `sint32`; `uint64` when an operand cannot be typed |
 
 The reader decodes a value only when the bytes are exactly its type's size. Anything else — a stale IDL,
 a shape the compiler could not type, bytes that contradict themselves — is shown raw with both sizes

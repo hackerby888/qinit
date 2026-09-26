@@ -1,11 +1,12 @@
 // `qinit gtest` runs core-lite contract_testing.h tests against an isolated simulator.
 import { useEffect, useState } from "react";
 import { Box, Text, Static, useApp } from "ink";
-import { resolve, join, basename } from "node:path";
+import { resolve, join } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { loadConfig, resolveCompilerBackend, resolveCoreDir } from "../../config";
-import { genStdGtest, extractIdl, resolveContracts } from "@qinit/build";
+import { loadConfig, projectContractName, projectContractPath, resolveCompilerBackend, resolveCoreDir } from "../../config";
+import { genStdGtest, extractIdl, resolveContracts, type CalleeSource } from "@qinit/build";
+import type { DynCallees } from "@qinit/build/contracts/intercontract";
 import { loadQpiHeader } from "@qinit/compiler";
 import type { TestResult } from "@qinit/engine";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
@@ -54,7 +55,18 @@ interface Line {
 }
 // Keep completed output in Static items; reserve the live tail for the spinner or summary.
 type Item = { kind: "header" } | { kind: "line"; line: Line } | { kind: "test"; t: TestResult } | { kind: "note"; text: string };
-type Tail = { phase: "work"; spin: string } | { phase: "done"; ok: boolean; rows: [string, string][] };
+type Tail = { phase: "work"; spin: string } | { phase: "done"; ok: boolean; rows: [string, string][]; buildError?: string };
+
+// every planned callee, system ones included: a state field typed by QX needs QX's declarations in the test build and in the scaffold's IDL.
+export function gtestCallees(dependencies: readonly { stateType: string; sourcePath: string; slot: number }[]): {
+    dynCallees: DynCallees;
+    calleeSources: CalleeSource[];
+} {
+    return {
+        dynCallees: Object.fromEntries(dependencies.map((contract) => [contract.stateType, { header: contract.sourcePath, slot: contract.slot }])),
+        calleeSources: dependencies.map((contract) => ({ name: contract.stateType, source: readFileSync(contract.sourcePath, "utf8"), slot: contract.slot })),
+    };
+}
 
 export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
@@ -74,7 +86,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
         const add = (label: string, ok?: boolean | null, detail?: string) => setItems((it) => [...it, { kind: "line", line: { label, ok, detail } }]);
         const note = (text: string) => setItems((it) => [...it, { kind: "note", text }]); // full-width, wraps (no truncation)
         const spin = (t: string) => setS({ phase: "work", spin: t });
-        const done = (ok: boolean, rows: [string, string][]) => setS({ phase: "done", ok, rows });
+        const done = (ok: boolean, rows: [string, string][], buildError?: string) => setS({ phase: "done", ok, rows, buildError });
 
         // An empty result set after filtering is a typo, not a suite with no tests.
         const noMatch = () => (filterTests.length ? `no test matched --filter ${filter}` : "no tests ran");
@@ -117,7 +129,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     }
                     if (!run.runnerOk) {
                         add("build", false, "test-wasm build failed");
-                        return done(false, [["stderr", (run.buildError ?? "").slice(0, 400)]]);
+                        return done(false, [], run.buildError);
                     }
                     const results = run.results;
                     const pass = results.filter((t) => t.passed).length;
@@ -136,13 +148,15 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
 
                 // One accepted source format: core-lite contract_testing.h / ContractTesting.
-                const contractPath = resolve(commandArgs.get("contract") ?? cfg.contract ?? "contracts/" + (cfg.contractName ?? "") + ".h");
-                if (!existsSync(contractPath)) {
-                    add("contract", false, contractPath + " not found");
+                let contractPath: string, name: string;
+                try {
+                    contractPath = projectContractPath("gtest", commandArgs.get("contract"), cfg);
+                    const flags = { contractName: commandArgs.get("contract-name"), stateType: commandArgs.get("state-type") };
+                    name = projectContractName(contractPath, flags, cfg, !commandArgs.get("contract"));
+                } catch (e: any) {
+                    add("contract", false, String(e?.message ?? e));
                     return done(false, []);
                 }
-                const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
-                const stateType = commandArgs.get("state-type") ?? name;
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
                 const contractSrc = readFileSync(contractPath, "utf8");
                 const testPath = resolve(firstPositional ?? join("tests", `${name}.test.cpp`));
@@ -151,7 +165,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 const dependencyGraph = resolveContracts({
                     projectRoot: process.cwd(),
                     corePath: core,
-                    contractName: stateType,
+                    contractName: name,
                     contractPath,
                     slot: requestedSlot === undefined ? undefined : resolveGtestSlot(core, requestedSlot),
                     explicitCallees,
@@ -175,25 +189,16 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     slot: contract.slot,
                     kind: contract.kind,
                 }));
-                const dynCallees = Object.fromEntries(
-                    plannedDependencies
-                        .filter((contract) => contract.kind === "custom")
-                        .map((contract) => [
-                            contract.stateType,
-                            {
-                                header: contract.sourcePath,
-                                slot: contract.slot,
-                            },
-                        ]),
-                );
+                const { dynCallees, calleeSources } = gtestCallees(plannedDependencies);
                 if (!existsSync(testPath) || commandArgs.has("new")) {
                     const idl = extractIdl(contractSrc, name, {
                         slot,
                         qpiHeader: loadQpiHeader(core),
-                        stateType,
+                        stateType: name,
+                        calleeSources,
                     });
                     mkdirSync(join(testPath, ".."), { recursive: true });
-                    writeFileSync(testPath, genStdGtest(idl, name, stateType));
+                    writeFileSync(testPath, genStdGtest(idl, name, name));
                     add("scaffold", true, `${testPath.replace(process.cwd() + "/", "")} (core-lite)`);
                 }
 
@@ -202,7 +207,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     contractPath,
                     testPath,
                     name,
-                    stateType,
+                    stateType: name,
                     slot,
                     core,
                     backend,
@@ -216,7 +221,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 });
                 if (!run.runnerOk) {
                     add("build", false, "test-wasm build failed");
-                    return done(false, [["stderr", (run.buildError ?? "").slice(0, 400)]]);
+                    return done(false, [], run.buildError);
                 }
                 const ctiming = fmtTimings(run.timings);
                 if (ctiming) note(`  compile   ${ctiming}`);
@@ -244,11 +249,15 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
             if (output.json) {
                 const tests = items.filter((item): item is Extract<Item, { kind: "test" }> => item.kind === "test").map((item) => item.t);
                 const failed = tests.filter((t) => !t.passed);
+                // a run that stopped before any test ran failed on a step; "0 of 0 tests failed" would hide which one.
+                const failedStep = items.find((item): item is Extract<Item, { kind: "line" }> => item.kind === "line" && item.line.ok === false)?.line;
+                const testsFailed = `${failed.length} of ${tests.length} test${tests.length === 1 ? "" : "s"} failed`;
                 process.stdout.write(
                     JSON.stringify({
                         ok: s.ok,
-                        error: s.ok ? null : `${failed.length} of ${tests.length} test${tests.length === 1 ? "" : "s"} failed`,
+                        error: s.ok ? null : failedStep && !tests.length ? `${failedStep.label}: ${failedStep.detail ?? "failed"}` : testsFailed,
                         summary: Object.fromEntries(s.rows),
+                        ...(s.buildError ? { buildError: s.buildError } : {}),
                         tests: tests.map((t) => ({ name: t.name, ok: t.passed, ms: t.ms ?? null, message: t.message || null })),
                         notes: items.filter((item): item is Extract<Item, { kind: "note" }> => item.kind === "note").map((item) => item.text),
                     }) + "\n",
@@ -285,6 +294,13 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
             {s.phase === "work" && (
                 <Box marginTop={1}>
                     <Spinner label={s.spin} color={theme.accent} />
+                </Box>
+            )}
+            {s.phase === "done" && s.buildError && (
+                <Box marginTop={1}>
+                    <Panel title="test-wasm build failed" color={theme.err}>
+                        <Text dimColor>{s.buildError}</Text>
+                    </Panel>
                 </Box>
             )}
             {s.phase === "done" && s.rows.length > 0 && (

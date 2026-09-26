@@ -75,7 +75,7 @@ function runState(wasm: Uint8Array, contract: FuzzContract, encodeInput: FuzzRun
     }
 
     const state = sim.contracts.get(27)!.state();
-    return bytesToHex(state.slice(0, 64));
+    return bytesToHex(state);
 }
 
 async function checkSeed(contract: FuzzContract, headers: string, wasiAvailable: boolean, options: FuzzRunnerOptions): Promise<Finding | null> {

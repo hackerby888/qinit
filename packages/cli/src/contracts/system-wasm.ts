@@ -10,8 +10,11 @@ export function systemCatalog(core?: string): SystemContract[] {
     return systemContracts(core ?? resolveCoreDir());
 }
 
-function cacheDir(compiler: SystemContractCompiler, headersVersion: string): string {
-    return join(cacheRoot(), headersVersion, "system-wasm", compiler);
+// bump when a compile define changes a contract's layout: a cached wasm from the old profile would seed the wrong state size.
+export const WASM_BUILD_PROFILE = "testnet-lite";
+
+export function systemWasmCacheDir(compiler: SystemContractCompiler, headersVersion: string): string {
+    return join(cacheRoot(), headersVersion, "system-wasm", WASM_BUILD_PROFILE, compiler);
 }
 
 // Snapshot builds use a compiler-specific cache; explicit Core checkouts build in a temporary directory.
@@ -30,7 +33,7 @@ export async function systemWasm(
         throw new Error(`unknown system contract '${name}' — have: ${catalog.map((x) => x.name).join(", ")}`);
     }
 
-    const dir = cacheable ? cacheDir(compiler, current.headersVersion!) : mkdtempSync(join(tmpdir(), "qinit-system-wasm-"));
+    const dir = cacheable ? systemWasmCacheDir(compiler, current.headersVersion!) : mkdtempSync(join(tmpdir(), "qinit-system-wasm-"));
     const file = join(dir, `${c.index}_${c.name}.wasm`);
     if (cacheable && existsSync(file)) {
         return { index: c.index, name: c.name, wasm: new Uint8Array(readFileSync(file)) };

@@ -3,7 +3,8 @@ import { Box, Text, useApp } from "ink";
 import { Header, Spinner, Panel, Status, theme } from "../../ui";
 import { resolveCoreDir } from "../../config";
 import { resolveVerifyTool } from "@qinit/build";
-import { wasiSdkPaths } from "@qinit/core";
+import { wasiSdkPaths, WASM_ABI_VERSION } from "@qinit/core";
+import { checkHeadersAbi } from "../../ops/abi-advice";
 import { output } from "../../args";
 
 interface Check {
@@ -43,6 +44,16 @@ async function runChecks(): Promise<Check[]> {
         detail: hasQpi ? qpi : coreErr || "headers not found",
         fix: hasQpi ? undefined : "qinit setup (fetch published snapshot) or set QINIT_CORE=<core-checkout>",
     });
+
+    if (hasQpi) {
+        const abiMismatch = await checkHeadersAbi(resolveCoreDir());
+        checks.push({
+            name: "wasm ABI (cli vs headers)",
+            ok: !abiMismatch,
+            detail: abiMismatch ? abiMismatch.detail : `ABI ${WASM_ABI_VERSION}`,
+            fix: abiMismatch?.fix,
+        });
+    }
 
     const vtool = resolveVerifyTool();
     checks.push({

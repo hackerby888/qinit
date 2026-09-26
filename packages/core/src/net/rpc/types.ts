@@ -43,11 +43,25 @@ export interface DynamicContractRegistryEntry {
     lastError?: string;
     // Execution fee reserve in qu as decimal text; at or below zero the contract is dormant. Older nodes omit it.
     feeReserve?: string;
+    // What the current fee phase accumulated and has not charged yet; the simulator reports it, a core node does not.
+    executionFee?: string;
 }
 export interface DynamicContractRegistry {
     contracts: DynamicContractRegistryEntry[];
     slotBase: number;
     slotCount: number;
+}
+
+// what a node did with the last DEPLOY it processed. Only "incomplete" can still change: every other refusal is final for that session.
+export const DEPLOY_OUTCOME_CODES = ["ok", "bad-slot", "abi-mismatch", "session-mismatch", "incomplete", "hash-mismatch", "not-wasm", "load-failed"] as const;
+export type DeployOutcomeCode = (typeof DEPLOY_OUTCOME_CODES)[number];
+export interface DeployOutcome {
+    sessionId: string;
+    slot: number;
+    tick: number;
+    ok: boolean;
+    code: DeployOutcomeCode;
+    message: string;
 }
 
 export interface DynamicContractUploadStatus {
@@ -65,6 +79,8 @@ export interface DynamicContractUploadStatus {
     idleTicks?: number;
     staleAfterTicks?: number;
     lastProgressTick?: number;
+    /** null until the node has processed a DEPLOY; older nodes omit it. */
+    lastDeploy?: DeployOutcome | null;
 }
 
 // `ord` is the record's place in the node's emission order, shared by every frame of one call, so a callee's prints read back in order. Older nodes omit it.
@@ -116,6 +132,8 @@ export interface DebugEntry {
     hostCalls: DebugHostCall[];
     logs: DebugLog[];
     cheats: DebugCheat[];
+    /** Sequence numbers of the frames this dispatch called directly, in completion order; absent on a node too old to record it. */
+    children?: number[];
 }
 export interface DebugTrace {
     enabled: boolean;

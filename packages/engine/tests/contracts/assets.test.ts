@@ -83,7 +83,9 @@ test("Dividend: distributeDividends debits balance + guards on insufficient fund
         return b;
     };
 
-    sim.procedure(28, 1, new Uint8Array(0), { reward: 1000000n }); // Fund -> balance 1,000,000
+    const funder = new Uint8Array(32).fill(0xab);
+    sim.fund(funder, 1000000n);
+    sim.procedure(28, 1, new Uint8Array(0), { invocator: funder, reward: 1000000n }); // Fund -> balance 1,000,000
     expect(sim.balanceOf(28)).toBe(1000000n);
 
     expect(readUint64LE(sim.procedure(28, 2, distIn(1n)))).toBe(1n); // 1 * 676 IPO shares = 676 <= 1,000,000
@@ -302,7 +304,7 @@ test("qpi host wiring: isContractId, arbitrator/computor, prevDigests, IPO bid q
     expect(toHex(sim.host.getPrevSpectrumDigest())).toBe(toHex(sim.getSpectrumDigest()));
     expect(toHex(sim.host.getPrevComputerDigest())).toBe(toHex(sim.getComputerDigest()));
 
-    // IPO default: 676 shares, owned by the computors, 1,000,000 each
+    // IPO default: one share per committee seat, owned by the computors, 1,000,000 each
     expect(sim.host.ipoBidPrice(28, 0)).toBe(1000000n);
     expect(sim.host.ipoBidPrice(28, 675)).toBe(1000000n);
     expect(sim.host.ipoBidPrice(28, 676)).toBe(-3n); // out of range
@@ -388,4 +390,53 @@ test("a release gated on originator == owner passes for the owner and fails for 
     expect(readInt64LE(sim.query(29, 1))).toBe(INVALID_AMOUNT);
     expect(seen(sim)).toMatchObject({ allowed: 0, postReleaseCalls: 1 });
     expect(sharesByMgmt(sim, 29)).toBe(100n);
+});
+
+// core refuses a transfer whose counterparty is out of range or outside its epochs, and aborts the caller when it is errored.
+test("management rights transfers carry core's gates on the counterparty", async () => {
+    await initK12();
+    const A = contractId(28);
+
+    const bounded = new QubicSimulator({ contractCount: 28 });
+    bounded.deploy(28, await wasm("ShareApprover"));
+    bounded.deploy(29, await wasm("ShareManager"));
+    bounded.procedure(28, 1, issueIn(TOKEN, 1000n));
+    expect(bounded.acquireShares(29, TOKEN, A, A, A, 400n, 28, 28, 0n)).toBe(INVALID_AMOUNT);
+
+    const inactive = new QubicSimulator();
+    inactive.deploy(28, await wasm("ShareApprover"));
+    inactive.deploy(29, await wasm("ShareManager"));
+    inactive.procedure(28, 1, issueIn(TOKEN, 1000n));
+    inactive.setContractLifetime(28, 5, 10);
+    expect(inactive.acquireShares(29, TOKEN, A, A, A, 400n, 28, 28, 0n)).toBe(INVALID_AMOUNT);
+    inactive.currentEpoch = 5;
+    expect(inactive.acquireShares(29, TOKEN, A, A, A, 400n, 28, 28, 0n)).toBe(0n);
+
+    const errored = new QubicSimulator({ haltOnContractFault: false });
+    errored.deploy(28, await wasm("ShareApprover"));
+    errored.deploy(29, await wasm("ShareManager"));
+    errored.procedure(28, 1, issueIn(TOKEN, 1000n));
+    errored.ipo(28, 0n);
+    expect(() => errored.procedure(29, 2, mgmtIn(TOKEN, A, A, 400n, 28, 0n))).toThrow(/abort\(8\)/);
+    expect(sharesByMgmt(errored, 28)).toBe(1000n);
+});
+
+// the dual-engine driver's Rights procedure: a release and an acquire with different non-zero fees, and a release nested inside the callback.
+test("a rights round trip pays each leg's fee, and a transfer nested in its callback is refused", async () => {
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("QpiDualCallee"));
+    sim.deploy(29, await wasm("QpiDual"));
+    sim.fund(contractId(29), 50n);
+
+    const input = new Uint8Array(8);
+    new DataView(input.buffer).setBigUint64(0, 28n, true);
+    const output = new DataView(sim.procedure(29, 5, input).buffer);
+
+    // issued, release fee, managed by the callee after the release, acquire fee, managed by the driver after the acquire, left after a transfer of 30.
+    expect([0, 8, 16, 24, 32, 40].map((offset) => output.getBigInt64(offset, true))).toEqual([100n, 5n, 40n, 7n, 100n, 70n]);
+    expect(sim.balanceOf(28)).toBe(12n);
+
+    const callee = new DataView(sim.query(28, 4).buffer);
+    expect([callee.getBigUint64(0, true), callee.getBigInt64(8, true), callee.getBigInt64(16, true)]).toEqual([4n, 12n, INVALID_AMOUNT]);
 });

@@ -8,8 +8,6 @@ export interface ContractBuildResult {
     wasmK12DigestHex?: string;
     idl?: ContractIdl;
     verify?: VerifyResult;
-    debugWasmPath?: string; // -g DWARF sidecar (deployed wasm is stripped)
-    lineMapPath?: string; // {fileOffset -> file:line:func} map for source-mapped trap backtraces
     stderr?: string;
     idlError?: string; // set (instead of silently dropping idl) when extractIdl throws on a compiled contract
     // non-fatal findings (build-rules.ts BUILD_WARN_RULES): the build succeeded, but what shipped is not what was written.

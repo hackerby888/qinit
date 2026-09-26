@@ -6,7 +6,8 @@ export const STATE_DUMP_DIR = "state";
 
 export const STATE_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
-export type StateDumpRpc = Pick<LiteRpc, "stateRead">;
+// `stateBytes` is the fast path; a node without the route (null) or an rpc without the method falls back to hex reads.
+export type StateDumpRpc = Pick<LiteRpc, "stateRead"> & Partial<Pick<LiteRpc, "stateBytes">>;
 
 export interface StateDumpResult {
     ok: true;
@@ -47,6 +48,15 @@ export function resolveDumpPath(name: string, slot: number, out?: string): strin
     return isDirectoryTarget(out) ? resolve(out, fileName) : resolve(out);
 }
 
+async function readStateHex(rpc: StateDumpRpc, slot: number, offset: number): Promise<{ bytes: Uint8Array; stateSize: number }> {
+    const read = await rpc.stateRead(slot, offset, STATE_READ_CHUNK_BYTES);
+    if (typeof read?.hex !== "string" || !Number.isSafeInteger(read.stateSize)) {
+        throw new Error(`state read failed for slot ${slot}: ${JSON.stringify(read)}`);
+    }
+
+    return { bytes: hexToBytes(read.hex), stateSize: read.stateSize };
+}
+
 // Stream rather than buffer state images that can span hundreds of megabytes.
 export async function dumpContractState(rpc: StateDumpRpc, slot: number, name: string, options: StateDumpOptions = {}): Promise<StateDumpResult> {
     const path = resolveDumpPath(name, slot, options.out);
@@ -55,22 +65,22 @@ export async function dumpContractState(rpc: StateDumpRpc, slot: number, name: s
     const file = openSync(path, "w");
     let written = 0;
     let total = 0;
+    let raw = rpc.stateBytes !== undefined;
 
     try {
         do {
-            const read = await rpc.stateRead(slot, written, STATE_READ_CHUNK_BYTES);
-            if (typeof read?.hex !== "string" || !Number.isSafeInteger(read.stateSize)) {
-                throw new Error(`state read failed for slot ${slot}: ${JSON.stringify(read)}`);
-            }
+            const read = raw ? await rpc.stateBytes!(slot, written, STATE_READ_CHUNK_BYTES) : null;
+            // An older node has no raw route; once it says so, the rest of the dump goes through hex reads.
+            raw = read !== null;
+            const { bytes: chunk, stateSize } = read ?? (await readStateHex(rpc, slot, written));
 
-            total = read.stateSize;
+            total = stateSize;
             // The simulator answers for an unlisted slot with an empty state rather than an error, so an empty dump means no such contract.
             if (!total) {
                 throw new Error(`slot ${slot} has no state — is a contract deployed there?`);
             }
 
             // Advance by what actually arrived: the response echoes the requested length even when short, and the node's state size can move between requests.
-            const chunk = hexToBytes(read.hex);
             if (!chunk.length && written < total) {
                 throw new Error(`state read stalled at ${written} of ${total} bytes`);
             }

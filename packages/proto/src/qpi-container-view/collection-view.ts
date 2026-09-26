@@ -2,9 +2,10 @@ import { decodeAbiValue } from "../abi/decode";
 import { AbiScalarKind, AbiTypeKind, type AbiCollection, type AbiScalar } from "../contract-idl";
 import { collectionGeometry } from "../qpi-layout";
 import { QpiContainerConsistencyError, QpiIncompleteReadError } from "./errors";
-import { occupiedRanges, occupiedSlots, readQpiBytes, readUint64, sint64At, uint64At, type QpiByteSource } from "./source";
+import { occupiedRanges, occupiedSlotIndices, readQpiBytes, readUint64, sint64At, uint64At, type QpiByteSource } from "./source";
 
 const NULL_INDEX = -1n;
+// a pov is keyed by id whatever T is
 const POV_TYPE: AbiScalar = {
     kind: AbiTypeKind.SCALAR,
     scalar: AbiScalarKind.ID,
@@ -13,31 +14,35 @@ const POV_TYPE: AbiScalar = {
     format: "id",
 };
 
+// e.g. { povIndex: 1, elementIndex: 0, pov: "FXHS…", priority: 5n, value: 7n }; two indices since _povs and _elements are separate slot runs
 export interface QpiCollectionEntry {
-    povSlot: number;
+    povIndex: number;
     elementIndex: number;
     pov: unknown;
     priority: bigint;
     value: unknown;
 }
 
+// core: struct PoV { id value; uint64 population; sint64 headIndex, tailIndex; sint64 bstRootIndex; }
 interface CollectionPov {
-    slot: number;
+    povIndex: number;
     value: unknown;
     population: number;
-    head: bigint;
-    tail: bigint;
-    root: bigint;
+    headIndex: bigint;
+    tailIndex: bigint;
+    bstRootIndex: bigint;
 }
 
+// core: struct Element { T value; sint64 priority; sint64 povIndex; sint64 bstParentIndex; sint64 bstLeftIndex; sint64 bstRightIndex; }
 interface CollectionElement {
     priority: bigint;
-    povSlot: bigint;
-    parent: bigint;
-    left: bigint;
-    right: bigint;
+    povIndex: bigint;
+    bstParentIndex: bigint;
+    bstLeftIndex: bigint;
+    bstRightIndex: bigint;
 }
 
+// reads _population, the pov flags, the occupied _povs, then _elements 0..population-1 in one read; each pov's elements come out in bst order
 export class QpiCollectionView {
     readonly kind = AbiTypeKind.COLLECTION;
     readonly capacity: number;
@@ -57,33 +62,34 @@ export class QpiCollectionView {
         assertSource(source, type.size);
     }
 
+    // e.g. one pov holding elements 0 and 1 -> [{ povIndex: 1, elementIndex: 0, priority: 3n, value: 7n }, { povIndex: 1, elementIndex: 1, ... }]; seen != population throws
     async entries(): Promise<QpiCollectionEntry[]> {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
         // Flags read before the empty shortcut: population counts elements, flags index PoVs.
         const flags = await readQpiBytes(this.source, this.geometry.flagsOffset, this.geometry.flagsBytes);
-        const povSlots = occupiedSlots(flags, this.capacity);
+        const povIndices = occupiedSlotIndices(flags, this.capacity);
         if (!population) {
-            if (povSlots.length) {
-                throw new QpiContainerConsistencyError(`Collection has ${povSlots.length} active PoVs but population 0`);
+            if (povIndices.length) {
+                throw new QpiContainerConsistencyError(`Collection has ${povIndices.length} active PoVs but population 0`);
             }
             return [];
         }
-        if (!povSlots.length || povSlots.length > population) {
+        if (!povIndices.length || povIndices.length > population) {
             throw new QpiContainerConsistencyError("Collection population does not match its active PoVs");
         }
 
-        const povs = await this.readPovs(povSlots, population);
+        const povs = await this.readPovs(povIndices, population);
         if (povs.reduce((sum, pov) => sum + pov.population, 0) !== population) {
             throw new QpiContainerConsistencyError("Collection population does not match its PoV populations");
         }
 
         const elementBytes = await readQpiBytes(this.source, this.geometry.elementsOffset, population * this.geometry.elementStride);
         const elements = Array.from({ length: population }, (_, index) => this.elementAt(elementBytes, index));
-        const activePovSlots = new Set(povSlots);
+        const activePovs = new Set(povIndices);
         for (let index = 0; index < elements.length; index++) {
-            const povSlot = elements[index].povSlot;
-            if (povSlot < 0n || povSlot >= BigInt(this.capacity) || !activePovSlots.has(Number(povSlot))) {
-                throw new QpiContainerConsistencyError(`Collection element ${index} has invalid PoV ${povSlot}`);
+            const povIndex = elements[index].povIndex;
+            if (povIndex < 0n || povIndex >= BigInt(this.capacity) || !activePovs.has(Number(povIndex))) {
+                throw new QpiContainerConsistencyError(`Collection element ${index} has invalid PoV ${povIndex}`);
             }
         }
 
@@ -94,7 +100,7 @@ export class QpiCollectionView {
             for (const elementIndex of orderedIndices) {
                 const offset = elementIndex * this.geometry.elementStride;
                 entries.push({
-                    povSlot: pov.slot,
+                    povIndex: pov.povIndex,
                     elementIndex,
                     pov: pov.value,
                     priority: elements[elementIndex].priority,
@@ -112,9 +118,10 @@ export class QpiCollectionView {
         return entries;
     }
 
-    private async readPovs(slots: number[], totalPopulation: number): Promise<CollectionPov[]> {
+    // e.g. pov slot 1 -> a 64-byte read at 64: id at +0, population +32, headIndex +40, tailIndex +48, bstRootIndex +56
+    private async readPovs(povIndices: number[], totalPopulation: number): Promise<CollectionPov[]> {
         const povs: CollectionPov[] = [];
-        for (const range of occupiedRanges(slots)) {
+        for (const range of occupiedRanges(povIndices)) {
             const count = range.end - range.start + 1;
             const bytes = await readQpiBytes(this.source, this.geometry.povsOffset + range.start * this.geometry.povStride, count * this.geometry.povStride);
             for (let index = 0; index < count; index++) {
@@ -124,36 +131,39 @@ export class QpiCollectionView {
                     throw new QpiContainerConsistencyError(`Collection PoV ${range.start + index} is active but empty`);
                 }
                 povs.push({
-                    slot: range.start + index,
+                    povIndex: range.start + index,
                     value: await decodeAbiValue(
                         bytes.slice(offset + this.geometry.povValueOffset, offset + this.geometry.povValueOffset + POV_TYPE.size),
                         POV_TYPE,
                     ),
                     population,
-                    head: sint64At(bytes, offset + this.geometry.povHeadOffset),
-                    tail: sint64At(bytes, offset + this.geometry.povTailOffset),
-                    root: sint64At(bytes, offset + this.geometry.povBstRootOffset),
+                    headIndex: sint64At(bytes, offset + this.geometry.povHeadIndexOffset),
+                    tailIndex: sint64At(bytes, offset + this.geometry.povTailIndexOffset),
+                    bstRootIndex: sint64At(bytes, offset + this.geometry.povBstRootIndexOffset),
                 });
             }
         }
         return povs;
     }
 
+    // the trailer after the value: priority, povIndex, bstParent, bstLeft, bstRight, 8 bytes each
     private elementAt(bytes: Uint8Array, index: number): CollectionElement {
         const offset = index * this.geometry.elementStride;
         return {
             priority: sint64At(bytes, offset + this.geometry.elementPriorityOffset),
-            povSlot: sint64At(bytes, offset + this.geometry.elementPovIndexOffset),
-            parent: sint64At(bytes, offset + this.geometry.elementBstParentOffset),
-            left: sint64At(bytes, offset + this.geometry.elementBstLeftOffset),
-            right: sint64At(bytes, offset + this.geometry.elementBstRightOffset),
+            povIndex: sint64At(bytes, offset + this.geometry.elementPovIndexOffset),
+            bstParentIndex: sint64At(bytes, offset + this.geometry.elementBstParentIndexOffset),
+            bstLeftIndex: sint64At(bytes, offset + this.geometry.elementBstLeftIndexOffset),
+            bstRightIndex: sint64At(bytes, offset + this.geometry.elementBstRightIndexOffset),
         };
     }
 
+    // in-order walk of the pov's bst with an explicit stack, e.g. root 1 with left 0 and right 2 -> [0, 1, 2]
+    // head, tail, population and every parent link are checked on the way
     private walkPov(pov: CollectionPov, elements: CollectionElement[], seen: Set<number>, population: number): number[] {
-        const root = elementIndex(pov.root, population, "root");
-        const head = elementIndex(pov.head, population, "head");
-        const tail = elementIndex(pov.tail, population, "tail");
+        const root = elementIndex(pov.bstRootIndex, population, "root");
+        const head = elementIndex(pov.headIndex, population, "head");
+        const tail = elementIndex(pov.tailIndex, population, "tail");
         const ordered: number[] = [];
         const stack: Array<{
             index: number;
@@ -171,30 +181,30 @@ export class QpiCollectionView {
                 throw new QpiContainerConsistencyError(`Collection element ${frame.index} is repeated or cyclic`);
             }
             const element = elements[frame.index];
-            if (element.povSlot !== BigInt(pov.slot)) {
-                throw new QpiContainerConsistencyError(`Collection element ${frame.index} belongs to PoV ${element.povSlot}, expected ${pov.slot}`);
+            if (element.povIndex !== BigInt(pov.povIndex)) {
+                throw new QpiContainerConsistencyError(`Collection element ${frame.index} belongs to PoV ${element.povIndex}, expected ${pov.povIndex}`);
             }
-            if (element.parent !== frame.parent) {
-                throw new QpiContainerConsistencyError(`Collection element ${frame.index} has parent ${element.parent}, expected ${frame.parent}`);
+            if (element.bstParentIndex !== frame.parent) {
+                throw new QpiContainerConsistencyError(`Collection element ${frame.index} has parent ${element.bstParentIndex}, expected ${frame.parent}`);
             }
             seen.add(frame.index);
 
-            const right = optionalElementIndex(element.right, population, "right");
+            const right = optionalElementIndex(element.bstRightIndex, population, "right");
             if (right !== null) {
                 stack.push({ index: right, parent: BigInt(frame.index), emit: false });
             }
             stack.push({ ...frame, emit: true });
-            const left = optionalElementIndex(element.left, population, "left");
+            const left = optionalElementIndex(element.bstLeftIndex, population, "left");
             if (left !== null) {
                 stack.push({ index: left, parent: BigInt(frame.index), emit: false });
             }
         }
 
         if (ordered.length !== pov.population) {
-            throw new QpiContainerConsistencyError(`Collection PoV ${pov.slot} has ${ordered.length} elements, expected ${pov.population}`);
+            throw new QpiContainerConsistencyError(`Collection PoV ${pov.povIndex} has ${ordered.length} elements, expected ${pov.population}`);
         }
         if (ordered[0] !== head || ordered[ordered.length - 1] !== tail) {
-            throw new QpiContainerConsistencyError(`Collection PoV ${pov.slot} has an invalid head or tail`);
+            throw new QpiContainerConsistencyError(`Collection PoV ${pov.povIndex} has an invalid head or tail`);
         }
         return ordered;
     }
@@ -236,6 +246,7 @@ function elementIndex(value: bigint, population: number, label: string): number 
     return Number(value);
 }
 
+// -1n -> null (no child), else the index
 function optionalElementIndex(value: bigint, population: number, label: string): number | null {
     return value === NULL_INDEX ? null : elementIndex(value, population, label);
 }

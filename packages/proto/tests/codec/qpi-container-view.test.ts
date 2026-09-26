@@ -259,20 +259,20 @@ test("HashMap view groups occupied ranges across flag words", async () => {
         [2, 22, 202],
         [33, 66, 606],
     ]) {
-        setUint64(mapBytes, slot * mapGeometry.recordStride, key);
-        setUint64(mapBytes, slot * mapGeometry.recordStride + mapGeometry.valueOffset, value);
+        setUint64(mapBytes, slot * mapGeometry.elementStride, key);
+        setUint64(mapBytes, slot * mapGeometry.elementStride + mapGeometry.elementValueOffset, value);
     }
     const mapSource = sourceOf(mapBytes);
     expect(await new QpiHashMapView(mapType, mapSource.source).entries()).toEqual([
-        { slot: 1, key: 11n, value: 101n },
-        { slot: 2, key: 22n, value: 202n },
-        { slot: 33, key: 66n, value: 606n },
+        { elementIndex: 1, key: 11n, value: 101n },
+        { elementIndex: 2, key: 22n, value: 202n },
+        { elementIndex: 33, key: 66n, value: 606n },
     ]);
     expect(mapSource.reads).toEqual([
         [mapGeometry.populationOffset, 8],
         [mapGeometry.flagsOffset, mapGeometry.flagsBytes],
-        [mapGeometry.recordStride, mapGeometry.recordStride * 2],
-        [mapGeometry.recordStride * 33, mapGeometry.recordStride],
+        [mapGeometry.elementStride, mapGeometry.elementStride * 2],
+        [mapGeometry.elementStride * 33, mapGeometry.elementStride],
     ]);
 
     setUint64(mapBytes, mapGeometry.populationOffset, 2);
@@ -290,11 +290,11 @@ test("HashSet view excludes marked-for-removal slots", async () => {
         format: "",
     };
     const setBytes = new Uint8Array(setType.size);
-    setUint64(setBytes, setGeometry.recordStride * 3, 33);
+    setUint64(setBytes, setGeometry.keyStride * 3, 33);
     setBytes[setGeometry.flagsOffset] = (2 << 2) | (1 << 6);
     setUint64(setBytes, setGeometry.populationOffset, 1);
-    expect(await new QpiHashSetView(setType, qpiSnapshotSource(setBytes)).entries()).toEqual([{ slot: 3, key: 33n }]);
-    expect(await decodeAbi(setBytes, setType)).toEqual([{ slot: 3, key: 33n }]);
+    expect(await new QpiHashSetView(setType, qpiSnapshotSource(setBytes)).entries()).toEqual([{ elementIndex: 3, key: 33n }]);
+    expect(await decodeAbi(setBytes, setType)).toEqual([{ elementIndex: 3, key: 33n }]);
 });
 
 test("Collection view validates and walks each active PoV tree", async () => {
@@ -311,25 +311,25 @@ test("Collection view validates and walks each active PoV tree", async () => {
     bytes[geometry.flagsOffset] = 1 | (1 << 4);
     setUint64(bytes, geometry.populationOffset, 4);
     setUint64(bytes, geometry.povPopulationOffset, 3);
-    setInt64(bytes, geometry.povHeadOffset, 1);
-    setInt64(bytes, geometry.povTailOffset, 2);
-    setInt64(bytes, geometry.povBstRootOffset, 0);
+    setInt64(bytes, geometry.povHeadIndexOffset, 1);
+    setInt64(bytes, geometry.povTailIndexOffset, 2);
+    setInt64(bytes, geometry.povBstRootIndexOffset, 0);
 
     const secondPov = geometry.povStride * 2;
     bytes[secondPov + geometry.povValueOffset] = 1;
     setUint64(bytes, secondPov + geometry.povPopulationOffset, 1);
-    setInt64(bytes, secondPov + geometry.povHeadOffset, 3);
-    setInt64(bytes, secondPov + geometry.povTailOffset, 3);
-    setInt64(bytes, secondPov + geometry.povBstRootOffset, 3);
+    setInt64(bytes, secondPov + geometry.povHeadIndexOffset, 3);
+    setInt64(bytes, secondPov + geometry.povTailIndexOffset, 3);
+    setInt64(bytes, secondPov + geometry.povBstRootIndexOffset, 3);
 
     const element = (index: number, value: number, priority: number, parent: number, left: number, right: number, pov = 0) => {
         const offset = geometry.elementsOffset + index * geometry.elementStride;
         setUint64(bytes, offset + geometry.elementValueOffset, value);
         setInt64(bytes, offset + geometry.elementPriorityOffset, priority);
         setInt64(bytes, offset + geometry.elementPovIndexOffset, pov);
-        setInt64(bytes, offset + geometry.elementBstParentOffset, parent);
-        setInt64(bytes, offset + geometry.elementBstLeftOffset, left);
-        setInt64(bytes, offset + geometry.elementBstRightOffset, right);
+        setInt64(bytes, offset + geometry.elementBstParentIndexOffset, parent);
+        setInt64(bytes, offset + geometry.elementBstLeftIndexOffset, left);
+        setInt64(bytes, offset + geometry.elementBstRightIndexOffset, right);
     };
     element(0, 50, 5, -1, 1, 2);
     element(1, 90, 9, 0, -1, -1);
@@ -349,11 +349,11 @@ test("Collection view validates and walks each active PoV tree", async () => {
         { elementIndex: 2, priority: 2n, value: 20n },
         { elementIndex: 3, priority: 7n, value: 70n },
     ]);
-    expect(entries.map((entry) => entry.povSlot)).toEqual([0, 0, 0, 2]);
+    expect(entries.map((entry) => entry.povIndex)).toEqual([0, 0, 0, 2]);
     expect(entries[0].pov).not.toBe(entries[3].pov);
     expect(await decodeAbi(bytes, type)).toEqual(entries);
 
-    setInt64(bytes, geometry.elementsOffset + geometry.elementStride + geometry.elementBstParentOffset, 2);
+    setInt64(bytes, geometry.elementsOffset + geometry.elementStride + geometry.elementBstParentIndexOffset, 2);
     await expect(new QpiCollectionView(type, qpiSnapshotSource(bytes)).entries()).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 
@@ -369,8 +369,8 @@ test("LinkedList view follows logical order and rejects broken links", async () 
     };
     const bytes = new Uint8Array(type.size);
     bytes[geometry.flagsOffset] = (1 << 1) | (1 << 2) | (1 << 6);
-    setInt64(bytes, geometry.headOffset, 6);
-    setInt64(bytes, geometry.tailOffset, 2);
+    setInt64(bytes, geometry.headIndexOffset, 6);
+    setInt64(bytes, geometry.tailIndexOffset, 2);
     setUint64(bytes, geometry.populationOffset, 3);
     for (const [slot, value, next, previous] of [
         [6, 66, 1, -1],
@@ -379,17 +379,17 @@ test("LinkedList view follows logical order and rejects broken links", async () 
     ]) {
         const offset = slot * geometry.nodeStride;
         setUint64(bytes, offset, value);
-        setInt64(bytes, offset + geometry.nextOffset, next);
-        setInt64(bytes, offset + geometry.prevOffset, previous);
+        setInt64(bytes, offset + geometry.nextIndexOffset, next);
+        setInt64(bytes, offset + geometry.prevIndexOffset, previous);
     }
 
     expect(await new QpiLinkedListView(type, qpiSnapshotSource(bytes)).entries()).toEqual([
-        { slot: 6, value: 66n },
-        { slot: 1, value: 11n },
-        { slot: 2, value: 22n },
+        { elementIndex: 6, value: 66n },
+        { elementIndex: 1, value: 11n },
+        { elementIndex: 2, value: 22n },
     ]);
 
-    setInt64(bytes, geometry.nodeStride + geometry.prevOffset, 2);
+    setInt64(bytes, geometry.nodeStride + geometry.prevIndexOffset, 2);
     await expect(new QpiLinkedListView(type, qpiSnapshotSource(bytes)).entries()).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 
@@ -475,8 +475,8 @@ test("HashMap view lists a sparse 545 MB map without walking every slot", async 
     const seeded = new Map<number, number>();
     const slots = [0, 9822, HUGE_CAPACITY - 1];
     for (const [index, slot] of slots.entries()) {
-        seedUint64(seeded, slot * geometry.recordStride, 100 + index);
-        seedUint64(seeded, slot * geometry.recordStride + geometry.valueOffset, 200 + index);
+        seedUint64(seeded, slot * geometry.elementStride, 100 + index);
+        seedUint64(seeded, slot * geometry.elementStride + geometry.elementValueOffset, 200 + index);
         seedFlag(seeded, geometry.flagsOffset, slot, 1);
     }
     seedUint64(seeded, geometry.populationOffset, slots.length);
@@ -485,9 +485,9 @@ test("HashMap view lists a sparse 545 MB map without walking every slot", async 
     const entries = await new QpiHashMapView(type, sparseSourceOf(type.size, seeded)).entries();
 
     expect(entries).toEqual([
-        { slot: 0, key: 100n, value: 200n },
-        { slot: 9822, key: 101n, value: 201n },
-        { slot: HUGE_CAPACITY - 1, key: 102n, value: 202n },
+        { elementIndex: 0, key: 100n, value: 200n },
+        { elementIndex: 9822, key: 101n, value: 201n },
+        { elementIndex: HUGE_CAPACITY - 1, key: 102n, value: 202n },
     ]);
     // One flag word read per 32 slots rather than one per slot: the old scan takes ~2700 ms here and the current one ~150 ms, so the bound clears both.
     expect(performance.now() - started).toBeLessThan(1000);
@@ -508,15 +508,15 @@ test("HashSet view lists a sparse large set by slot", async () => {
     const seeded = new Map<number, number>();
     const slots = [0, 300_000, capacity - 1];
     for (const [index, slot] of slots.entries()) {
-        seedUint64(seeded, slot * geometry.recordStride, 70 + index);
+        seedUint64(seeded, slot * geometry.keyStride, 70 + index);
         seedFlag(seeded, geometry.flagsOffset, slot, 1);
     }
     seedUint64(seeded, geometry.populationOffset, slots.length);
 
     expect(await new QpiHashSetView(type, sparseSourceOf(type.size, seeded)).entries()).toEqual([
-        { slot: 0, key: 70n },
-        { slot: 300_000, key: 71n },
-        { slot: capacity - 1, key: 72n },
+        { elementIndex: 0, key: 70n },
+        { elementIndex: 300_000, key: 71n },
+        { elementIndex: capacity - 1, key: 72n },
     ]);
 });
 
@@ -558,11 +558,11 @@ test("HashMap view ignores flag bits past a capacity shorter than one word", asy
     const bytes = new Uint8Array(type.size);
     bytes[geometry.flagsOffset] = 1 << 2; // slot 1
     bytes[geometry.flagsOffset + 1] = 1; // slot 4, one past the last
-    setUint64(bytes, geometry.recordStride, 11);
-    setUint64(bytes, geometry.recordStride + geometry.valueOffset, 101);
+    setUint64(bytes, geometry.elementStride, 11);
+    setUint64(bytes, geometry.elementStride + geometry.elementValueOffset, 101);
     setUint64(bytes, geometry.populationOffset, 1);
 
-    expect(await new QpiHashMapView(type, qpiSnapshotSource(bytes)).entries()).toEqual([{ slot: 1, key: 11n, value: 101n }]);
+    expect(await new QpiHashMapView(type, qpiSnapshotSource(bytes)).entries()).toEqual([{ elementIndex: 1, key: 11n, value: 101n }]);
 });
 
 // containers nested inside containers: no fixture above reaches past one container level
@@ -581,21 +581,21 @@ const nestedListGeometry = linkedListGeometry(u64, 2);
 // Slot 1 holds owners [id(1), id(2)] / 99, and a two-node list whose logical order is node 1 then node 0.
 function nestedMapBytes(): Uint8Array {
     const bytes = new Uint8Array(NESTED_MAP.size);
-    const record = nestedMapGeometry.recordStride; // slot 1
+    const record = nestedMapGeometry.elementStride; // slot 1
     bytes[record] = 1;
     bytes[record + 32] = 2;
     setNested.u64(bytes, record + 64, 99);
 
-    const list = record + nestedMapGeometry.valueOffset;
+    const list = record + nestedMapGeometry.elementValueOffset;
     setNested.u64(bytes, list, 9);
-    setNested.i64(bytes, list + nestedListGeometry.nextOffset, -1);
-    setNested.i64(bytes, list + nestedListGeometry.prevOffset, 1);
+    setNested.i64(bytes, list + nestedListGeometry.nextIndexOffset, -1);
+    setNested.i64(bytes, list + nestedListGeometry.prevIndexOffset, 1);
     setNested.u64(bytes, list + nestedListGeometry.nodeStride, 7);
-    setNested.i64(bytes, list + nestedListGeometry.nodeStride + nestedListGeometry.nextOffset, 0);
-    setNested.i64(bytes, list + nestedListGeometry.nodeStride + nestedListGeometry.prevOffset, -1);
+    setNested.i64(bytes, list + nestedListGeometry.nodeStride + nestedListGeometry.nextIndexOffset, 0);
+    setNested.i64(bytes, list + nestedListGeometry.nodeStride + nestedListGeometry.prevIndexOffset, -1);
     setNested.u64(bytes, list + nestedListGeometry.flagsOffset, 3); // both nodes occupied, one bit each
-    setNested.i64(bytes, list + nestedListGeometry.headOffset, 1);
-    setNested.i64(bytes, list + nestedListGeometry.tailOffset, 0);
+    setNested.i64(bytes, list + nestedListGeometry.headIndexOffset, 1);
+    setNested.i64(bytes, list + nestedListGeometry.tailIndexOffset, 0);
     setNested.u64(bytes, list + nestedListGeometry.populationOffset, 2);
 
     setNested.u64(bytes, nestedMapGeometry.flagsOffset, 4); // slot 1 occupied: two bits per slot
@@ -610,11 +610,11 @@ test("a HashMap with a struct key and a LinkedList value decodes both nestings",
 
     expect(await decodeAbiValue(nestedMapBytes(), NESTED_MAP)).toEqual([
         {
-            slot: 1,
+            elementIndex: 1,
             key: [[await identityOfFirstByte(1), await identityOfFirstByte(2)], 99n],
             value: [
-                { slot: 1, value: 7n }, // logical order, not slot order
-                { slot: 0, value: 9n },
+                { elementIndex: 1, value: 7n }, // logical order, not slot order
+                { elementIndex: 0, value: 9n },
             ],
         },
     ]);
@@ -626,7 +626,7 @@ test("an inconsistent nested container fails from inside the outer one", async (
     await expect(decodeAbiValue(badPopulation, NESTED_MAP)).rejects.toThrow(/HashMap has 1 occupied slots but population 2/);
 
     const badHead = nestedMapBytes();
-    setNested.i64(badHead, nestedMapGeometry.recordStride + nestedMapGeometry.valueOffset + nestedListGeometry.headOffset, 0);
+    setNested.i64(badHead, nestedMapGeometry.elementStride + nestedMapGeometry.elementValueOffset + nestedListGeometry.headIndexOffset, 0);
     await expect(decodeAbiValue(badHead, NESTED_MAP)).rejects.toThrow(/LinkedList slot 0 has previous 1, expected -1/);
 
     await expect(decodeAbiValue(nestedMapBytes().slice(0, NESTED_MAP.size - 1), NESTED_MAP)).rejects.toThrow(RangeError);
@@ -642,9 +642,9 @@ function nestedCollectionBytes(): Uint8Array {
     const bytes = new Uint8Array(NESTED_COLLECTION.size);
     bytes[nestedCollectionGeometry.povValueOffset] = 3;
     setNested.u64(bytes, nestedCollectionGeometry.povPopulationOffset, 2);
-    setNested.i64(bytes, nestedCollectionGeometry.povHeadOffset, 1);
-    setNested.i64(bytes, nestedCollectionGeometry.povTailOffset, 0);
-    setNested.i64(bytes, nestedCollectionGeometry.povBstRootOffset, 0);
+    setNested.i64(bytes, nestedCollectionGeometry.povHeadIndexOffset, 1);
+    setNested.i64(bytes, nestedCollectionGeometry.povTailIndexOffset, 0);
+    setNested.i64(bytes, nestedCollectionGeometry.povBstRootIndexOffset, 0);
     setNested.u64(bytes, nestedCollectionGeometry.flagsOffset, 1);
 
     const first = nestedCollectionGeometry.elementsOffset;
@@ -652,15 +652,15 @@ function nestedCollectionBytes(): Uint8Array {
     setNested.u64(bytes, first, 0b101); // bits 0 and 2 set, LSB-first
     setNested.u64(bytes, first + 8, 5); // uint128 low limb
     setNested.i64(bytes, first + nestedCollectionGeometry.elementPriorityOffset, 5);
-    setNested.i64(bytes, first + nestedCollectionGeometry.elementBstParentOffset, -1);
-    setNested.i64(bytes, first + nestedCollectionGeometry.elementBstLeftOffset, 1);
-    setNested.i64(bytes, first + nestedCollectionGeometry.elementBstRightOffset, -1);
+    setNested.i64(bytes, first + nestedCollectionGeometry.elementBstParentIndexOffset, -1);
+    setNested.i64(bytes, first + nestedCollectionGeometry.elementBstLeftIndexOffset, 1);
+    setNested.i64(bytes, first + nestedCollectionGeometry.elementBstRightIndexOffset, -1);
 
     setNested.u64(bytes, second + 16, 1); // uint128 HIGH limb: 2^64, so limb order survives the nesting
     setNested.i64(bytes, second + nestedCollectionGeometry.elementPriorityOffset, 2);
-    setNested.i64(bytes, second + nestedCollectionGeometry.elementBstParentOffset, 0);
-    setNested.i64(bytes, second + nestedCollectionGeometry.elementBstLeftOffset, -1);
-    setNested.i64(bytes, second + nestedCollectionGeometry.elementBstRightOffset, -1);
+    setNested.i64(bytes, second + nestedCollectionGeometry.elementBstParentIndexOffset, 0);
+    setNested.i64(bytes, second + nestedCollectionGeometry.elementBstLeftIndexOffset, -1);
+    setNested.i64(bytes, second + nestedCollectionGeometry.elementBstRightIndexOffset, -1);
 
     setNested.u64(bytes, nestedCollectionGeometry.populationOffset, 2);
     return bytes;
@@ -670,14 +670,14 @@ test("a Collection of a struct holding a BitArray and a uint128 walks the PoV tr
     expect(NESTED_COLLECTION.size).toBe(280);
 
     const entries = (await decodeAbiValue(nestedCollectionBytes(), NESTED_COLLECTION)) as {
-        povSlot: number;
+        povIndex: number;
         pov: string;
         elementIndex: number;
         priority: bigint;
         value: [number[], bigint];
     }[];
 
-    expect(entries.map((entry) => [entry.povSlot, entry.elementIndex, entry.priority])).toEqual([
+    expect(entries.map((entry) => [entry.povIndex, entry.elementIndex, entry.priority])).toEqual([
         [0, 1, 2n],
         [0, 0, 5n],
     ]);
@@ -695,7 +695,7 @@ test("a broken Collection element tree is rejected rather than partially walked"
     const badParent = nestedCollectionBytes();
     setNested.i64(
         badParent,
-        nestedCollectionGeometry.elementsOffset + nestedCollectionGeometry.elementStride + nestedCollectionGeometry.elementBstParentOffset,
+        nestedCollectionGeometry.elementsOffset + nestedCollectionGeometry.elementStride + nestedCollectionGeometry.elementBstParentIndexOffset,
         -1,
     );
     await expect(decodeAbiValue(badParent, NESTED_COLLECTION)).rejects.toThrow(/Collection element 1 has parent -1, expected 0/);
@@ -710,14 +710,14 @@ test("an array of HashMap of BitArray decodes an empty inner container as no ent
     const bytes = new Uint8Array(type.size);
     const second = inner.size; // the first map stays all zero
     bytes[second] = 7;
-    setNested.u64(bytes, second + geometry.valueOffset, 0b1011);
+    setNested.u64(bytes, second + geometry.elementValueOffset, 0b1011);
     setNested.u64(bytes, second + geometry.flagsOffset, 1);
     setNested.u64(bytes, second + geometry.populationOffset, 1);
 
-    const decoded = (await decodeAbiValue(bytes, type)) as { slot: number; key: string; value: number[] }[][];
+    const decoded = (await decodeAbiValue(bytes, type)) as { elementIndex: number; key: string; value: number[] }[][];
     expect(decoded[0]).toEqual([]); // an empty map is no entries, not one null entry
     expect(decoded[1].length).toBe(1);
-    expect(decoded[1][0].slot).toBe(0);
+    expect(decoded[1][0].elementIndex).toBe(0);
     expect(decoded[1][0].key).toBe(await identityOfFirstByte(7));
     expect(decoded[1][0].value.slice(0, 4)).toEqual([1, 1, 0, 1]);
 
@@ -731,10 +731,10 @@ test("a container can be a HashMap key, a struct field, and a LinkedList value",
     const keyedByMap = validated(hm(innerMap, u8, 2));
     const outerGeometry = hashMapGeometry(innerMap, u8, 2);
     const keyedBytes = new Uint8Array(keyedByMap.size);
-    keyedBytes[outerGeometry.valueOffset] = 42;
+    keyedBytes[outerGeometry.elementValueOffset] = 42;
     setNested.u64(keyedBytes, outerGeometry.flagsOffset, 1);
     setNested.u64(keyedBytes, outerGeometry.populationOffset, 1);
-    expect(await decodeAbiValue(keyedBytes, keyedByMap)).toEqual([{ slot: 0, key: [], value: 42 }]);
+    expect(await decodeAbiValue(keyedBytes, keyedByMap)).toEqual([{ elementIndex: 0, key: [], value: 42 }]);
 
     const withNeighbours = validated(st(u8, hm(u8, u64, 2), u16)) as AbiStruct;
     const fieldGeometry = hashMapGeometry(u8, u64, 2);
@@ -742,27 +742,27 @@ test("a container can be a HashMap key, a struct field, and a LinkedList value",
     const structBytes = new Uint8Array(withNeighbours.size);
     structBytes[0] = 7;
     structBytes[8] = 1;
-    setNested.u64(structBytes, 8 + fieldGeometry.valueOffset, 2);
+    setNested.u64(structBytes, 8 + fieldGeometry.elementValueOffset, 2);
     setNested.u64(structBytes, 8 + fieldGeometry.flagsOffset, 1);
     setNested.u64(structBytes, 8 + fieldGeometry.populationOffset, 1);
     new DataView(structBytes.buffer).setUint16(64, 513, true);
-    expect(await decodeAbiValue(structBytes, withNeighbours)).toEqual([7, [{ slot: 0, key: 1, value: 2n }], 513]);
+    expect(await decodeAbiValue(structBytes, withNeighbours)).toEqual([7, [{ elementIndex: 0, key: 1, value: 2n }], 513]);
 
     const listOfMaps = validated(ll(innerMap, 2));
     const listGeometry = linkedListGeometry(innerMap, 2);
     const innerGeometry = hashMapGeometry(u8, u8, 2);
     const listBytes = new Uint8Array(listOfMaps.size);
     listBytes[0] = 1;
-    listBytes[innerGeometry.valueOffset] = 2;
+    listBytes[innerGeometry.elementValueOffset] = 2;
     setNested.u64(listBytes, innerGeometry.flagsOffset, 1);
     setNested.u64(listBytes, innerGeometry.populationOffset, 1);
-    setNested.i64(listBytes, listGeometry.nextOffset, -1);
-    setNested.i64(listBytes, listGeometry.prevOffset, -1);
+    setNested.i64(listBytes, listGeometry.nextIndexOffset, -1);
+    setNested.i64(listBytes, listGeometry.prevIndexOffset, -1);
     setNested.u64(listBytes, listGeometry.flagsOffset, 1);
-    setNested.i64(listBytes, listGeometry.headOffset, 0);
-    setNested.i64(listBytes, listGeometry.tailOffset, 0);
+    setNested.i64(listBytes, listGeometry.headIndexOffset, 0);
+    setNested.i64(listBytes, listGeometry.tailIndexOffset, 0);
     setNested.u64(listBytes, listGeometry.populationOffset, 1);
-    expect(await decodeAbiValue(listBytes, listOfMaps)).toEqual([{ slot: 0, value: [{ slot: 0, key: 1, value: 2 }] }]);
+    expect(await decodeAbiValue(listBytes, listOfMaps)).toEqual([{ elementIndex: 0, value: [{ elementIndex: 0, key: 1, value: 2 }] }]);
 });
 
 test("a nested container view refuses a source shorter than the container it describes", () => {

@@ -51,6 +51,7 @@ export enum AbiContainerKind {
     LINKED_LIST = "linked_list",
 }
 
+// every AbiType carries its layout and its type-format text, e.g. uint64 is { size: 8, align: 8, format: "uint64" }
 interface AbiTypeBase {
     size: number;
     align: number;
@@ -62,6 +63,7 @@ export interface AbiScalar extends AbiTypeBase {
     scalar: AbiScalarKind;
 }
 
+// name is the C++ struct name, e.g. "Get_output"; an entry's struct carries format without braces ("uint64", not "{ uint64 }")
 export interface AbiStruct extends AbiTypeBase {
     kind: AbiTypeKind.STRUCT;
     name?: string;
@@ -74,17 +76,22 @@ export interface AbiArray extends AbiTypeBase {
     element: AbiType;
 }
 
+// bitCount is logical bits; storage is whole uint64 words, so BitArray<8> is size 8 with format "[1;uint64]"
 export interface AbiBitArray extends AbiTypeBase {
     kind: AbiTypeKind.BIT_ARRAY;
     bitCount: number;
 }
 
+// format is core's physical struct (povs, pov flags, elements, population, markRemovalCounter),
+// e.g. Collection<uint64, 4> -> "{ [4;{ id, uint64, sint64, sint64, sint64 }], [1;uint64], [4;{ uint64, sint64, sint64, sint64, sint64, sint64 }], uint64, uint64 }"
 export interface AbiCollection extends AbiTypeBase {
     kind: AbiTypeKind.COLLECTION;
     capacity: number;
     value: AbiType;
 }
 
+// format is core's physical struct (elements, occupation flags, population, markRemovalCounter),
+// e.g. HashMap<id, uint64, 2> -> "{ [2;{ id, uint64 }], [1;uint64], uint64, uint64 }"
 export interface AbiHashMap extends AbiTypeBase {
     kind: AbiTypeKind.HASH_MAP;
     capacity: number;
@@ -92,20 +99,24 @@ export interface AbiHashMap extends AbiTypeBase {
     value: AbiType;
 }
 
+// e.g. HashSet<id, 64> -> "{ [64;id], [2;uint64], uint64, uint64 }": the keys, their occupation flags, population, markRemovalCounter
 export interface AbiHashSet extends AbiTypeBase {
     kind: AbiTypeKind.HASH_SET;
     capacity: number;
     key: AbiType;
 }
 
+// e.g. LinkedList<uint64, 8> -> "{ [8;{ uint64, sint64, sint64 }], [1;uint64], sint64, sint64, sint64, uint64, uint64 }": nodes, occupied flags, head, tail, freeHead, nextUnused, population
 export interface AbiLinkedList extends AbiTypeBase {
     kind: AbiTypeKind.LINKED_LIST;
     capacity: number;
     value: AbiType;
 }
 
+// one node of a type tree, discriminated on kind, e.g. Array<uint64, 4> is { kind: "array", count: 4, element: <uint64>, size: 32, align: 8, format: "[4;uint64]" }
 export type AbiType = AbiScalar | AbiStruct | AbiArray | AbiBitArray | AbiCollection | AbiHashMap | AbiHashSet | AbiLinkedList;
 
+// e.g. { name: "counter", offset: 0, size: 8, type: <uint64> }; offset is absolute in the struct, so a union has two fields at 0
 export interface AbiField {
     name: string;
     offset: number;
@@ -113,6 +124,7 @@ export interface AbiField {
     type: AbiType;
 }
 
+// one function or procedure, e.g. { name: "Get", inputType: 1, inSize: 1, outSize: 8, input: <struct>, output: <struct> }
 export interface ContractEntry {
     name: string;
     inputType: number;
@@ -123,6 +135,7 @@ export interface ContractEntry {
     notification?: boolean; // oracle-reply callback: the node dispatches it, users never invoke it
 }
 
+// members keyed by the value as text, e.g. { name: "Status", underlying: "uint8", members: { "0": "Pending", "1": "Done" } }
 export interface ContractEnum {
     name: string;
     underlying: AbiScalarKind;
@@ -150,10 +163,12 @@ export interface ContractCheat {
     parts: ContractCheatPart[];
 }
 
+// the previous state layout a MIGRATE reads from
 export interface ContractMigration {
     oldState: AbiStruct;
 }
 
+// one parsed contract, e.g. { version: 5, name: "Counter", slot: 29, functions, procedures, state, enums, logs, cheats, dependencies }
 export interface ContractIdl {
     version: typeof QINIT_IDL_VERSION;
     name: string;
@@ -169,17 +184,18 @@ export interface ContractIdl {
     dependencies: string[];
 }
 
+// the IDL plus what the build produced: codeHash
 export interface ContractIdlArtifact extends ContractIdl {
     codeHash?: string;
-    debugWasm?: string;
-    linesJson?: string;
 }
 
+// idl.json on disk, contracts keyed by slot as text, e.g. { version: 5, contracts: { "29": <artifact> } }
 export interface ContractIdlFile {
     version: typeof QINIT_IDL_VERSION;
     contracts: Record<string, ContractIdlArtifact>;
 }
 
+// convert an AbiType to a string representation, field names dropped, e.g. "{ uint64, uint8 }" or "[4;uint64]"
 export function formatAbiType(type: AbiType): string {
     switch (type.kind) {
         case AbiTypeKind.SCALAR:
@@ -203,6 +219,7 @@ export function formatAbiType(type: AbiType): string {
     }
 }
 
+// e.g. Array<HashMap<...>> with hash_map -> true; what refuses a container in a public interface
 export function abiTypeContainsKind(type: AbiType, kind: AbiTypeKind): boolean {
     if (type.kind === kind) {
         return true;
@@ -232,18 +249,21 @@ const FORBIDDEN_PUBLIC_TYPES: readonly (readonly [AbiTypeKind, string])[] = [
     [AbiTypeKind.LINKED_LIST, "LinkedList"],
 ];
 
+// the name a public type is refused by, e.g. a HashMap input -> "HashMap", a plain struct -> undefined
 export function forbiddenPublicType(type: AbiType): string | undefined {
     return FORBIDDEN_PUBLIC_TYPES.find(([kind]) => abiTypeContainsKind(type, kind))?.[1];
 }
 
+// raw idl json -> validated ContractIdl, e.g. throws "IDL version must be 5" or "IDL state must be a struct"
 export function parseContractIdl(value: unknown): ContractIdl {
     return parseContract(value, "IDL");
 }
 
+// raw idl.json -> ContractIdlFile, every artifact re-validated and its key checked against artifact.slot
 export function parseContractIdlFile(value: unknown): ContractIdlFile {
-    const file = objectValue(value, "IDL file");
-    exactVersion(file, "IDL file");
-    const contracts = objectValue(file.contracts, "IDL file contracts");
+    const file = requireObject(value, "IDL file");
+    requireExactVersion(file, "IDL file");
+    const contracts = requireObject(file.contracts, "IDL file contracts");
     const parsed: Record<string, ContractIdlArtifact> = {};
 
     for (const [slot, contract] of Object.entries(contracts)) {
@@ -254,13 +274,9 @@ export function parseContractIdlFile(value: unknown): ContractIdlFile {
         if (artifact.slot !== Number(slot)) {
             throw new Error(`IDL contract ${slot} stores slot ${artifact.slot}`);
         }
-        const source = objectValue(contract, `IDL contract ${slot}`);
-        optionalString(source, "codeHash");
-        optionalString(source, "debugWasm");
-        optionalString(source, "linesJson");
+        const source = requireObject(contract, `IDL contract ${slot}`);
+        requireOptionalString(source, "codeHash");
         artifact.codeHash = source.codeHash as string | undefined;
-        artifact.debugWasm = source.debugWasm as string | undefined;
-        artifact.linesJson = source.linesJson as string | undefined;
         parsed[slot] = artifact;
     }
 
@@ -270,20 +286,21 @@ export function parseContractIdlFile(value: unknown): ContractIdlFile {
     };
 }
 
+// rebuilt field by field, so the result is a fresh object and every AbiType has its format recomputed
 function parseContract(value: unknown, label: string): ContractIdl {
-    const contract = objectValue(value, label);
-    exactVersion(contract, label);
-    const name = stringValue(contract.name, `${label} name`);
-    const slot = uintValue(contract.slot, `${label} slot`);
-    const functions = entryArray(contract.functions, `${label} functions`);
-    const procedures = entryArray(contract.procedures, `${label} procedures`);
-    const state = abiStruct(contract.state, `${label} state`);
-    const sysprocMask = uintValue(contract.sysprocMask, `${label} sysprocMask`);
-    const enums = arrayValue(contract.enums, `${label} enums`).map((item, index) => contractEnum(item, `${label} enum ${index}`));
-    const logs = arrayValue(contract.logs, `${label} logs`).map((item, index) => contractLog(item, `${label} log ${index}`));
-    const cheats = arrayValue(contract.cheats, `${label} cheats`).map((item, index) => contractCheat(item, `${label} cheat ${index}`));
-    const dependencies = arrayValue(contract.dependencies, `${label} dependencies`).map((item, index) => stringValue(item, `${label} dependency ${index}`));
-    const migration = contract.migration === undefined ? undefined : contractMigration(contract.migration, `${label} migration`);
+    const contract = requireObject(value, label);
+    requireExactVersion(contract, label);
+    const name = requireString(contract.name, `${label} name`);
+    const slot = requireUint(contract.slot, `${label} slot`);
+    const functions = parseUniqueEntries(contract.functions, `${label} functions`);
+    const procedures = parseUniqueEntries(contract.procedures, `${label} procedures`);
+    const state = parseAbiStruct(contract.state, `${label} state`);
+    const sysprocMask = requireUint(contract.sysprocMask, `${label} sysprocMask`);
+    const enums = requireArray(contract.enums, `${label} enums`).map((item, index) => parseEnum(item, `${label} enum ${index}`));
+    const logs = requireArray(contract.logs, `${label} logs`).map((item, index) => parseLog(item, `${label} log ${index}`));
+    const cheats = requireArray(contract.cheats, `${label} cheats`).map((item, index) => parseCheat(item, `${label} cheat ${index}`));
+    const dependencies = requireArray(contract.dependencies, `${label} dependencies`).map((item, index) => requireString(item, `${label} dependency ${index}`));
+    const migration = contract.migration === undefined ? undefined : parseMigration(contract.migration, `${label} migration`);
 
     return {
         version: QINIT_IDL_VERSION,
@@ -301,8 +318,9 @@ function parseContract(value: unknown, label: string): ContractIdl {
     };
 }
 
-function entryArray(value: unknown, label: string): ContractEntry[] {
-    const entries = arrayValue(value, label).map((item, index) => contractEntry(item, `${label} ${index}`));
+// a repeated inputType is refused, e.g. "IDL functions repeats inputType 1"
+function parseUniqueEntries(value: unknown, label: string): ContractEntry[] {
+    const entries = requireArray(value, label).map((item, index) => parseEntry(item, `${label} ${index}`));
     const ids = new Set<number>();
     for (const entry of entries) {
         if (ids.has(entry.inputType)) {
@@ -313,12 +331,13 @@ function entryArray(value: unknown, label: string): ContractEntry[] {
     return entries;
 }
 
-function contractEntry(value: unknown, label: string): ContractEntry {
-    const entry = objectValue(value, label);
-    const input = entryAbiType(entry.input, `${label} input`);
-    const output = entryAbiType(entry.output, `${label} output`);
-    const inSize = uintValue(entry.inSize, `${label} inSize`);
-    const outSize = uintValue(entry.outSize, `${label} outSize`);
+// inSize/outSize are checked against the struct sizes
+function parseEntry(value: unknown, label: string): ContractEntry {
+    const entry = requireObject(value, label);
+    const input = parseEntryAbiType(entry.input, `${label} input`);
+    const output = parseEntryAbiType(entry.output, `${label} output`);
+    const inSize = requireUint(entry.inSize, `${label} inSize`);
+    const outSize = requireUint(entry.outSize, `${label} outSize`);
 
     if (input.size !== inSize) {
         throw new Error(`${label} inSize ${inSize} does not match input size ${input.size}`);
@@ -328,8 +347,8 @@ function contractEntry(value: unknown, label: string): ContractEntry {
     }
 
     return {
-        name: stringValue(entry.name, `${label} name`),
-        inputType: uintValue(entry.inputType, `${label} inputType`),
+        name: requireString(entry.name, `${label} name`),
+        inputType: requireUint(entry.inputType, `${label} inputType`),
         inSize,
         outSize,
         input,
@@ -338,8 +357,9 @@ function contractEntry(value: unknown, label: string): ContractEntry {
     };
 }
 
-function entryAbiType(value: unknown, label: string): AbiType {
-    const type = abiType(value, label);
+// an entry's struct with format re-joined without braces, e.g. Get_output { uint64 value } -> "uint64", an empty input -> ""
+function parseEntryAbiType(value: unknown, label: string): AbiType {
+    const type = parseAbiType(value, label);
 
     if (type.kind !== AbiTypeKind.STRUCT) {
         return type;
@@ -351,61 +371,63 @@ function entryAbiType(value: unknown, label: string): AbiType {
     };
 }
 
-function contractEnum(value: unknown, label: string): ContractEnum {
-    const entry = objectValue(value, label);
-    const underlying = stringValue(entry.underlying, `${label} underlying`) as AbiScalarKind;
+function parseEnum(value: unknown, label: string): ContractEnum {
+    const entry = requireObject(value, label);
+    const underlying = requireString(entry.underlying, `${label} underlying`) as AbiScalarKind;
     if (!Object.values(AbiScalarKind).includes(underlying)) {
         throw new Error(`${label} has unknown scalar '${underlying}'`);
     }
-    const rawMembers = objectValue(entry.members, `${label} members`);
+    const rawMembers = requireObject(entry.members, `${label} members`);
     const members: Record<string, string> = {};
     for (const [number, name] of Object.entries(rawMembers)) {
         if (!/^-?\d+$/.test(number)) {
             throw new Error(`${label} member key '${number}' is not an integer`);
         }
-        members[number] = stringValue(name, `${label} member ${number}`);
+        members[number] = requireString(name, `${label} member ${number}`);
     }
     return {
-        name: stringValue(entry.name, `${label} name`),
+        name: requireString(entry.name, `${label} name`),
         underlying,
         members,
     };
 }
 
-function contractLog(value: unknown, label: string): ContractLog {
-    const entry = objectValue(value, label);
+// validated with allowUnpaddedTail: a log struct's size may stop at its last field
+function parseLog(value: unknown, label: string): ContractLog {
+    const entry = requireObject(value, label);
     const types =
-        entry.types === undefined ? undefined : arrayValue(entry.types, `${label} types`).map((item, index) => uintValue(item, `${label} type ${index}`));
+        entry.types === undefined ? undefined : requireArray(entry.types, `${label} types`).map((item, index) => requireUint(item, `${label} type ${index}`));
     return {
-        name: stringValue(entry.name, `${label} name`),
-        type: abiStruct(entry.type, `${label} type`, true),
+        name: requireString(entry.name, `${label} name`),
+        type: parseAbiStruct(entry.type, `${label} type`, true),
         ...(types ? { types } : {}),
     };
 }
 
-function contractCheat(value: unknown, label: string): ContractCheat {
-    const entry = objectValue(value, label);
+function parseCheat(value: unknown, label: string): ContractCheat {
+    const entry = requireObject(value, label);
     return {
-        id: uintValue(entry.id, `${label} id`),
-        line: uintValue(entry.line, `${label} line`),
-        parts: arrayValue(entry.parts, `${label} parts`).map((item, index) => {
-            const part = objectValue(item, `${label} part ${index}`);
+        id: requireUint(entry.id, `${label} id`),
+        line: requireUint(entry.line, `${label} line`),
+        parts: requireArray(entry.parts, `${label} parts`).map((item, index) => {
+            const part = requireObject(item, `${label} part ${index}`);
             return part.lit === undefined
-                ? { type: abiType(part.type, `${label} part ${index} type`, true), expr: stringValue(part.expr, `${label} part ${index} expr`) }
-                : { lit: stringValue(part.lit, `${label} part ${index} lit`) };
+                ? { type: parseAbiType(part.type, `${label} part ${index} type`, true), expr: requireString(part.expr, `${label} part ${index} expr`) }
+                : { lit: requireString(part.lit, `${label} part ${index} lit`) };
         }),
     };
 }
 
-function contractMigration(value: unknown, label: string): ContractMigration {
-    const migration = objectValue(value, label);
+function parseMigration(value: unknown, label: string): ContractMigration {
+    const migration = requireObject(value, label);
     return {
-        oldState: abiStruct(migration.oldState, `${label} oldState`),
+        oldState: parseAbiStruct(migration.oldState, `${label} oldState`),
     };
 }
 
-function abiStruct(value: unknown, label: string, allowUnpaddedTail = false): AbiStruct {
-    const type = abiType(value, label, allowUnpaddedTail);
+// like parseAbiType but must be a struct, format without braces ("uint64, id")
+function parseAbiStruct(value: unknown, label: string, allowUnpaddedTail = false): AbiStruct {
+    const type = parseAbiType(value, label, allowUnpaddedTail);
     if (type.kind !== AbiTypeKind.STRUCT) {
         throw new Error(`${label} must be a struct`);
     }
@@ -415,19 +437,20 @@ function abiStruct(value: unknown, label: string, allowUnpaddedTail = false): Ab
     };
 }
 
-function abiType(value: unknown, label: string, allowUnpaddedTail = false): AbiType {
-    const raw = objectValue(value, label);
-    const kind = stringValue(raw.kind, `${label} kind`) as AbiTypeKind;
+// raw json -> AbiType with layout checked and format recomputed, e.g. { kind: "array", count: 4, element, size: 32, align: 8 } -> format "[4;uint64]"
+function parseAbiType(value: unknown, label: string, allowUnpaddedTail = false): AbiType {
+    const raw = requireObject(value, label);
+    const kind = requireString(raw.kind, `${label} kind`) as AbiTypeKind;
     const common = {
-        size: uintValue(raw.size, `${label} size`),
-        align: positiveUintValue(raw.align, `${label} align`),
-        format: stringValue(raw.format, `${label} format`),
+        size: requireUint(raw.size, `${label} size`),
+        align: requirePositiveUint(raw.align, `${label} align`),
+        format: requireString(raw.format, `${label} format`),
     };
 
     let type: AbiType;
     switch (kind) {
         case AbiTypeKind.SCALAR: {
-            const scalar = stringValue(raw.scalar, `${label} scalar`) as AbiScalarKind;
+            const scalar = requireString(raw.scalar, `${label} scalar`) as AbiScalarKind;
             if (!Object.values(AbiScalarKind).includes(scalar)) {
                 throw new Error(`${label} has unknown scalar '${scalar}'`);
             }
@@ -435,56 +458,56 @@ function abiType(value: unknown, label: string, allowUnpaddedTail = false): AbiT
             break;
         }
         case AbiTypeKind.STRUCT: {
-            const fields = arrayValue(raw.fields, `${label} fields`).map((item, index) => abiField(item, `${label} field ${index}`));
-            const name = raw.name === undefined ? undefined : stringValue(raw.name, `${label} name`);
+            const fields = requireArray(raw.fields, `${label} fields`).map((item, index) => parseAbiField(item, `${label} field ${index}`));
+            const name = raw.name === undefined ? undefined : requireString(raw.name, `${label} name`);
             type = { kind, name, fields, ...common };
             break;
         }
         case AbiTypeKind.ARRAY:
             type = {
                 kind,
-                count: uintValue(raw.count, `${label} count`),
-                element: abiType(raw.element, `${label} element`),
+                count: requireUint(raw.count, `${label} count`),
+                element: parseAbiType(raw.element, `${label} element`),
                 ...common,
             };
             break;
         case AbiTypeKind.BIT_ARRAY:
             type = {
                 kind,
-                bitCount: uintValue(raw.bitCount, `${label} bitCount`),
+                bitCount: requireUint(raw.bitCount, `${label} bitCount`),
                 ...common,
             };
             break;
         case AbiTypeKind.COLLECTION:
             type = {
                 kind,
-                capacity: uintValue(raw.capacity, `${label} capacity`),
-                value: abiType(raw.value, `${label} value`),
+                capacity: requireUint(raw.capacity, `${label} capacity`),
+                value: parseAbiType(raw.value, `${label} value`),
                 ...common,
             };
             break;
         case AbiTypeKind.HASH_MAP:
             type = {
                 kind,
-                capacity: uintValue(raw.capacity, `${label} capacity`),
-                key: abiType(raw.key, `${label} key`),
-                value: abiType(raw.value, `${label} value`),
+                capacity: requireUint(raw.capacity, `${label} capacity`),
+                key: parseAbiType(raw.key, `${label} key`),
+                value: parseAbiType(raw.value, `${label} value`),
                 ...common,
             };
             break;
         case AbiTypeKind.HASH_SET:
             type = {
                 kind,
-                capacity: uintValue(raw.capacity, `${label} capacity`),
-                key: abiType(raw.key, `${label} key`),
+                capacity: requireUint(raw.capacity, `${label} capacity`),
+                key: parseAbiType(raw.key, `${label} key`),
                 ...common,
             };
             break;
         case AbiTypeKind.LINKED_LIST:
             type = {
                 kind,
-                capacity: uintValue(raw.capacity, `${label} capacity`),
-                value: abiType(raw.value, `${label} value`),
+                capacity: requireUint(raw.capacity, `${label} capacity`),
+                value: parseAbiType(raw.value, `${label} value`),
                 ...common,
             };
             break;
@@ -499,64 +522,64 @@ function abiType(value: unknown, label: string, allowUnpaddedTail = false): AbiT
     } as AbiType;
 }
 
-function abiField(value: unknown, label: string): AbiField {
-    const field = objectValue(value, label);
-    const type = abiType(field.type, `${label} type`);
-    const size = uintValue(field.size, `${label} size`);
+function parseAbiField(value: unknown, label: string): AbiField {
+    const field = requireObject(value, label);
+    const type = parseAbiType(field.type, `${label} type`);
+    const size = requireUint(field.size, `${label} size`);
     if (size !== type.size) {
         throw new Error(`${label} size ${size} does not match type size ${type.size}`);
     }
     return {
-        name: stringValue(field.name, `${label} name`),
-        offset: uintValue(field.offset, `${label} offset`),
+        name: requireString(field.name, `${label} name`),
+        offset: requireUint(field.offset, `${label} offset`),
         size,
         type,
     };
 }
 
-function exactVersion(value: Record<string, unknown>, label: string): void {
+function requireExactVersion(value: Record<string, unknown>, label: string): void {
     if (value.version !== QINIT_IDL_VERSION) {
         throw new Error(`${label} version must be ${QINIT_IDL_VERSION}`);
     }
 }
 
-function objectValue(value: unknown, label: string): Record<string, unknown> {
+function requireObject(value: unknown, label: string): Record<string, unknown> {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new Error(`${label} must be an object`);
     }
     return value as Record<string, unknown>;
 }
 
-function arrayValue(value: unknown, label: string): unknown[] {
+function requireArray(value: unknown, label: string): unknown[] {
     if (!Array.isArray(value)) {
         throw new Error(`${label} must be an array`);
     }
     return value;
 }
 
-function stringValue(value: unknown, label: string): string {
+function requireString(value: unknown, label: string): string {
     if (typeof value !== "string") {
         throw new Error(`${label} must be a string`);
     }
     return value;
 }
 
-function uintValue(value: unknown, label: string): number {
+function requireUint(value: unknown, label: string): number {
     if (!Number.isSafeInteger(value) || Number(value) < 0) {
         throw new Error(`${label} must be a non-negative integer`);
     }
     return Number(value);
 }
 
-function positiveUintValue(value: unknown, label: string): number {
-    const number = uintValue(value, label);
+function requirePositiveUint(value: unknown, label: string): number {
+    const number = requireUint(value, label);
     if (number === 0) {
         throw new Error(`${label} must be positive`);
     }
     return number;
 }
 
-function optionalString(value: Record<string, unknown>, key: string): void {
+function requireOptionalString(value: Record<string, unknown>, key: string): void {
     if (value[key] !== undefined && typeof value[key] !== "string") {
         throw new Error(`IDL artifact ${key} must be a string`);
     }
@@ -578,6 +601,7 @@ const SCALAR_LAYOUT: Record<AbiScalarKind, { size: number; align: number }> = {
     [AbiScalarKind.SINT128]: { size: 16, align: 8 },
 };
 
+// declared size/align must match the kind's geometry, e.g. HashMap<uint64, uint64, 4> must be 88/8; capacity and bitCount are powers of two
 function validateAbiType(type: AbiType, label: string, allowUnpaddedTail = false): void {
     if (!isPowerOfTwo(type.align)) {
         throw new Error(`${label} align ${type.align} must be a power of two`);
@@ -588,7 +612,7 @@ function validateAbiType(type: AbiType, label: string, allowUnpaddedTail = false
             assertLayout(type, SCALAR_LAYOUT[type.scalar], label);
             return;
         case AbiTypeKind.STRUCT:
-            validateStruct(type, label, allowUnpaddedTail);
+            validateAbiStruct(type, label, allowUnpaddedTail);
             return;
         case AbiTypeKind.ARRAY:
             assertLayout(type, arrayGeometry(type.element, type.count), label);
@@ -616,7 +640,8 @@ function validateAbiType(type: AbiType, label: string, allowUnpaddedTail = false
     }
 }
 
-function validateStruct(type: AbiStruct, label: string, allowUnpaddedTail: boolean): void {
+// unique names, each offset aligned to its type, offsets non-decreasing, size = roundUp(last end, max align) unless allowUnpaddedTail
+function validateAbiStruct(type: AbiStruct, label: string, allowUnpaddedTail: boolean): void {
     const names = new Set<string>();
     let end = 0;
     let previousOffset = 0;

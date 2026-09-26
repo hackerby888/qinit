@@ -13,9 +13,12 @@ export const LOCALS_SZ = LOCALS_BUFFER_BYTES;
 export interface QpiContextLayout {
     size: number;
     contractIndex: number;
+    stackIndex: number;
+    currentContractId: number;
     originator: number;
     invocator: number;
     invocationReward: number;
+    entryPoint: number;
 }
 
 export interface UserEntry {

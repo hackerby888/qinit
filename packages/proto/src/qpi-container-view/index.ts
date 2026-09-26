@@ -16,6 +16,7 @@ type AbiContainerType = Extract<
 
 export type QpiContainerView = QpiArrayView | QpiBitArrayView | QpiCollectionView | QpiHashMapView | QpiHashSetView | QpiLinkedListView;
 
+// AbiType -> the view that decodes it, e.g. a hash_map type over 88 bytes -> QpiHashMapView; any other kind throws
 export function createQpiContainerView(type: AbiContainerType, source: QpiByteSource): QpiContainerView {
     switch (type.kind) {
         case AbiTypeKind.ARRAY:

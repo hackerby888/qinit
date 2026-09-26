@@ -61,12 +61,12 @@ const commandMeta = {
         group: "setup",
         json: true,
         summary: "remove cached node, headers, SDK, and tools",
-        options: [booleanOption("dry-run", "preview what would be removed")],
+        options: [booleanOption("yes", "skip confirmation"), booleanOption("dry-run", "preview what would be removed")],
     },
     update: {
         group: "setup",
         summary: "update the Qinit CLI",
-        options: [booleanOption("force", "update even if already latest"), booleanOption("dry-run", "preview the update")],
+        options: [booleanOption("force", "install even if already latest or older"), booleanOption("dry-run", "preview the update")],
     },
     uninstall: {
         group: "setup",
@@ -100,6 +100,7 @@ const commandMeta = {
                     stringOption("peers", "<addr>", "Core peer address"),
                     stringOption("runtime", "<core|simulator>", "runtime for this run"),
                     stringOption("compiler", "<clang|typescript>", "simulator system-contract compiler"),
+                    stringOption("fees", "<metered|off>", "simulator execution fees (default: metered)"),
                     booleanOption("restart", "restart even if the node is running"),
                     booleanOption("offline", "use cached files without network access"),
                     booleanOption("keep", "preserve existing node data"),
@@ -117,6 +118,24 @@ const commandMeta = {
         summary: "show or control ticks",
         usage: "[show | advance <n> | advance-to-last [gap] | rate <ms>]",
         options: [stringOption("rpc", "<url>", "RPC URL")],
+    },
+    oracle: {
+        group: "node",
+        json: true,
+        summary: "answer oracle queries while developing",
+        usage: "[pending | resolve <queryId> | serve]",
+        options: [
+            stringOption("rpc", "<url>", "RPC URL"),
+            stringOption("reply", "<value text>", "reply value, e.g. '123456sint64, 1000sint64'"),
+            stringOption("reply-hex", "<hex>", "reply bytes for a layout too large to type"),
+            stringOption("status", "<success|unavailable>", "answer with a value, or report none"),
+            stringOption("rules", "<path>", "serve: interface name to reply text"),
+        ],
+        examples: [
+            "qinit oracle pending",
+            "qinit oracle resolve 172596578652000256 --reply '123456sint64, 1000sint64'",
+            "qinit oracle serve --rules oracle.json",
+        ],
     },
     epoch: {
         group: "node",
@@ -139,7 +158,7 @@ const commandMeta = {
         usage: "[<file.h>] [--asset <symbol> --construction-epoch <n>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("out", "<dir>", "Qubic Core checkout"),
             stringOption("asset", "<symbol>", "asset symbol"),
             stringOption("construction-epoch", "<n>", "first active epoch"),
@@ -154,7 +173,7 @@ const commandMeta = {
         usage: "[<file.h>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("slot", "<n>", "deployment slot"),
             stringOption("core-dir", "<path>", "Core checkout"),
             stringOption("rpc", "<url>", "RPC URL"),
@@ -174,7 +193,7 @@ const commandMeta = {
         options: [
             booleanOption("production", "build without cheatcodes, as Core will"),
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("out", "<dir>", "output directory"),
             stringOption("slot", "<n>", "contract slot"),
             stringOption("core-dir", "<path>", "Core checkout"),
@@ -194,7 +213,7 @@ const commandMeta = {
         usage: "<file.h>",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("out", "<dir>", "output directory"),
             stringOption("slot", "<n>", "contract slot"),
             stringOption("core-dir", "<path>", "Core checkout"),
@@ -215,7 +234,7 @@ const commandMeta = {
         usage: "<file.h>",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("core-dir", "<path>", "Core checkout"),
             stringOption("callee", "<n>=<hdr>[@<i>]", "callee header and optional slot", {
                 multiple: true,
@@ -231,7 +250,7 @@ const commandMeta = {
         usage: "<file.h> [--contract-name <name>] [--slot <n>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name (default: file basename)"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("slot", "<n>", "deployment slot"),
             stringOption("core-dir", "<path>", "Core checkout"),
             stringOption("rpc", "<url>", "RPC URL"),
@@ -244,6 +263,9 @@ const commandMeta = {
             booleanOption("skip-verify", "skip compatibility checks (development only)"),
             booleanOption("no-build-rules", "skip the Qinit build rules for user contracts (development only)"),
             booleanOption("allow-state-carryover", "redeploy over a changed StateData layout without a MIGRATE handler, keeping the old state bytes"),
+            stringOption("state", "[<name>=]<path>", "start a contract from a raw state file instead of INITIALIZE", {
+                multiple: true,
+            }),
         ],
         examples: ["qinit deploy ./mytoken.h --contract-name Mytoken"],
     },
@@ -251,13 +273,13 @@ const commandMeta = {
         group: "deploy & interact",
         json: true,
         summary: "call a contract function or procedure",
-        usage: '[ --fn|--proc <contract> <fn|proc> ] [--in "<fmt>"] [--out <type> ]',
+        usage: '[ --fn|--proc <contract> <fn|proc> ] [--in "<values>"] [--out <type> ]',
         options: [
             stringOption("tick", "<n>", "target tick for the transaction (default: current + 3)"),
             booleanOption("fn", "make a read-only call"),
             booleanOption("proc", "send a signed call and wait for it"),
             stringOption("args", "<json>", "JSON input"),
-            stringOption("in", '"<fmt>"', 'input, e.g. "<ID>id, 100uint64"'),
+            stringOption("in", '"<values>"', 'input values, e.g. "100uint64, 0id" (id: 0, 60 A-Z chars, or 64 hex)'),
             stringOption("out", "<type>", "output type"),
             stringOption("amount", "<n>", "transfer amount"),
             booleanOption("trace", "show state changes and contract calls"),
@@ -269,8 +291,8 @@ const commandMeta = {
         ],
         examples: [
             "qinit call # interactive mode",
-            'qinit call --proc Mytoken 1 --in "<ID>id, 100uint64"',
-            'qinit call --fn   Mytoken 1 --in "<ID>id" --out uint64',
+            'qinit call --proc Mytoken 1 --in "0id, 100uint64"',
+            'qinit call --fn   Mytoken 1 --in "0id" --out uint64',
         ],
     },
     seed: {
@@ -285,7 +307,10 @@ const commandMeta = {
         json: true,
         summary: "sign a digest for a contract's signatureValidity check",
         usage: "<hex-digest>",
-        options: [stringOption("digest", "<hex>", "32-byte digest to sign, as the contract computed it"), stringOption("seed", "<seed>", "signer seed (default: the saved seed)")],
+        options: [
+            stringOption("digest", "<hex>", "32-byte digest to sign, as the contract computed it"),
+            stringOption("seed", "<seed>", "signer seed (default: the saved seed)"),
+        ],
         examples: ["qinit sign 3f2a…  # 64 hex chars", "qinit sign --digest 3f2a… --seed <55 letters> --json"],
     },
     ls: {
@@ -330,7 +355,7 @@ const commandMeta = {
         usage: "[<file.h>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
-            stringOption("contract-name", "<name>", "contract name"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
             stringOption("slot", "<n>", "deployment slot"),
             stringOption("core-dir", "<path>", "Core checkout"),
             stringOption("callee", "<n>=<hdr>[@<i>]", "callee header and optional slot", {
@@ -358,8 +383,8 @@ const commandMeta = {
         usage: "[<test.cpp>]",
         options: [
             stringOption("contract", "<file.h>", "contract under test (default: qinit.json)"),
-            stringOption("contract-name", "<name>", "contract name"),
-            stringOption("state-type", "<T>", "contract struct type"),
+            stringOption("contract-name", "<name>", "contract name (must match its struct)"),
+            stringOption("state-type", "<T>", "contract struct type (must match the header's struct)"),
             stringOption("slot", "<n>", "contract slot (default: automatic)"),
             stringOption("callee", "<Name>=<header>[@<index>]", "callee header and optional slot", {
                 multiple: true,
@@ -403,7 +428,14 @@ const commandMeta = {
         json: true,
         summary: "manage system contracts",
         usage: "[ls | add <name…> | rm <name…>]",
-        options: [stringOption("rpc", "<url>", "RPC URL"), stringOption("compiler", "<clang|typescript>", "simulator system-contract compiler")],
+        options: [
+            stringOption("rpc", "<url>", "RPC URL"),
+            stringOption("compiler", "<clang|typescript>", "simulator system-contract compiler"),
+            stringOption("state", "<name>=<path>", "start a system contract from a raw state file (with add)", {
+                multiple: true,
+            }),
+            booleanOption("force", "rm a system contract even when a deployed contract calls it"),
+        ],
         examples: ["qinit system add QX QEARN", "qinit system ls"],
     },
     theme: {

@@ -139,9 +139,12 @@ export function contextLayoutFromCodegen(programAnalysis: ProgramAnalysis): QpiC
     return {
         size: programAnalysis.evalConst(bufferSize),
         contractIndex: offset("_currentContractIndex"),
+        stackIndex: offset("_stackIndex"),
+        currentContractId: offset("_currentContractId"),
         originator: offset("_originator"),
         invocator: offset("_invocator"),
         invocationReward: offset("_invocationReward"),
+        entryPoint: offset("_entryPoint"),
     };
 }
 export function deriveQpiContextLayout(libraryTypes: LibrarySymbolIndex): QpiContextLayout {

@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { QUBIC_LOG_TYPE } from "@qinit/proto";
 import { concatBytes } from "../../src/support/bytes";
 import { initK12, k12Bytes } from "../../src/support/k12";
-import { LOG_HEADER_SIZE, QubicLogStore } from "../../src/logging/qubic-log-store";
+import { LOG_HEADER_SIZE, LOG_RANGES_PER_TICK, QubicLogStore } from "../../src/logging/qubic-log-store";
 
 const ZERO32 = new Uint8Array(32);
 
@@ -145,6 +145,33 @@ describe("Qubic log store", () => {
         expect(retained.length).toBe(34);
         expect(new DataView(retained.buffer).getBigUint64(10, true)).toBe(2n);
         expect(logger.digest(1)).not.toBeNull();
+    });
+
+    // each code has one meaning: a range that never existed is not confused with one that aged out.
+    test("a missing range says whether it never existed, aged out, or is not finalized yet", () => {
+        const logger = new QubicLogStore(68);
+        logger.reset(10);
+        logger.begin(10, 0);
+        logger.log(28, QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE, message(1), 1);
+        logger.log(28, QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE, message(2), 1);
+        logger.end();
+        logger.finalizeTick(10);
+        logger.finalizeTick(11);
+        logger.begin(13, 0);
+        logger.log(28, QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE, message(3), 1);
+        logger.end();
+        logger.finalizeTick(13);
+
+        const code = (tick: number, txId: number) => logger.range(tick, txId).length;
+        // before the epoch's first tick, and the tick evicted to make room for tick 13.
+        expect([code(9, 0), code(10, 0)]).toEqual([-2n, -2n]);
+        // a finalized tick that logged nothing, a tick that was never finalized, and a tx index past the table.
+        expect([code(11, 0), code(12, 0), code(13, LOG_RANGES_PER_TICK)]).toEqual([-1n, -1n, -1n]);
+        expect(code(14, 0)).toBe(-3n);
+
+        expect(logger.tickRanges(10).every((range) => range.length === -2n)).toBe(true);
+        expect(logger.tickRanges(12).every((range) => range.length === -1n)).toBe(true);
+        expect(logger.tickRanges(14).every((range) => range.length === -3n)).toBe(true);
     });
 
     test("signals when one tick exceeds the retention limit", () => {

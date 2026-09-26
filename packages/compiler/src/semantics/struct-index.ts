@@ -83,7 +83,9 @@ export function registerCalleeContractDeclarations(programAnalysis: ProgramAnaly
                         name: string;
                         type: TypeSpec;
                     };
-                    registerScoped(programAnalysis.typedefs, `${name}::`, td.name, td.type, BareNamePolicy.KEEP);
+                    // only `Callee::Alias` names it from outside, and its target is spelled in the callee's scope.
+                    registerScoped(programAnalysis.typedefs, `${name}::`, td.name, td.type, BareNamePolicy.SKIP);
+                    programAnalysis.typedefScope.set(`${name}::${td.name}`, `${name}::`);
                 } else if (member.kind === AstKind.FUNCTION) {
                     const fn = member as FunctionDecl;
                     if (!fn.body || !fn.isStatic) continue;

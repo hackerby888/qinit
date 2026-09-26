@@ -14,6 +14,8 @@ import {
     SPECTRUM_DEPTH,
     TXS_PER_TICK,
     CHUNK_HEADER_SIZE,
+    INTER_CONTRACT_CALL_ERROR,
+    hostCallError,
 } from "../../src/protocol";
 
 // These lock the Qinit side; scripts/core-compat/check-protocol-drift.ts locks them against core in CI.
@@ -62,4 +64,12 @@ test("oracle limits and statuses", () => {
 test("CHUNK_DATA_MAX is the proven 1008, within core's MAX_INPUT_SIZE - header", () => {
     expect(CHUNK_DATA_MAX).toBe(1008);
     expect(CHUNK_DATA_MAX).toBeLessThanOrEqual(MAX_INPUT_SIZE - CHUNK_HEADER_SIZE); // conservative (1008 < 1010)
+});
+
+// the host row ends in core's CallError number; the reader gets core's name for it, and an unknown number stays a number.
+test("hostCallError decodes the refused nested call at the end of a host row", () => {
+    expect(hostCallError("→ @4 proc #2 reward=300 ✗ err 4")).toEqual({ code: 4, reason: INTER_CONTRACT_CALL_ERROR[4]! });
+    expect(hostCallError("→ @1 fn #1 ✗ err 2")?.reason).toStartWith("insufficient fees");
+    expect(hostCallError("→ @1 fn #1 ✗ err 9")).toEqual({ code: 9, reason: "error 9" });
+    expect(hostCallError("→ @1 fn #1")).toBeUndefined();
 });

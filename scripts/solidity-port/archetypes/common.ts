@@ -16,7 +16,7 @@ export function script(steps: CallStep[], options: { epochLength?: number; ident
         slot: CORPUS_SLOT,
         tick: 1000,
         epoch: 100,
-        // Short enough that a script can actually reach END_EPOCH; DEFAULT_EPOCH_LENGTH is 3000.
+        // Short enough that a script can actually reach END_EPOCH; the default epoch is thousands of ticks long.
         epochLength: options.epochLength ?? 8,
         identities: options.identities ?? [ACTOR, ACTOR_B],
         fund: [

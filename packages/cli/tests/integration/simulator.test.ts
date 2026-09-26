@@ -203,7 +203,7 @@ test("epoch-info reports a coherent tick window (qinit tick / epoch)", async () 
 test("advance-tick caps at the epoch's last tick (qinit tick advance)", async () => {
     const { rpc, engine, stop } = await bootCounter();
     try {
-        engine.sim.epochLength = 50; // keep the boundary near so the cap is reached without ticking 3000×
+        engine.sim.epochLength = 50; // keep the boundary near so the cap is reached without ticking a whole default epoch
         const e = await rpc.epochInfo();
         const r = await rpc.advanceTick(10_000_000);
         expect(r.cappedAtEpochEnd).toBe(true);

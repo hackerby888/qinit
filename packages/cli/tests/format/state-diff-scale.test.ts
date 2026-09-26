@@ -53,11 +53,11 @@ const NARROW_FIELDS = fieldsOf("Narrow", `HashMap<uint64, uint32, ${NARROW_CAPAC
 test("a record's trailing pad reports nothing instead of re-reading its key", async () => {
     const base = offsetOf(NARROW_FIELDS, "narrow");
     const slot = 4;
-    const record = slot * NARROW.recordStride;
+    const record = slot * NARROW.elementStride;
 
     const window = diffWindow(base, NARROW.populationOffset + 8, undefined, (bytes) => {
         writeLe(bytes, record, 11);
-        writeLe(bytes, record + NARROW.valueOffset, 5, 4);
+        writeLe(bytes, record + NARROW.elementValueOffset, 5, 4);
         bytes[flagByte(NARROW.flagsOffset, slot)] = flagBits(slot, 1);
         writeLe(bytes, NARROW.populationOffset, 1);
     });
@@ -164,10 +164,10 @@ const SPAN_FIELDS = fieldsOf("Span", `HashMap<uint64, uint64, ${SPAN_CAPACITY}> 
 
 test("one region covering a whole container resolves every zone in it", async () => {
     const slot = 3000;
-    const record = slot * SPAN.recordStride;
+    const record = slot * SPAN.elementStride;
     const window = diffWindow(offsetOf(SPAN_FIELDS, "m"), SPAN.populationOffset + 16, undefined, (bytes) => {
         writeLe(bytes, record, 11);
-        writeLe(bytes, record + SPAN.valueOffset, 101);
+        writeLe(bytes, record + SPAN.elementValueOffset, 101);
         bytes[flagByte(SPAN.flagsOffset, slot)] = flagBits(slot, 1);
         writeLe(bytes, SPAN.populationOffset, 1);
     });
@@ -182,14 +182,14 @@ test("one region covering a whole container resolves every zone in it", async ()
 
 // A core node reports minimal runs, so only the tail of a value can be dirty; resolving that back to the value's start is the flags run's old mistake.
 test("a window opening inside a value keeps the bytes it was given", async () => {
-    const key = offsetOf(HUGE_FIELDS, "m") + 9822 * HUGE.recordStride;
+    const key = offsetOf(HUGE_FIELDS, "m") + 9822 * HUGE.elementStride;
     const window = diffWindow(key + 4, 4, undefined, (bytes) => writeLe(bytes, 0, 7, 4));
 
     expect(await rowsFor(HUGE_FIELDS, [window])).toEqual(["m.slot[9822].key+4 0x00000000 → 0x07000000"]);
 });
 
 test("a window ending inside a value keeps the bytes it was given", async () => {
-    const key = offsetOf(HUGE_FIELDS, "m") + 9822 * HUGE.recordStride;
+    const key = offsetOf(HUGE_FIELDS, "m") + 9822 * HUGE.elementStride;
     const window = diffWindow(key, 2, undefined, (bytes) => writeLe(bytes, 0, 3195, 2));
 
     expect(await rowsFor(HUGE_FIELDS, [window])).toEqual(["m.slot[9822].key+0 0x0000 → 0x7b0c"]);
@@ -202,7 +202,7 @@ const OWNERS = hashMapGeometry(ID_LAYOUT, U64, OWNERS_CAPACITY);
 const OWNERS_FIELDS = fieldsOf("Owners", `HashMap<id, uint64, ${OWNERS_CAPACITY}> owners;`);
 const OWNERS_BASE = offsetOf(OWNERS_FIELDS, "owners");
 const OWNER_SLOT = 500_000;
-const OWNER_RECORD = OWNERS_BASE + OWNER_SLOT * OWNERS.recordStride;
+const OWNER_RECORD = OWNERS_BASE + OWNER_SLOT * OWNERS.elementStride;
 const OWNER = "FXHSWSJBTCZHFAFXHSWSJBTCZHFAFXHSWSJBTCZHFAFXHSWSJBTCZHFAYKSC";
 
 const ownerFlagWindow = () => {
@@ -224,7 +224,7 @@ test("an id key split across two adjacent windows is rejoined before it is read"
 
 // Without the key in the window there is nothing better to name the row by than the bucket it hashed into.
 test("a window carrying only the value keeps the row on its slot path", async () => {
-    const value = diffWindow(OWNER_RECORD + OWNERS.valueOffset, 8, undefined, (bytes) => writeLe(bytes, 0, 9));
+    const value = diffWindow(OWNER_RECORD + OWNERS.elementValueOffset, 8, undefined, (bytes) => writeLe(bytes, 0, 9));
 
     expect(await rowsFor(OWNERS_FIELDS, [value, ownerFlagWindow()])).toEqual([
         `owners.slot[${OWNER_SLOT}].value 0 → 9`,
@@ -281,7 +281,7 @@ test("a region whose images differ in length is read to the shorter one", async 
 const payloadRowsFor = async (fields: StateField[], regions: DebugStateRegion[]) =>
     (await stateDiffLines(fields, regions)).filter((line) => !line.internal).map((line) => `${line.label} ${line.text}`);
 
-const midRecord = (slot: number) => MID_BASE + slot * MID.recordStride;
+const midRecord = (slot: number) => MID_BASE + slot * MID.elementStride;
 const midFlag = (slot: number, from: number, to: number) =>
     diffWindow(
         flagByte(MID_BASE + MID.flagsOffset, slot),
@@ -324,7 +324,7 @@ const setFlag = (from: number, to: number) =>
 
 test("a HashSet removal is named by the key the slot held", async () => {
     const record = diffWindow(
-        SET_BASE + SET_SLOT * SET.recordStride,
+        SET_BASE + SET_SLOT * SET.keyStride,
         8,
         (bytes) => writeLe(bytes, 0, 77),
         (bytes) => bytes.fill(0),
@@ -340,7 +340,7 @@ test("a HashSet removal is named by the key the slot held", async () => {
 });
 
 test("a HashSet slot reused from a tombstone reads as a new entry", async () => {
-    const record = diffWindow(SET_BASE + SET_SLOT * SET.recordStride, 8, undefined, (bytes) => writeLe(bytes, 0, 77));
+    const record = diffWindow(SET_BASE + SET_SLOT * SET.keyStride, 8, undefined, (bytes) => writeLe(bytes, 0, 77));
     const population = diffWindow(SET_BASE + SET.populationOffset, 8, undefined, (bytes) => writeLe(bytes, 0, 1));
 
     expect(await payloadRowsFor(WIDE_FIELDS, [record, setFlag(2, 1), population])).toEqual(["s[77] (new)", "s 0 → 1 entries"]);
@@ -351,7 +351,7 @@ test("many inserts across scattered windows each keep their own key", async () =
     const slots = [0, 9822, HUGE_CAPACITY - 1, ...Array.from({ length: 61 }, (_, index) => 500_000 + index * 100_003)];
     const base = offsetOf(HUGE_FIELDS, "m");
     const regions = slots.flatMap((slot, index) => [
-        diffWindow(base + slot * HUGE.recordStride, 16, undefined, (bytes) => {
+        diffWindow(base + slot * HUGE.elementStride, 16, undefined, (bytes) => {
             writeLe(bytes, 0, 1000 + index);
             writeLe(bytes, 8, 2000 + index);
         }),
@@ -373,9 +373,9 @@ test("a Collection PoV record resolves to its members", async () => {
     const window = diffWindow(QUEUE_BASE + QUEUE_INDEX * QUEUE.povStride, QUEUE.povStride, undefined, (bytes) => {
         bytes.fill(3, 0, 32);
         writeLe(bytes, QUEUE.povPopulationOffset, 2);
-        writeLe(bytes, QUEUE.povHeadOffset, 5);
-        writeLe(bytes, QUEUE.povTailOffset, 6);
-        writeLe(bytes, QUEUE.povBstRootOffset, 1);
+        writeLe(bytes, QUEUE.povHeadIndexOffset, 5);
+        writeLe(bytes, QUEUE.povTailIndexOffset, 6);
+        writeLe(bytes, QUEUE.povBstRootIndexOffset, 1);
     });
 
     expect(await rowsFor(WIDE_FIELDS, [window])).toEqual([
@@ -405,20 +405,20 @@ const LIST_NODE = 200_000;
 test("a LinkedList node resolves both of its links", async () => {
     const window = diffWindow(LIST_BASE + LIST_NODE * LIST.nodeStride, LIST.nodeStride, undefined, (bytes) => {
         writeLe(bytes, 0, 66);
-        writeLe(bytes, LIST.nextOffset, -1);
-        writeLe(bytes, LIST.prevOffset, 5);
+        writeLe(bytes, LIST.nextIndexOffset, -1);
+        writeLe(bytes, LIST.prevIndexOffset, 5);
     });
 
     expect(await rowsFor(WIDE_FIELDS, [window])).toEqual([`l[${LIST_NODE}] 0 → 66`, `l[${LIST_NODE}].nextIndex 0 → -1`, `l[${LIST_NODE}].prevIndex 0 → 5`]);
 });
 
 test("a LinkedList bookkeeping tail resolves every word it holds", async () => {
-    const window = diffWindow(LIST_BASE + LIST.headOffset, 40, undefined, (bytes) => {
+    const window = diffWindow(LIST_BASE + LIST.headIndexOffset, 40, undefined, (bytes) => {
         writeLe(bytes, 0, 3);
-        writeLe(bytes, LIST.tailOffset - LIST.headOffset, 4);
-        writeLe(bytes, LIST.freeHeadOffset - LIST.headOffset, 9);
-        writeLe(bytes, LIST.nextUnusedOffset - LIST.headOffset, 2);
-        writeLe(bytes, LIST.populationOffset - LIST.headOffset, 7);
+        writeLe(bytes, LIST.tailIndexOffset - LIST.headIndexOffset, 4);
+        writeLe(bytes, LIST.freeHeadIndexOffset - LIST.headIndexOffset, 9);
+        writeLe(bytes, LIST.nextUnusedIndexOffset - LIST.headIndexOffset, 2);
+        writeLe(bytes, LIST.populationOffset - LIST.headIndexOffset, 7);
     });
 
     expect(await rowsFor(WIDE_FIELDS, [window])).toEqual([
@@ -437,9 +437,9 @@ const NESTED_FIELDS = fieldsOf("Nested", `HashMap<uint64, BitArray<64>, ${NESTED
 
 test("a BitArray held as a map value reports the bit that flipped", async () => {
     const slot = 40_000;
-    const window = diffWindow(offsetOf(NESTED_FIELDS, "nested") + slot * NESTED.recordStride, 16, undefined, (bytes) => {
+    const window = diffWindow(offsetOf(NESTED_FIELDS, "nested") + slot * NESTED.elementStride, 16, undefined, (bytes) => {
         writeLe(bytes, 0, 11);
-        bytes[NESTED.valueOffset] = 1 << 3;
+        bytes[NESTED.elementValueOffset] = 1 << 3;
     });
 
     // The bit reads by the entry's key like any other value; the key row then only repeats it.

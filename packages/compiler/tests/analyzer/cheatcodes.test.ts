@@ -51,6 +51,18 @@ test("a mutator cannot run inside a function, but a print can", () => {
     expect(codes(`PUBLIC_FUNCTION(F) { CC_PRINT("x"); }`)).toEqual([]);
 });
 
+test("the enclosing entry decides, not the last *_FUNCTION name before the cheat", () => {
+    const call = `CALL_OTHER_CONTRACT_FUNCTION(C, F, locals.in, locals.out);`;
+
+    expect(codes(`PUBLIC_PROCEDURE(P) { ${call} CC_PRANK(who, 1); }`)).toEqual([]);
+    expect(codes(`PUBLIC_PROCEDURE_WITH_LOCALS(P) { ${call} CC_WARP_TICK(1); }`)).toEqual([]);
+    expect(codes(`PUBLIC_FUNCTION(F) { } INITIALIZE() { CC_DEAL(who, 1); }`)).toEqual([]);
+    expect(codes(`PUBLIC_FUNCTION_WITH_LOCALS(F) { ${call} CC_WARP_EPOCH(1); }`)).toEqual(["cheat/mutator-in-function"]);
+    expect(codes(`PRIVATE_FUNCTION(F) { INVOKE_OTHER_CONTRACT_PROCEDURE(C, P, locals.in, locals.out, 0); CC_UNPRANK(); }`)).toEqual([
+        "cheat/mutator-in-function",
+    ]);
+});
+
 test("CC_ inside a comment is not a call, so the lexer decides rather than a regex", () => {
     const source = `PUBLIC_PROCEDURE(P) {\n    // CC_PRINT(1);\n    state.mut().n += 1;\n}`;
 

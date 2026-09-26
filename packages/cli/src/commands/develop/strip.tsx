@@ -3,7 +3,7 @@ import { basename, resolve } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { analyzeCheatcodes, stripCheatcodes } from "@qinit/compiler/analyzer";
-import { loadConfig } from "../../config";
+import { loadConfig, projectContractPath } from "../../config";
 import { Header, Panel, Status, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
@@ -23,13 +23,7 @@ export function Strip({ commandArgs }: { commandArgs: CommandArguments }) {
     useEffect(() => {
         try {
             const configured = loadConfig();
-            const path = commandArgs.get("contract") ?? commandArgs.positionals[0] ?? configured.contract;
-
-            if (!path) {
-                throw new Error("no contract: pass `qinit strip <file.h>` (or set contract in qinit.json)");
-            }
-
-            const file = resolve(path);
+            const file = projectContractPath("strip", commandArgs.get("contract") ?? commandArgs.positionals[0], configured);
             const raw = readFileSync(file, "utf8");
             const violations = analyzeCheatcodes(raw);
 

@@ -1,6 +1,6 @@
 // The whole chain in one test: compile a contract that prints, run it, and read back the line — including through the IDL file a deploy leaves behind.
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithClang } from "@qinit/build";
@@ -13,6 +13,78 @@ import { CORE_PATH, HAS_CORE, HAS_WASI } from "../../../../test-utils/paths";
 import { loadWasmFixture, loadWasmFixtureIdl, wasmFixtureManifest } from "../../../../test-utils/wasm-fixtures";
 import { contractIdlForSlot, loadContractIdlFile, saveContractIdl } from "../../src/contracts/idl-file";
 import { describeTrace } from "../../src/trace/format";
+
+// every rvalue shape the typer names: the text is what the dev reads, so it has to be the same value whichever backend built the contract.
+const ARITHMETIC = `
+using namespace QPI;
+constexpr sint32 Arith_LIMIT = 9;
+struct Arith2 {};
+struct Arith : public ContractBase
+{
+    struct StateData { uint64 total; };
+    struct Get_input { sint8 a8; sint8 b8; sint32 a32; uint32 u32; sint64 a64; };
+    struct Get_output { uint64 value; };
+
+    PUBLIC_FUNCTION(Get)
+    {
+        CC_PRINT(-input.a32, input.a32 + input.u32, input.a32 + input.a64, input.a8 + input.b8, input.a8 << 2);
+        CC_PRINT(input.a32 > 0 ? input.a32 + 1 : input.a64, input.a32 > 0 ? input.a8 : input.b8, (sint16)input.a64, (bool)input.a32, (sint64)input.a32);
+        CC_PRINT(input.a32 + 1u, input.a32 + 1ll, input.a32 < input.a64, !input.a32, Arith_LIMIT + 1);
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+};`;
+
+const ARITHMETIC_TEXTS = [
+    "-input.a32=3 input.a32 + input.u32=4294967294 input.a32 + input.a64=-70003 input.a8 + input.b8=-200 input.a8 << 2=-400",
+    "?=-70000 ?=-100 ?=-4464 ?=1 ?=-3",
+    "input.a32 + 1=4294967294 input.a32 + 1=-2 input.a32 < input.a64=0 !input.a32=0 Arith_LIMIT + 1=10",
+];
+
+// Get_input: a8 = b8 = -100, a32 = -3, u32 = 1, a64 = -70000.
+function arithmeticInput(): Uint8Array {
+    const input = new Uint8Array(24);
+    const view = new DataView(input.buffer);
+
+    view.setInt8(0, -100);
+    view.setInt8(1, -100);
+    view.setInt32(4, -3, true);
+    view.setUint32(8, 1, true);
+    view.setBigInt64(16, -70000n, true);
+
+    return input;
+}
+
+test("an arithmetic temporary reads back signed and at its own width", async () => {
+    const compiled = await compileContractWithTypeScript({ source: ARITHMETIC, contractName: "Arith", slot: 28, arenaSizeBytes: 1024 * 1024 });
+
+    expect(compiled.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+
+    const sim = await deployed(compiled.wasm);
+    sim.query(28, GET, arithmeticInput());
+
+    expect((await printed(sim.getTrace().entries.at(-1)!, compiled.idl!)).texts).toEqual(ARITHMETIC_TEXTS);
+});
+
+test.if(HAS_CORE && HAS_WASI)(
+    "the clang build prints the same arithmetic values",
+    async () => {
+        const directory = mkdtempSync(join(tmpdir(), "qinit-cheat-arith-"));
+        const contractPath = join(directory, "Arith.h");
+        writeFileSync(contractPath, ARITHMETIC);
+
+        const compiled = await compileContractWithTypeScript({ source: ARITHMETIC, contractName: "Arith", slot: 28, arenaSizeBytes: 1024 * 1024 });
+        const clang = await buildContractWithClang({ contractPath, contractName: "Arith", slot: 28, corePath: CORE_PATH, outDir: directory });
+
+        expect(clang.ok, clang.stderr).toBe(true);
+
+        const sim = await deployed(new Uint8Array(await Bun.file(clang.wasmPath!).arrayBuffer()));
+        sim.query(28, GET, arithmeticInput());
+
+        expect((await printed(sim.getTrace().entries.at(-1)!, compiled.idl!)).texts).toEqual(ARITHMETIC_TEXTS);
+    },
+    120_000,
+);
 
 const GET = 1;
 const PUT = 1;
@@ -120,8 +192,8 @@ test("every argument shape reads back as its value", async () => {
     expect(texts[3]).toBe("state.get().balances");
     expect(blocks[3]).toEqual([""]);
     expect(rows[3]).toEqual([["slots[0..3] (unoccupied ×4; skipped)"]]);
-    // An rvalue has no declared type, so it prints as the unsigned register it travelled in.
-    expect(texts[4]).toBe("neg plus one 18446744073709551614");
+    // an rvalue travels in the register, and reads back at the width and sign of its C++ type.
+    expect(texts[4]).toBe("neg plus one -2");
     expect(texts[5]).toBe("flag set");
     expect(texts).toHaveLength(6);
 });

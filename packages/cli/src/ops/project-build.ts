@@ -59,17 +59,16 @@ function calleeClosure(contract: SlottedContract, byStateType: ReadonlyMap<strin
 
 type PathFor = (contract: SlottedContract) => string;
 
+// every planned callee, system ones included: the analysis reads a callee's types from this list, not from contract_def.h.
 function clangCallees(callees: readonly SlottedContract[], pathFor: PathFor): DynCallees {
     return Object.fromEntries(
-        callees
-            .filter((callee) => callee.kind === "custom")
-            .map((callee) => [
-                callee.stateType,
-                {
-                    header: pathFor(callee),
-                    slot: callee.slot,
-                },
-            ]),
+        callees.map((callee) => [
+            callee.stateType,
+            {
+                header: pathFor(callee),
+                slot: callee.slot,
+            },
+        ]),
     );
 }
 

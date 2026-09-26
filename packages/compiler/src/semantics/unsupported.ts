@@ -20,6 +20,9 @@ const FEATURE_TEXT: Record<UnsupportedFeature, FeatureText> = {
     [UnsupportedFeature.CLASS_TO_SCALAR_CONVERSION]: {
         noun: "conversion from class type to a scalar for",
     },
+    [UnsupportedFeature.AUTO_DEDUCTION]: {
+        noun: "type deduction for auto local",
+    },
 };
 
 const CLANG_REMEDY = "the TypeScript compiler does not implement this yet; build this contract with clang";

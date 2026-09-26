@@ -3,6 +3,9 @@ import { blob, defineStruct, i64, u64 } from "@qinit/core";
 export const ORACLE_INTERFACE_INDEX = 0;
 export const QUERY_FEE = 10n;
 
+// the reply layout as type-format text, so a dev tool can encode a reply from what the user typed
+export const REPLY_FORMAT = "sint64, sint64";
+
 export const OracleQuery = defineStruct("PriceOracleQuery", {
     oracle: blob(32),
     timestamp: u64,

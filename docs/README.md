@@ -3,7 +3,7 @@
 Deep dives, one file per subject. Each doc opens with a **Scope / Read when / Related** block — check
 that before reading further in. The operational rules live outside this folder: `AGENTS.md`
 (contribution conventions), `CODING_RULES.md` (style), `CLAUDE.md` (commands and architecture summary),
-`README.md` (install and workspace layout).
+`README.md` (install and quick start).
 
 Sections are numbered, so jump with `grep -n '^## ' docs/<file>.md` rather than reading a whole guide.
 

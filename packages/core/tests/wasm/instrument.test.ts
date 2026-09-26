@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
 import { compileContractWithTypeScript } from "@qinit/compiler/browser";
 import COUNTER_SOURCE from "../../../../fixtures/Counter.h" with { type: "text" };
-import BIG_STATE_SOURCE from "../../../../fixtures/BigState.h" with { type: "text" };
-import TOKEN_SOURCE from "../../../../fixtures/Token.h" with { type: "text" };
 import {
     InstrumentError,
     JOURNAL_RESET_EXPORT,
@@ -10,7 +8,6 @@ import {
     capacityFittingRegion,
     instrumentStateJournal,
     journalBytesFor,
-    remapCodeOffset,
     tableSlotsFor,
 } from "../../src/wasm/instrument";
 import { JOURNAL_BLOCK_BYTES, JOURNAL_ENTRY_BYTES, JOURNAL_HEADER_BYTES, JOURNAL_SLOT_BYTES } from "../../src/wasm/journal";
@@ -104,39 +101,9 @@ test("capacityFittingRegion returns a capacity that fits the reserved region", (
     }
 });
 
-// Trap backtraces symbolize through a line map built from the pristine module, so the offsets it carries have to survive the rewrite.
-test("the offset map lands every un-rewritten instruction on identical bytes", async () => {
-    for (const [source, name] of [
-        [COUNTER_SOURCE, "Counter"],
-        [BIG_STATE_SOURCE, "BigState"],
-        [TOKEN_SOURCE, "Token"],
-    ] as const) {
-        const bytes = await pristine(source, name);
-        const result = instrumentStateJournal(bytes);
-
-        // Each breakpoint marks a byte copied verbatim: a body's content start, or the byte just past a rewritten site.
-        expect(result.offsetMap.length).toBeGreaterThan(0);
-        for (const entry of result.offsetMap) {
-            expect(result.wasm[remapCodeOffset(result.offsetMap, entry.from)], `${name} offset ${entry.from}`).toBe(bytes[entry.from]!);
-        }
-    }
-});
-
 test("a module the rewriter cannot read is rejected rather than half-instrumented", () => {
     expect(() => instrumentStateJournal(new Uint8Array([1, 2, 3, 4]))).toThrow();
     expect(() => instrumentStateJournal(new Uint8Array(0))).toThrow();
-});
-
-test("remapping is monotonic and never moves an offset backwards", async () => {
-    const result = instrumentStateJournal(await pristine(TOKEN_SOURCE, "Token"));
-
-    let previous = -1;
-    for (const entry of result.offsetMap) {
-        const mapped = remapCodeOffset(result.offsetMap, entry.from);
-        expect(mapped).toBeGreaterThanOrEqual(entry.from);
-        expect(mapped).toBeGreaterThan(previous);
-        previous = mapped;
-    }
 });
 
 function stubImports(wasm: Uint8Array<ArrayBuffer>): WebAssembly.Imports {

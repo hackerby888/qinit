@@ -35,6 +35,7 @@ describe.skipIf(!HAS_CORE)("source-backed QPI context accessors", () => {
         const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         const invocator = new Uint8Array(32).map((_, index) => index + 1);
         const originator = new Uint8Array(32).map((_, index) => 255 - index);
+        sim.fund(invocator, 123456789n);
         const output =
             sim.deploy(27, result.wasm) &&
             sim.procedure(27, 1, undefined, {

@@ -19,15 +19,24 @@ if (!core) {
 
 const ARENA_SIZE = DEFAULT_COMPILE_ARENA_SIZE_BYTES;
 const FALLBACK_SEED = "a".repeat(55);
+const BURN_AMOUNT = 100n;
+const BURN_FUNDING = 150;
+const RIGHTS_FUNDING = 50;
+const INVALID_AMOUNT = -(1n << 63n);
 const driverPath = resolve("fixtures/QpiDual.h");
 const calleePath = resolve("fixtures/QpiDualCallee.h");
 const driverSource = readFileSync(driverPath, "utf8");
 const calleeSource = readFileSync(calleePath, "utf8");
+// the shareholder pair has no compile-time link: the proposer takes the receiver's slot as input.
+const SHARE_CONTRACTS = {
+    receiver: { name: "ShareReceiver", path: resolve("fixtures/ShareReceiver.h") },
+    proposer: { name: "ShareProposer", path: resolve("fixtures/ShareProposer.h") },
+} as const;
 const scratch = mkdtempSync(join(tmpdir(), "qinit-qpi-matrix-"));
 process.once("exit", () => rmSync(scratch, { recursive: true, force: true }));
 
 type CompilerBackendLabel = "TS" | "Clang";
-type Role = "driver" | "callee";
+type Role = "driver" | "callee" | "receiver" | "proposer";
 interface Registration {
     functions: number;
     procedures: number;
@@ -49,6 +58,10 @@ interface Result {
     calleeOutput: Uint8Array;
     driverDigest: string;
     calleeDigest: string;
+    receiverOutput: Uint8Array;
+    proposerOutput: Uint8Array;
+    receiverDigest: string;
+    proposerDigest: string;
 }
 
 function fail(message: string): never {
@@ -66,8 +79,12 @@ function same(left: Uint8Array, right: Uint8Array, label: string): void {
     fail(`${label} differs at byte ${first} (${left.byteLength}B vs ${right.byteLength}B)`);
 }
 
+function viewOf(bytes: Uint8Array): DataView {
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
 function uint64(bytes: Uint8Array, index: number): bigint {
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(index * 8, true);
+    return viewOf(bytes).getBigUint64(index * 8, true);
 }
 
 async function artifact(compiler: CompilerBackendLabel, role: Role, slot: number, wasm: Uint8Array, registration: Registration): Promise<Artifact> {
@@ -124,6 +141,53 @@ async function compileTsPair(calleeSlot: number, driverSlot: number, qpiHeader: 
     ];
 }
 
+async function compileSharePair(compiler: CompilerBackendLabel, receiverSlot: number, proposerSlot: number, qpiHeader: string): Promise<Artifact[]> {
+    const artifacts: Artifact[] = [];
+    for (const [role, slot] of [
+        ["receiver", receiverSlot],
+        ["proposer", proposerSlot],
+    ] as const) {
+        const contract = SHARE_CONTRACTS[role];
+        if (compiler === "TS") {
+            const compiled = await compileContractWithTypeScript({
+                source: readFileSync(contract.path, "utf8"),
+                contractName: contract.name,
+                slot,
+                qpiHeader,
+                arenaSizeBytes: ARENA_SIZE,
+            });
+            const errors = compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR);
+            if (errors.length || !compiled.wasm.length || !compiled.idl) {
+                fail(`TS ${role} compile: ${errors.map((item) => item.message).join("; ") || "no artifact"}`);
+            }
+            artifacts.push(
+                await artifact("TS", role, slot, compiled.wasm, { functions: compiled.idl.functions.length, procedures: compiled.idl.procedures.length }),
+            );
+            continue;
+        }
+        // the verify tool's parser rejects the shareholder callbacks, as the build corpus notes.
+        const built = await buildContractWithClang({
+            contractPath: contract.path,
+            contractName: contract.name,
+            slot,
+            corePath: core!,
+            outDir: join(scratch, `clang-${role}`),
+            arenaSizeBytes: ARENA_SIZE,
+            skipVerify: true,
+        });
+        if (!built.ok || !built.wasmPath || !built.idl) {
+            fail(`Clang ${role} compile: ${built.stderr ?? "no artifact"}`);
+        }
+        artifacts.push(
+            await artifact("Clang", role, slot, new Uint8Array(readFileSync(built.wasmPath)), {
+                functions: built.idl.functions.length,
+                procedures: built.idl.procedures.length,
+            }),
+        );
+    }
+    return artifacts;
+}
+
 async function compileClangPair(calleeSlot: number, driverSlot: number): Promise<Artifact[]> {
     const callee = await buildContractWithClang({
         contractPath: calleePath,
@@ -163,10 +227,11 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
 async function deployAll(base: string, rpc: LiteRpc, artifacts: Artifact[], seed: string): Promise<void> {
     for (const item of artifacts) {
         const pairCallee = artifacts.find((candidate) => candidate.compiler === item.compiler && candidate.role === "callee")!;
+        const contractPath = item.role === "driver" ? driverPath : item.role === "callee" ? calleePath : SHARE_CONTRACTS[item.role].path;
         const deployed = await deployContract(
             {
-                contractPath: item.role === "driver" ? driverPath : calleePath,
-                name: `Qpi${item.compiler}${item.role === "driver" ? "Driver" : "Callee"}`,
+                contractPath,
+                name: `Qpi${item.compiler}${item.role[0].toUpperCase()}${item.role.slice(1)}`,
                 core: core!,
                 rpcBaseUrl: base,
                 rpc,
@@ -237,6 +302,72 @@ async function recover(base: string, rpc: LiteRpc, slot: number, seed: string): 
     });
     if (!result.ok || !result.confirmed || !result.included) {
         fail(`${base} slot ${slot} Recover was not included: ${JSON.stringify(result)}`);
+    }
+}
+
+// the driver checks the tick it runs in, so the transaction carries the tick it is scheduled for.
+async function cheat(base: string, rpc: LiteRpc, slot: number, seed: string): Promise<void> {
+    const tick = (await rpc.tickInfo()).tick + 6;
+    const result = await invokeProcedure({
+        seed,
+        rpcBaseUrl: base,
+        rpc,
+        contractIndex: slot,
+        procedureId: 3,
+        amount: 0,
+        inputFormat: `${tick}uint64`,
+        tick,
+        confirm: true,
+        confirmTimeoutMs: 60_000,
+    });
+    if (!result.ok || !result.confirmed || !result.included) {
+        fail(`${base} slot ${slot} Cheat was not included: ${JSON.stringify(result)}`);
+    }
+}
+
+// returns the procedure's three output words: remaining balance, own reserve delta, target reserve delta.
+async function burn(base: string, rpc: LiteRpc, slot: number, burnedFor: number, seed: string, traceStart: number): Promise<{ words: bigint[]; seq: number }> {
+    const result = await invokeProcedure({
+        seed,
+        rpcBaseUrl: base,
+        rpc,
+        contractIndex: slot,
+        procedureId: 4,
+        amount: BURN_FUNDING,
+        inputFormat: `${BURN_AMOUNT}sint64, ${burnedFor}uint64`,
+        tick: (await rpc.tickInfo()).tick + 6,
+        confirm: true,
+        confirmTimeoutMs: 60_000,
+    });
+    if (!result.ok || !result.confirmed || !result.included) {
+        fail(`${base} slot ${slot} Burn was not included: ${JSON.stringify(result)}`);
+    }
+    const trace = await rpc.debugTrace(traceStart, 32);
+    const entry = trace.entries.find((candidate) => candidate.index === slot && candidate.entry === 4 && candidate.kind === 1 && candidate.ok);
+    if (!entry) {
+        fail(`${base} slot ${slot} Burn left no trace entry`);
+    }
+    const output = new DataView(hexToBytes(entry.outHex).buffer);
+
+    return { words: [0, 8, 16].map((offset) => output.getBigInt64(offset, true)), seq: entry.seq };
+}
+
+// the proposer's two procedures take the receiver's slot: 1 sets a shareholder proposal there, 2 casts shareholder votes.
+async function shareholderCall(base: string, rpc: LiteRpc, proposerSlot: number, procedureId: number, receiverSlot: number, seed: string): Promise<void> {
+    const result = await invokeProcedure({
+        seed,
+        rpcBaseUrl: base,
+        rpc,
+        contractIndex: proposerSlot,
+        procedureId,
+        amount: 0,
+        inputFormat: `${receiverSlot}uint16`,
+        tick: (await rpc.tickInfo()).tick + 6,
+        confirm: true,
+        confirmTimeoutMs: 60_000,
+    });
+    if (!result.ok || !result.confirmed || !result.included) {
+        fail(`${base} slot ${proposerSlot} shareholder procedure ${procedureId} was not included: ${JSON.stringify(result)}`);
     }
 }
 
@@ -355,6 +486,69 @@ async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compil
         }
     }
 
+    // each bit of the flags is one warp or prank scope check in the driver's Cheat procedure.
+    const cheatTraceStart = recoveryTrace.entries.reduce((latest, entry) => Math.max(latest, entry.seq), recoveryTraceStart);
+    await cheat(base, rpc, driver.slot, seed);
+    const cheatTrace = await rpc.debugTrace(cheatTraceStart, 32);
+    const cheatDriver = cheatTrace.entries.find((entry) => entry.index === driver.slot && entry.entry === 3 && entry.kind === 1 && entry.ok);
+    const cheatFlags = cheatDriver ? uint64(hexToBytes(cheatDriver.outHex), 0) : undefined;
+    if (cheatFlags !== 0x1ffn) {
+        fail(`${base} ${compiler} cheat scope flags: ${cheatFlags === undefined ? "no trace" : `0x${cheatFlags.toString(16)}`} != 0x1ff`);
+    }
+
+    // a burn credits the reserve it names; an index at or past the node's contract count names the burning contract itself.
+    const burnRows: [string, number, bigint, bigint][] = [
+        ["self", driver.slot, BURN_AMOUNT, BURN_AMOUNT],
+        ["callee", callee.slot, 0n, BURN_AMOUNT],
+        ["past the contract count", 1023, BURN_AMOUNT, BURN_AMOUNT],
+    ];
+    let burnTraceStart = cheatTrace.entries.reduce((latest, entry) => Math.max(latest, entry.seq), cheatTraceStart);
+    for (const [label, burnedFor, selfDelta, targetDelta] of burnRows) {
+        const burned = await burn(base, rpc, driver.slot, burnedFor, seed, burnTraceStart);
+        const [remaining, actualSelfDelta, actualTargetDelta] = burned.words;
+        burnTraceStart = burned.seq;
+        if (remaining < 0n || actualSelfDelta !== selfDelta || actualTargetDelta !== targetDelta) {
+            fail(
+                `${base} ${compiler} burn for ${label}: remaining ${remaining}, self ${actualSelfDelta} != ${selfDelta}, target ${actualTargetDelta} != ${targetDelta}`,
+            );
+        }
+    }
+
+    // a release to the callee and an acquire back, each under its own non-zero fee; the callee also tries a release from inside its callback.
+    const rightsTick = (await rpc.tickInfo()).tick + 6;
+    const rights = await invokeProcedure({
+        seed,
+        rpcBaseUrl: base,
+        rpc,
+        contractIndex: driver.slot,
+        procedureId: 5,
+        amount: RIGHTS_FUNDING,
+        inputFormat: `${callee.slot}uint64`,
+        tick: rightsTick,
+        confirm: true,
+        confirmTimeoutMs: 60_000,
+    });
+    if (!rights.ok || !rights.confirmed || !rights.included) {
+        fail(`${base} ${compiler} Rights was not included: ${JSON.stringify(rights)}`);
+    }
+    const rightsEntry = (await rpc.debugTrace(burnTraceStart, 64)).entries.find(
+        (entry) => entry.index === driver.slot && entry.entry === 5 && entry.kind === 1 && entry.ok,
+    );
+    const rightsWords = rightsEntry ? new DataView(hexToBytes(rightsEntry.outHex).buffer) : undefined;
+    // the last word is what a share transfer returns: the source's holding after it, which both engines read back from the ledger.
+    const rightsExpected = [100n, 5n, 40n, 7n, 100n, 70n];
+    rightsExpected.forEach((value, index) => {
+        if (rightsWords?.getBigInt64(index * 8, true) !== value) {
+            fail(`${base} ${compiler} rights output word ${index}: ${rightsWords?.getBigInt64(index * 8, true)} != ${value}`);
+        }
+    });
+    const calleeRights = viewOf(await rpc.querySmartContract(callee.slot, 4, new Uint8Array(0)));
+    if (calleeRights.getBigUint64(0, true) !== 4n || calleeRights.getBigInt64(8, true) !== 12n || calleeRights.getBigInt64(16, true) !== INVALID_AMOUNT) {
+        fail(
+            `${base} ${compiler} callee rights: ${calleeRights.getBigUint64(0, true)} callbacks, ${calleeRights.getBigInt64(8, true)} fees, nested ${calleeRights.getBigInt64(16, true)}`,
+        );
+    }
+
     await plainTransfer(base, rpc, driver.slot, seed);
     await plainTransfer(base, rpc, driver.slot, seed);
 
@@ -372,7 +566,18 @@ async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compil
     if (calleeRead.stateSize !== calleeDigest.stateSize || calleeState.byteLength !== calleeDigest.stateSize) {
         fail(`${base} ${compiler} callee state read is incomplete`);
     }
+    const receiver = artifacts.find((item) => item.compiler === compiler && item.role === "receiver")!;
+    const proposer = artifacts.find((item) => item.compiler === compiler && item.role === "proposer")!;
+    await shareholderCall(base, rpc, proposer.slot, 1, receiver.slot, seed);
+    await shareholderCall(base, rpc, proposer.slot, 2, receiver.slot, seed);
+    const receiverOutput = await rpc.querySmartContract(receiver.slot, 1, new Uint8Array(0));
+    const proposerOutput = await rpc.querySmartContract(proposer.slot, 1, new Uint8Array(0));
+
     return {
+        receiverOutput,
+        proposerOutput,
+        receiverDigest: (await rpc.contractDigest(receiver.slot)).digest.toLowerCase(),
+        proposerDigest: (await rpc.contractDigest(proposer.slot)).digest.toLowerCase(),
         driverStateSize: driverDigest.stateSize,
         calleeStateSize: calleeDigest.stateSize,
         driverState,
@@ -386,13 +591,26 @@ async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compil
 
 function assertExpected(result: Result, label: string): void {
     const driver = new DataView(result.driverOutput.buffer, result.driverOutput.byteOffset, result.driverOutput.byteLength);
-    const expected = [63n, 4n, 16n, 16n, 16n, 11n, 57n, 2n, 0n, 65n, 4n, 1n, 2n, 0x51494e4954574153n];
+    // the second word counts incoming transfers: the two runs, the cheat's self transfer, two plain transfers, three burns and the rights call.
+    const expected = [63n, 9n, 16n, 16n, 16n, 11n, 57n, 2n, 0n, 65n, 4n, 1n, 2n, 0x51494e4954574153n];
     expected.forEach((value, index) => {
         const actual = driver.getBigUint64((index + 1) * 8, true);
         if (actual !== value) {
             fail(`${label} driver output word ${index + 1}: ${actual} != ${value}`);
         }
     });
+    // receiver: proposal byte, proposals, votes, the vote's proposal index, and its refused call back into the proposer (INVALID_PROPOSAL_INDEX).
+    const shareRows: [string, Uint8Array, bigint[]][] = [
+        ["receiver", result.receiverOutput, [222n, 1n, 1n, 7n, 0xffffn]],
+        ["proposer", result.proposerOutput, [7n, 1n]],
+    ];
+    for (const [role, output, words] of shareRows) {
+        words.forEach((value, index) => {
+            if (uint64(output, index) !== value) {
+                fail(`${label} ${role} output word ${index}: ${uint64(output, index)} != ${value}`);
+            }
+        });
+    }
     const callee = new DataView(result.calleeOutput.buffer, result.calleeOutput.byteOffset, result.calleeOutput.byteLength);
     const calleeExpected = [65n, 4n, 0x43414c4c45455741n];
     calleeExpected.forEach((value, index) => {
@@ -410,14 +628,19 @@ const registry = await coreRpc.dynRegistry();
 if (registry.contracts.some((contract) => contract.armed)) {
     fail("core node must start with empty dynamic slots");
 }
-if (registry.slotCount < 4) {
-    fail(`need four dynamic slots, node exposes ${registry.slotCount}`);
+if (registry.slotCount < 8) {
+    fail(`need eight dynamic slots, node exposes ${registry.slotCount}`);
 }
-const slots = [0, 1, 2, 3].map((offset) => registry.slotBase + offset);
+const slots = [0, 1, 2, 3, 4, 5, 6, 7].map((offset) => registry.slotBase + offset);
 
 const qpiHeader = loadQpiHeader(core);
 assertPinnedQpiHeader(qpiHeader);
-const artifacts = [...(await compileTsPair(slots[0], slots[1], qpiHeader)), ...(await compileClangPair(slots[2], slots[3]))];
+const artifacts = [
+    ...(await compileTsPair(slots[0], slots[1], qpiHeader)),
+    ...(await compileClangPair(slots[2], slots[3])),
+    ...(await compileSharePair("TS", slots[4], slots[5], qpiHeader)),
+    ...(await compileSharePair("Clang", slots[6], slots[7], qpiHeader)),
+];
 for (const item of artifacts) {
     console.log(`${item.compiler.padEnd(5)} ${item.role.padEnd(6)} slot ${item.slot}: ${item.wasm.length}B · ${item.hash}`);
 }
@@ -461,6 +684,9 @@ try {
         }
         if (result.calleeDigest !== canonical.calleeDigest) {
             fail(`${name} callee digest ${result.calleeDigest} != ${canonical.calleeDigest}`);
+        }
+        if (result.receiverDigest !== canonical.receiverDigest || result.proposerDigest !== canonical.proposerDigest) {
+            fail(`${name} shareholder digests ${result.receiverDigest} ${result.proposerDigest} != ${canonical.receiverDigest} ${canonical.proposerDigest}`);
         }
     }
     if (nestedRecoveryRuns > 1) {

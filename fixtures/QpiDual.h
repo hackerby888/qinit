@@ -35,6 +35,15 @@ struct QpiDual : public ContractBase
         uint64 recoveries;
         uint64 runs;
         uint64 initialized;
+        uint64 cheatFlags;
+        id selfPitOriginator;
+        sint64 burnRemaining;
+        sint64 burnSelfDelta;
+        sint64 burnTargetDelta;
+        uint64 burns;
+        sint64 rightsReleaseFee;
+        sint64 rightsAcquireFee;
+        sint64 rightsManagedAfter;
     };
 
     struct CalleeRead_input {};
@@ -52,6 +61,16 @@ struct QpiDual : public ContractBase
         sint64 divisor;
     };
     struct CalleeFailAfterWrite_output { sint64 quotient; };
+    struct CalleeObserve_input {};
+    struct CalleeObserve_output
+    {
+        uint64 tick;
+        uint64 epoch;
+        id originator;
+        id invocator;
+    };
+    struct CalleeWarp_input { uint64 ticks; };
+    struct CalleeWarp_output {};
 
     struct Run_input
     {
@@ -128,6 +147,24 @@ struct QpiDual : public ContractBase
         CalleeAdd_output healthyOutput;
     };
 
+    struct Cheat_input { uint64 expectedTick; };
+    struct Cheat_output { uint64 flags; };
+    struct Cheat_locals
+    {
+        id who;
+        id entryOriginator;
+        id entryInvocator;
+        sint64 entryReward;
+        uint64 entryTick;
+        uint64 entryEpoch;
+        sint64 issuedBefore;
+        sint64 issuedDuring;
+        CalleeObserve_input observeInput;
+        CalleeObserve_output observed;
+        CalleeWarp_input warpInput;
+        CalleeWarp_output warpOutput;
+    };
+
     INITIALIZE()
     {
         state.mut().initialized = 0x51494E4954574153ull;
@@ -136,6 +173,10 @@ struct QpiDual : public ContractBase
     POST_INCOMING_TRANSFER()
     {
         state.mut().pitCount++;
+        if (qpi.invocator() == SELF)
+        {
+            state.mut().selfPitOriginator = qpi.originator();
+        }
     }
 
     PUBLIC_PROCEDURE_WITH_LOCALS(Run)
@@ -512,10 +553,184 @@ struct QpiDual : public ContractBase
         output.calls = locals.afterHealthy.calls;
     }
 
+    // each check sets a flag instead of asserting, since an abort in a procedure halts core. All nine set is 0x1ff.
+    PUBLIC_PROCEDURE_WITH_LOCALS(Cheat)
+    {
+        // per slot, so the TS and Clang drivers on one node issue different assets.
+        locals.who = id(SELF_INDEX, 0x5052414E4B, 0, 0);
+        locals.entryTick = qpi.tick();
+        locals.entryEpoch = qpi.epoch();
+        locals.entryOriginator = qpi.originator();
+        locals.entryInvocator = qpi.invocator();
+        locals.entryReward = qpi.invocationReward();
+        if (locals.entryTick == input.expectedTick)
+        {
+            output.flags |= 1;
+        }
+
+        CC_WARP_TICK(10);
+        {
+            CALL_OTHER_CONTRACT_FUNCTION(
+                QpiDualCallee,
+                Observe,
+                locals.observeInput,
+                locals.observed);
+        }
+        if (qpi.tick() == locals.entryTick + 10 && locals.observed.tick == locals.entryTick + 10)
+        {
+            output.flags |= 2;
+        }
+
+        locals.warpInput.ticks = 5;
+        {
+            INVOKE_OTHER_CONTRACT_PROCEDURE(
+                QpiDualCallee,
+                Warp,
+                locals.warpInput,
+                locals.warpOutput,
+                0);
+        }
+        if (qpi.tick() == locals.entryTick + 15)
+        {
+            output.flags |= 4;
+        }
+
+        CC_WARP_EPOCH(1);
+        {
+            CALL_OTHER_CONTRACT_FUNCTION(
+                QpiDualCallee,
+                Observe,
+                locals.observeInput,
+                locals.observed);
+        }
+        if (qpi.epoch() == locals.entryEpoch + 1
+            && locals.observed.epoch == locals.entryEpoch + 1
+            && locals.observed.tick == locals.entryTick + 15)
+        {
+            output.flags |= 8;
+        }
+
+        // "PRANK": only the issuer or the invocator may issue, so this succeeds only once the prank names the issuer.
+        locals.issuedBefore = qpi.issueAsset(0x4B4E415250ull, locals.who, 0, 1, 0);
+        CC_PRANK(locals.who, 9);
+        if (qpi.invocator() == locals.who && qpi.originator() == locals.who && qpi.invocationReward() == 9)
+        {
+            output.flags |= 16;
+        }
+
+        {
+            CALL_OTHER_CONTRACT_FUNCTION(
+                QpiDualCallee,
+                Observe,
+                locals.observeInput,
+                locals.observed);
+        }
+        if (locals.observed.originator == locals.who && locals.observed.invocator == SELF)
+        {
+            output.flags |= 32;
+        }
+
+        locals.issuedDuring = qpi.issueAsset(0x4B4E415250ull, locals.who, 0, 1, 0);
+        if (locals.issuedBefore == 0 && locals.issuedDuring == 1)
+        {
+            output.flags |= 64;
+        }
+
+        qpi.transfer(SELF, 1);
+        if (state.get().selfPitOriginator == locals.who)
+        {
+            output.flags |= 128;
+        }
+        // cleared so the TS and Clang drivers end with identical state.
+        state.mut().selfPitOriginator = NULL_ID;
+
+        CC_UNPRANK();
+        if (qpi.invocator() == locals.entryInvocator
+            && qpi.originator() == locals.entryOriginator
+            && qpi.invocationReward() == locals.entryReward)
+        {
+            output.flags |= 256;
+        }
+
+        state.mut().cheatFlags = output.flags;
+    }
+
+    struct Burn_input
+    {
+        sint64 amount;
+        uint64 burnedFor;
+    };
+    struct Burn_output
+    {
+        sint64 remaining;
+        sint64 selfDelta;
+        sint64 targetDelta;
+    };
+    struct Burn_locals
+    {
+        sint64 selfBefore;
+        sint64 targetBefore;
+    };
+
+    // both reserve reads sit inside one invocation, so no execution fee lands between them.
+    PUBLIC_PROCEDURE_WITH_LOCALS(Burn)
+    {
+        locals.selfBefore = qpi.queryFeeReserve(SELF_INDEX);
+        locals.targetBefore = qpi.queryFeeReserve((uint32)input.burnedFor);
+        output.remaining = qpi.burn(input.amount, (uint32)input.burnedFor);
+        output.selfDelta = qpi.queryFeeReserve(SELF_INDEX) - locals.selfBefore;
+        output.targetDelta = qpi.queryFeeReserve((uint32)input.burnedFor) - locals.targetBefore;
+
+        state.mut().burnRemaining = output.remaining;
+        state.mut().burnSelfDelta += output.selfDelta;
+        state.mut().burnTargetDelta += output.targetDelta;
+        state.mut().burns++;
+    }
+
+    struct Rights_input { uint64 calleeIndex; };
+    struct Rights_output
+    {
+        sint64 issued;
+        sint64 releaseFee;
+        sint64 managedByCallee;
+        sint64 acquireFee;
+        sint64 managedBySelf;
+        sint64 transferRemaining;
+    };
+    struct Rights_locals { Asset asset; };
+
+    // approves a release back to this contract, so the callee's nested release is stopped by the guard and by nothing else.
+    PRE_ACQUIRE_SHARES()
+    {
+        output.allowTransfer = true;
+    }
+
+    // "RIGHTS": released to the callee for a fee of 5, acquired back for 7, both under an offer of 10.
+    PUBLIC_PROCEDURE_WITH_LOCALS(Rights)
+    {
+        locals.asset.issuer = SELF;
+        locals.asset.assetName = 0x535448474952ull;
+        output.issued = qpi.issueAsset(locals.asset.assetName, SELF, 0, 100, 0);
+        output.releaseFee = qpi.releaseShares(locals.asset, SELF, SELF, 40, (uint16)input.calleeIndex, (uint16)input.calleeIndex, 10);
+        output.managedByCallee =
+            qpi.numberOfPossessedShares(locals.asset.assetName, SELF, SELF, SELF, (uint16)input.calleeIndex, (uint16)input.calleeIndex);
+        output.acquireFee = qpi.acquireShares(locals.asset, SELF, SELF, 40, (uint16)input.calleeIndex, (uint16)input.calleeIndex, 10);
+        output.managedBySelf = qpi.numberOfPossessedShares(locals.asset.assetName, SELF, SELF, SELF, SELF_INDEX, SELF_INDEX);
+        // what the source still holds after 30 of the 100 leave it.
+        output.transferRemaining = qpi.transferShareOwnershipAndPossession(locals.asset.assetName, SELF, SELF, SELF, 30, id(SELF_INDEX, 0x5348415245, 0, 0));
+
+        state.mut().rightsReleaseFee = output.releaseFee;
+        state.mut().rightsAcquireFee = output.acquireFee;
+        state.mut().rightsManagedAfter = output.managedBySelf;
+    }
+
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
     {
         REGISTER_USER_PROCEDURE(Run, 1);
         REGISTER_USER_PROCEDURE(Recover, 2);
+        REGISTER_USER_PROCEDURE(Cheat, 3);
         REGISTER_USER_FUNCTION(Read, 1);
+        REGISTER_USER_PROCEDURE(Burn, 4);
+        REGISTER_USER_PROCEDURE(Rights, 5);
     }
 };

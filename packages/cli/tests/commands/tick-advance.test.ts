@@ -2,6 +2,7 @@
 import { expect, test } from "bun:test";
 import { RpcTimeoutError, type LiteRpc } from "@qinit/core";
 import { advanceChunk, advanceTo, settleAfterTimeout } from "../../src/commands/node/tick";
+import { TEST_SLOT_LAYOUT } from "../../../../test-utils/slot-layout";
 
 function fakeNode(epochLastTick: number) {
     const spans: number[] = [];
@@ -29,6 +30,8 @@ test("advanceTo never asks for the whole distance in one request", async () => {
 
 test("advanceChunk reports the fault behind a 503 and passes other errors through", async () => {
     const halted = Object.assign(new Error("RPC GET /live/v1/dev/advance-tick → HTTP 503"), { status: 503 });
+    // a dynamic slot: a system slot would be named after its contract instead of its number.
+    const slot = TEST_SLOT_LAYOUT.slotBase;
     const fault = {
         message: "abort(7)",
         phase: "transaction",
@@ -36,13 +39,13 @@ test("advanceChunk reports the fault behind a 503 and passes other errors throug
         failedEpoch: 1,
         lastFinalizedTick: 41,
         lastFinalizedEpoch: 1,
-        slot: 30,
+        slot,
         kind: 1,
         entry: 4,
     };
     const rpc = { advanceTick: async () => Promise.reject(halted), faultInfo: async () => fault } as unknown as LiteRpc;
 
-    await expect(advanceChunk(rpc, 5)).rejects.toThrow(/node halted: slot 30 proc#4 trapped abort\(0x7\) at tick 42/);
+    await expect(advanceChunk(rpc, 5)).rejects.toThrow(`node halted: slot ${slot} proc#4 trapped abort(0x7) at tick 42`);
 
     const unreachable = { advanceTick: async () => Promise.reject(new Error("node unreachable")) } as unknown as LiteRpc;
     await expect(advanceChunk(unreachable, 5)).rejects.toThrow("node unreachable");

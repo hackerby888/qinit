@@ -153,6 +153,36 @@ test("an overflowing call truncates, arms the fallback, and the next call is com
     });
 });
 
+// One wide call must not cost every later call a whole-state compare: a call that fits hands the contract back to its journal.
+test("a call that fits after an overflow returns the contract to its journal", async () => {
+    const slot = wasmFixtureManifest.WideWrite.slot;
+    const bytes = await wasm("WideWrite");
+    withJournalEnabled(() => {
+        const sim = new QubicSimulator({ fees: "off" });
+        const contract = sim.deploy(slot, bytes) as unknown as { shadow: Uint8Array | null; journalOverflowed: boolean };
+
+        sim.setDebug(true);
+        sim.procedure(slot, 1, u64(1n));
+        expect(contract.journalOverflowed).toBe(true);
+
+        // still on the fallback, which sees that this call would have fit.
+        sim.procedure(slot, 2, u64(7n));
+        expect(sim.getTrace().entries.at(-1)!.stateTruncated).toBe(false);
+        expect(contract.journalOverflowed).toBe(false);
+        expect(contract.shadow).toBeNull();
+
+        sim.procedure(slot, 2, u64(9n));
+        const journalled = sim.getTrace().entries.at(-1)!;
+        expect(journalled.stateTruncated).toBe(false);
+        expect(journalled.stateDiff.length).toBe(1);
+        expect(contract.shadow).toBeNull();
+
+        // a wide call after the hand-back overflows again, so the journal really is the mechanism in use.
+        sim.procedure(slot, 1, u64(3n));
+        expect(sim.getTrace().entries.at(-1)!.stateTruncated).toBe(true);
+    });
+});
+
 // The point of the change is a number: a traced call on a 64 MB state must not allocate a 64 MB shadow.
 test("journal mode never allocates the state-sized shadow", async () => {
     const slot = wasmFixtureManifest.BigState.slot;

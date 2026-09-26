@@ -15,7 +15,7 @@ import { buildContractWithTypeScript } from "./typescript";
 import { buildCalleePrelude } from "../contracts/intercontract";
 import type { DynCallees } from "../contracts/intercontract";
 import { generateWasmContractTestingHeaderForCore, KNOWN_LOG_HEADER_VIOLATIONS, systemContractClosure, systemContracts } from "../contracts/system-contracts";
-import { k12Hex } from "@qinit/core";
+import { k12Hex, type BuildProfile } from "@qinit/core";
 import { analyzeContract } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
 import { buildGateRejection, buildGateViolations, buildGateWarnings, type ContractKind } from "./build-rules";
@@ -33,7 +33,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
     let qpiHeader: string | undefined;
     let qpiHeaderError: string | undefined;
     try {
-        qpiHeader = o.corePath ? loadQpiHeader(o.corePath) : undefined;
+        qpiHeader = o.corePath ? loadQpiHeader(o.corePath, o.profile) : undefined;
     } catch (error: any) {
         qpiHeader = undefined;
         qpiHeaderError = String(error?.message ?? error);
@@ -126,8 +126,6 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         stderr: idlError ? `compiler IDL analysis failed: ${idlError}` : undefined,
         verify,
         warnings: warnings.length ? warnings : undefined,
-        debugWasmPath: compiled.debugWasmPath,
-        lineMapPath: compiled.lineMapPath,
     };
 }
 
@@ -144,6 +142,7 @@ export async function buildCorpusRunner(o: {
     dynCallees?: DynCallees;
     contractDescriptions?: readonly { index: number; name: string }[];
     contractKind?: ContractKind;
+    profile?: BuildProfile;
     buildRules?: boolean;
 }): Promise<ContractBuildResult> {
     const raw = (await readFile(o.corpusPath, "utf8")).replace(/^﻿/, "");
@@ -167,7 +166,9 @@ export async function buildCorpusRunner(o: {
     // Corpus runners do not need deployed-contract debugging; the trailing -O2 overrides the recipe's -O0.
     // Corpus fixtures hold whole contract states on the C stack, past wasm-ld's 64 KB default: with the stack above the data the
     // overflow silently overwrote it, and once wasm-ld placed the stack first (LLVM 22) it trapped. Give the runner a real stack.
-    const extraCompileFlags = ["-O2", "-Wno-error=return-mismatch", "-DQINIT_CORPUS_RUNNER", "-Wl,-z,stack-size=8388608"];
+    // A test that calls a private function hands it `X_locals locals{}`, whose padding `{}` leaves as stack garbage; a contract that K12s
+    // its locals (QDuel's GetWinnerPlayer) then hashes whatever an earlier frame left. Zeroed like the engine's locals, it stays stable.
+    const extraCompileFlags = ["-O2", "-Wno-error=return-mismatch", "-DQINIT_CORPUS_RUNNER", "-Wl,-z,stack-size=8388608", "-ftrivial-auto-var-init=zero"];
 
     // When the corpus pulls real <iostream> itself, suppress the harness's std::cout stubs so they do not collide with the real stream objects.
     if (/^#include\s*<(iostream|ostream)>/m.test(raw)) {
@@ -198,6 +199,7 @@ export async function buildCorpusRunner(o: {
         calleePrelude,
         dynCallees: o.dynCallees,
         contractKind: o.contractKind,
+        profile: o.profile,
         buildRules: o.buildRules,
     });
 }
@@ -224,22 +226,7 @@ export async function buildSystemContract(
 
     const compiler = opts.compiler ?? "clang";
     const outDir = opts.outDir ?? join(tmpdir(), "qinit-system");
-    if (compiler === "clang") {
-        const result = await buildContractWithClang({
-            contractPath: join(corePath, "src", "contracts", contract.file),
-            contractName: contract.name,
-            stateType: contract.stateType,
-            slot: contract.index,
-            corePath,
-            outDir,
-            skipVerify: true,
-            contractKind: "system",
-            wasmClang: opts.wasmClang,
-            wasmSysroot: opts.wasmSysroot,
-        });
-        return { ...result, index: contract.index };
-    }
-
+    // the callees' declarations, so a state field typed by another system contract has its layout on both backends.
     const dependencies = Object.fromEntries(
         systemContractClosure(corePath, contract.name)
             .filter((dependency) => dependency.index !== contract.index)
@@ -252,6 +239,23 @@ export async function buildSystemContract(
                 },
             ]),
     );
+    if (compiler === "clang") {
+        const result = await buildContractWithClang({
+            contractPath: join(corePath, "src", "contracts", contract.file),
+            contractName: contract.name,
+            stateType: contract.stateType,
+            slot: contract.index,
+            corePath,
+            outDir,
+            dynCallees: dependencies,
+            skipVerify: true,
+            contractKind: "system",
+            wasmClang: opts.wasmClang,
+            wasmSysroot: opts.wasmSysroot,
+        });
+        return { ...result, index: contract.index };
+    }
+
     const result = await buildContractWithTypeScript({
         contractPath: join(corePath, "src", "contracts", contract.file),
         contractName: contract.name,

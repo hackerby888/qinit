@@ -1,4 +1,5 @@
 // The deployment progress model. Pure — no RPC, no clock beyond an injected `now` — so the command's rendering can be tested without a node.
+import type { DeployOutcome } from "@qinit/core";
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
 export type DeploymentStepEvent = {
@@ -50,7 +51,23 @@ export function tickFailureMessage(reached: boolean, rpcBaseUrl: string): string
     return reached ? "node not ticking" : `node unreachable at ${rpcBaseUrl} — is it running? (qinit node run)`;
 }
 
-export function classifyConfirm(state: { present: boolean; regOk: boolean; onNode: string; want: string }): { reason: string; detail: string; note: string } {
+export function classifyConfirm(state: { present: boolean; regOk: boolean; onNode: string; want: string; refusal?: Pick<DeployOutcome, "code" | "message"> }): {
+    reason: string;
+    detail: string;
+    note: string;
+} {
+    // the node's own account of the DEPLOY beats anything inferred from the slot.
+    if (state.refusal) {
+        return {
+            reason: "deploy-refused",
+            detail: `node refused deploy: ${state.refusal.message}`,
+            note:
+                state.refusal.code === "incomplete"
+                    ? "the node never received every chunk of the upload — run the deploy again"
+                    : `refusal ${state.refusal.code} is final for this upload; fix the cause and deploy again`,
+        };
+    }
+
     if (!state.regOk) {
         return {
             reason: "registry-unreadable",

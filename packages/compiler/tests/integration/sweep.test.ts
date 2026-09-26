@@ -31,6 +31,7 @@ const DEPENDENCIES: Record<string, DependencySpec> = {
     QX: { name: "QX", path: join(SYSTEM, "Qx.h"), slot: 1 },
     RANDOM: { name: "RANDOM", path: join(SYSTEM, "Random.h"), slot: 3 },
     QEARN: { name: "QEARN", path: join(SYSTEM, "Qearn.h"), slot: 9 },
+    QBAY: { name: "QBAY", path: join(SYSTEM, "Qbay.h"), slot: 12 },
     RL: { name: "RL", path: join(SYSTEM, "RandomLottery.h"), slot: 16 },
     QRP: { name: "QRP", path: join(SYSTEM, "QReservePool.h"), slot: 21 },
     QTF: { name: "QTF", path: join(SYSTEM, "QThirtyFour.h"), slot: 22 },
@@ -53,6 +54,7 @@ const LINKED_DEPENDENCIES: Record<string, string[]> = {
     RandomLottery: ["RANDOM"],
     Pulse: ["RANDOM", "RL", "QRP", "QTF", "QX"],
     Nostromo: ["QX"],
+    QTREAT: ["QX", "QBAY", "RANDOM"],
 };
 
 const INTER_CONTRACT_CALL = /(?:INVOKE|CALL)_OTHER_CONTRACT_(?:PROCEDURE|FUNCTION)\s*\(\s*([A-Za-z_]\w*)/g;
@@ -228,6 +230,7 @@ beforeAll(async () => {
     await initK12();
 });
 
+// compiles every fixture and all 30 system contracts: 22–30 s on a macos runner, so 30 s was the edge.
 test.skipIf(!HAS_CORE)(
     "conformance sweep — fixtures + system contracts",
     async () => {
@@ -279,5 +282,5 @@ test.skipIf(!HAS_CORE)(
             loaded: real.length,
         });
     },
-    30_000,
+    120_000,
 );

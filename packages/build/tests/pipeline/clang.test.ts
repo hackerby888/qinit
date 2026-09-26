@@ -29,7 +29,16 @@ const CORE_HEADERS = [
 ];
 
 test("Wasm contract Clang flags define one shared compile profile", () => {
-    expect(WASM_CONTRACT_CLANG_FLAGS).toEqual(["--target=wasm32-wasi", "-std=c++20", "-fno-rtti", "-fno-exceptions", "-DLITEDYN_CONTRACT_TU"]);
+    expect(WASM_CONTRACT_CLANG_FLAGS).toEqual([
+        "--target=wasm32-wasi",
+        "-std=c++20",
+        "-fno-rtti",
+        "-fno-exceptions",
+        "-DLITEDYN_CONTRACT_TU",
+        "-DTESTNET=1",
+        "-DTESTNET_LITE_RAM=1",
+        "-DLITE_WASM_SC=1",
+    ]);
 });
 
 test("buildPreamble: NO_UEFI, std headers, then build define, then core headers — in that order", () => {

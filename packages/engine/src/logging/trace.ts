@@ -164,6 +164,7 @@ export class TraceRecorder {
             hostCalls: [],
             logs: [],
             cheats: [],
+            children: [],
         };
         this.stack.push(e);
         return e;
@@ -191,6 +192,8 @@ export class TraceRecorder {
 
         this.stack.pop();
         entry.seq = ++this.seq;
+        // the frame still open below this one made the call, so it learns the callee's seq here, at completion.
+        this.stack[this.stack.length - 1]?.children!.push(entry.seq);
         this.entries.push(entry);
         if (this.entries.length > TRACE_ENTRY_CAP) {
             this.entries.splice(0, this.entries.length - TRACE_ENTRY_CAP);

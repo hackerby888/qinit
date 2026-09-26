@@ -28,7 +28,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
 };`;
 
-// epochLength is 3000 ticks (QubicSimulator TESTNET_EPOCH_DURATION); each boundary crossing fires END_EPOCH once.
+// each boundary crossing fires END_EPOCH once, whatever the epoch length.
 const EPOCHER_GTEST = coreGtest(
     "Epoch",
     `TEST(Epoch, EndEpochUsesLocals) {

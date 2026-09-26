@@ -28,8 +28,8 @@ describe.skipIf(!HAS_CORE)("template lowering matches Clang on the same source",
             const theirs = await clangState(templateCase.name, templateCase.source, "template-parity");
 
             // Parity is the claim; the pinned value says which answer both are expected to reach.
-            expect(ours).toBe(theirs);
-            expect(ours).toBe(templateCase.expected);
+            expect(ours.stateHex).toBe(theirs.stateHex);
+            expect(ours.resultWord).toBe(templateCase.expected);
         });
     }
 });

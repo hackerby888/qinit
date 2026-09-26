@@ -508,7 +508,7 @@ export const HOSTCALL_IDENTITY_ARCHETYPES: Archetype[] = [
         family: "hostcalls",
         solidity: "openzeppelin-contracts/contracts/finance/PaymentSplitter.sol",
         stresses:
-            "qpi.distributeDividends, whose per-share amount the host multiplies by 676 — an implicit scaling both backends have to apply to the same argument",
+            "qpi.distributeDividends, whose per-share amount the host multiplies by the committee size — an implicit scaling both backends have to apply to the same argument",
         caveat: "PaymentSplitter divides a balance among registered payees; the QPI call pays every shareholder of the contract's own shares, so the port compares only the accept/refuse answer and the balance it leaves.",
         axes: ["placement"],
         build(axis) {

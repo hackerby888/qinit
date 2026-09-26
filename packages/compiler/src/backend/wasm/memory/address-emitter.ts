@@ -127,8 +127,8 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
             });
             return addr;
         }
-        // Materialize empty call inputs as zero-initialized temporary objects.
-        if (expression.callArguments.length === 0) {
+        // Materialize empty call inputs as zero-initialized temporary objects; `id::randomValue()` is a call, not one of those.
+        if (expression.callArguments.length === 0 && context.programAnalysis.namesAType(calleeName)) {
             const type: TypeSpec = { kind: AstKind.NAME, name: calleeName };
             const size = context.programAnalysis.sizeOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
             if (size > 0 || /_(?:input|output)$/.test(calleeName)) {

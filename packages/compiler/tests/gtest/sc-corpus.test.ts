@@ -191,6 +191,7 @@ async function buildRunnerFor(spec: Spec, outDir: string): Promise<Uint8Array> {
         corpusPath: `${CORE}/test/${spec.corpus}`,
         contractPath: `${CORE}/src/contracts/${spec.header}`,
         contractKind: "system",
+        profile: "core-gtest",
         contractName: spec.name,
         stateType: spec.stateType,
         slot: spec.slot,
@@ -208,7 +209,7 @@ async function buildRunnerFor(spec: Spec, outDir: string): Promise<Uint8Array> {
 }
 
 async function buildWithTypeScript(spec: Spec): Promise<Record<number, Uint8Array>> {
-    const headers = loadQpiHeader(CORE);
+    const headers = loadQpiHeader(CORE, "core-gtest");
     const out: Record<number, Uint8Array> = {};
     const calleeResults: CompileResult[] = [];
 
@@ -270,6 +271,7 @@ async function buildWithClang(spec: Spec, outDir: string): Promise<Record<number
         const r = await buildContractWithClang({
             contractPath: `${CORE}/src/contracts/${callee.header}`,
             contractKind: "system",
+            profile: "core-gtest",
             contractName: callee.name,
             stateType: callee.stateType,
             slot: callee.slot,
@@ -287,6 +289,7 @@ async function buildWithClang(spec: Spec, outDir: string): Promise<Record<number
     const mainR = await buildContractWithClang({
         contractPath: `${CORE}/src/contracts/${spec.header}`,
         contractKind: "system",
+        profile: "core-gtest",
         contractName: spec.name,
         stateType: spec.stateType,
         slot: spec.slot,
@@ -327,7 +330,7 @@ async function runSingleCell(): Promise<void> {
         appendFileSync(outPath, "RUNNER ok\n");
 
         const contracts = compilerBackend === "typescript" ? await buildWithTypeScript(spec) : await buildWithClang(spec, dir);
-        const results = await runContractTesting(runner, contracts);
+        const results = await runContractTesting(runner, contracts, { profile: "core-gtest" });
         const passed = results.filter((r) => r.passed).length;
         appendFileSync(outPath, `SCORE ${passed}/${results.length}\n`);
         for (const result of results.filter((item) => !item.passed)) {
@@ -421,8 +424,8 @@ describe.skipIf(!HAS_CORE)("sc-corpus — dual-backend EASY-tier sweep", () => {
                 const clang = await buildWithClang(spec, dir);
                 const typescript = await buildWithTypeScript(spec);
 
-                const clangResults = await runContractTesting(runner, clang);
-                const typescriptResults = await runContractTesting(runner, typescript);
+                const clangResults = await runContractTesting(runner, clang, { profile: "core-gtest" });
+                const typescriptResults = await runContractTesting(runner, typescript, { profile: "core-gtest" });
 
                 const clangPassed = clangResults.filter((r) => r.passed).length;
                 const typescriptPassed = typescriptResults.filter((r) => r.passed).length;

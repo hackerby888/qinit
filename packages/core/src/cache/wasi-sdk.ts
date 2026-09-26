@@ -110,6 +110,12 @@ export async function fetchWasiSdk(
     // The archive (and its .part) lives under the cache so a later `qinit setup` resumes instead of restarting.
     const archive = join(downloadsDir(), `${base}.tar.gz`);
     await downloadVerifiedAssetToFile({ url, sha256 }, archive, onProgress);
+    await installWasiSdkArchive(archive, dir);
+    return { dir, cached: false };
+}
+
+// Extract to a sibling tmp dir, then swap it in, restoring the previous sdk if the swap fails.
+async function installWasiSdkArchive(archive: string, dir: string): Promise<void> {
     const suffix = `${process.pid}.${Date.now()}`;
     const tmp = `${dir}.tmp.${suffix}`;
     const backup = `${dir}.bak.${suffix}`;
@@ -117,9 +123,15 @@ export async function fetchWasiSdk(
     rmSync(backup, { recursive: true, force: true });
     let backedUp = false;
     try {
-        await extractTarGz(archive, tmp);
-        if (!wasiSdkCachePathsAt(tmp)) {
-            throw new Error("downloaded wasi-sdk is missing clang++ or wasi-sysroot");
+        try {
+            await extractTarGz(archive, tmp);
+            if (!wasiSdkCachePathsAt(tmp)) {
+                throw new Error("downloaded wasi-sdk is missing clang++ or wasi-sysroot");
+            }
+        } catch (error) {
+            // a kept archive that cannot be installed would fail the same way on every rerun: drop it so the next setup downloads afresh.
+            rmSync(archive, { force: true });
+            throw error;
         }
 
         if (existsSync(dir)) {
@@ -143,7 +155,6 @@ export async function fetchWasiSdk(
         }
         if (backedUp) rmSync(backup, { recursive: true, force: true });
         rmSync(archive, { force: true });
-        return { dir, cached: false };
     } finally {
         rmSync(tmp, { recursive: true, force: true });
     }

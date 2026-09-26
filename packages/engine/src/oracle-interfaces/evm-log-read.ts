@@ -3,6 +3,9 @@ import { array, defineStruct, u8, u64 } from "@qinit/core";
 export const ORACLE_INTERFACE_INDEX = 3;
 export const QUERY_FEE = 1_000n;
 
+// the reply layout as type-format text, so a dev tool can encode a reply from what the user typed
+export const REPLY_FORMAT = "uint64, [32;uint8], uint64, [128;uint8], uint64, [256;uint8]";
+
 export const OracleQuery = defineStruct("EvmLogReadOracleQuery", {
     chainId: u64,
     txHash: array(u8, 32),

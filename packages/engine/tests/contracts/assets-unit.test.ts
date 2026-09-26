@@ -37,6 +37,24 @@ test("issueAsset: mints all shares to the issuer; validates name + issuer", () =
     expect(a.issueAsset(1, 0x5852n, userId(9), 2, 1n, 0n, userId(8))).toBe(0n); // issuer != contract && != invocator
 });
 
+// core compares the caller's uint64 as given against the 7-byte stored name, and issueAsset rejects a name or unit above 56 bits.
+test("a name with junk in byte 7 finds nothing and cannot be issued", () => {
+    const a = ledger();
+    const iss = contractId(1);
+    a.issueAsset(1, NAME, iss, 0, 1000n, 0n, iss);
+    const junkName = NAME | (0xffn << 56n);
+    const negativeName = BigInt.asIntN(64, NAME | (1n << 63n)); // what a wasm i64 with the top bit set decodes to
+
+    expect(a.isAssetIssued(iss, junkName)).toBe(false);
+    expect(a.numberOfPossessedShares(junkName, iss, iss, iss, 1, 1)).toBe(0n);
+    expect(a.transferShareOwnershipAndPossession(1, junkName, iss, iss, iss, 400n, userId(0xbb))).toBe(-400n);
+    expect(a.numberOfPossessedShares(NAME, iss, iss, iss, 1, 1)).toBe(1000n);
+
+    expect(a.issueAsset(1, negativeName, iss, 0, 1n, 0n, iss)).toBe(0n);
+    expect(a.issueAsset(1, 0x5852n, iss, 0, 1n, BigInt.asIntN(64, 1n << 63n), iss)).toBe(0n);
+    expect(a.isAssetIssued(iss, negativeName)).toBe(false);
+});
+
 test("transferShareOwnershipAndPossession: moves shares to a new owner managed by the contract", () => {
     const a = ledger();
     const iss = contractId(1);

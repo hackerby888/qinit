@@ -46,6 +46,12 @@ struct FaultZoo : public ContractBase
         output.calls = state.get().calls;
     }
 
+    // the failing system procedure a test harness needs: aborts once the counter reaches 50 (an epoch hook, so a ticking node stays quiet)
+    END_EPOCH()
+    {
+        CC_ASSERT(state.get().calls < 50);
+    }
+
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
     {
         REGISTER_USER_FUNCTION(AssertFn, 1);

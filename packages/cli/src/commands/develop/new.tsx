@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { Header, theme } from "../../ui";
 import { loadSystem } from "../../contracts/registry";
 import { DEFAULT_RPC_BASE } from "@qinit/core";
+import { ensureSpecProject, installSpecTypes } from "../../ops/spec-project";
 import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateGtest, templateSource, templateTest, type TemplateKind } from "@qinit/build/generate/templates";
 import type { CommandArguments } from "../../args";
+import { MAX_CONTRACT_NAME } from "../../config";
 
 // Sanitize a project name into a valid C++ struct identifier (PascalCase-ish).
 function toIdent(name: string): string {
@@ -33,97 +35,109 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
     };
 
     useEffect(() => {
-        try {
-            if (!projectName) {
-                fail(`usage: qinit new <name> [--template ${TEMPLATE_KINDS.join("|")}] [--core-dir PATH]`);
-                return;
-            }
-            const kind = (requestedTemplate || "counter") as TemplateKind;
-            if (!TEMPLATE_KINDS.includes(kind)) {
-                fail(`✗ unknown template '${kind}' — pick: ${TEMPLATE_KINDS.join(", ")}`);
-                return;
-            }
-            // refuse nesting: a folder created by `qinit new` has qinit.json — making another project here gets messy
-            if (existsSync("qinit.json")) {
-                fail("✗ already inside a qinit project (qinit.json is here) — cd out before `qinit new`");
-                return;
-            }
-            const dir = projectName;
-            const name = toIdent(projectName);
-            // a contract named after a QPI type (Asset, Entity, …) makes the generated wrapper ambiguous -> won't compile
-            const RESERVED = ["Asset", "Entity", "Array", "Collection", "HashMap", "HashSet"];
-            if (RESERVED.includes(name)) {
-                fail(`✗ '${name}' collides with a QPI type — pick another name (reserved: ${RESERVED.join(", ")})`);
-                return;
-            }
-            // also refuse a built-in system-contract name (best-effort: needs the snapshot; deploy re-checks authoritatively)
-            if (loadSystem().some((c) => c.name.toLowerCase() === name.toLowerCase())) {
-                fail(`✗ '${name}' is a system contract name — pick another`);
-                return;
-            }
-            const coreDir = requestedCoreDir ?? process.env.QINIT_CORE;
-            if (existsSync(dir)) {
-                fail(`✗ '${dir}' already exists`);
-                return;
-            }
+        void (async () => {
+            try {
+                if (!projectName) {
+                    fail(`usage: qinit new <name> [--template ${TEMPLATE_KINDS.join("|")}] [--core-dir PATH]`);
+                    return;
+                }
+                const kind = (requestedTemplate || "counter") as TemplateKind;
+                if (!TEMPLATE_KINDS.includes(kind)) {
+                    fail(`✗ unknown template '${kind}' — pick: ${TEMPLATE_KINDS.join(", ")}`);
+                    return;
+                }
+                // refuse nesting: a folder created by `qinit new` has qinit.json — making another project here gets messy
+                if (existsSync("qinit.json")) {
+                    fail("✗ already inside a qinit project (qinit.json is here) — cd out before `qinit new`");
+                    return;
+                }
+                const dir = projectName;
+                const name = toIdent(projectName);
+                // a contract named after a QPI type (Asset, Entity, …) makes the generated wrapper ambiguous -> won't compile
+                const RESERVED = ["Asset", "Entity", "Array", "Collection", "HashMap", "HashSet"];
+                if (RESERVED.includes(name)) {
+                    fail(`✗ '${name}' collides with a QPI type — pick another name (reserved: ${RESERVED.join(", ")})`);
+                    return;
+                }
+                // also refuse a built-in system-contract name (best-effort: needs the snapshot; deploy re-checks authoritatively)
+                if (loadSystem().some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+                    fail(`✗ '${name}' is a system contract name — pick another`);
+                    return;
+                }
+                if (name.length > MAX_CONTRACT_NAME) {
+                    fail(`✗ '${name}' is ${name.length} characters — a deployed contract's name is at most ${MAX_CONTRACT_NAME}`);
+                    return;
+                }
+                const coreDir = requestedCoreDir ?? process.env.QINIT_CORE;
+                if (existsSync(dir)) {
+                    fail(`✗ '${dir}' already exists`);
+                    return;
+                }
 
-            mkdirSync(join(dir, "contracts"), { recursive: true });
-            const source = templateSource(kind, name);
-            writeFileSync(join(dir, "contracts", `${name}.h`), source);
+                mkdirSync(join(dir, "contracts"), { recursive: true });
+                const source = templateSource(kind, name);
+                writeFileSync(join(dir, "contracts", `${name}.h`), source);
 
-            // Both specs are written for this template's entries, so a fresh project's tests assert something.
-            mkdirSync(join(dir, "tests"), { recursive: true });
-            writeFileSync(join(dir, "tests", `${name}.test.ts`), templateTest(kind, name));
-            writeFileSync(join(dir, "tests", `${name}.test.cpp`), templateGtest(kind, name));
-            const testRel = `tests/${name}.test.cpp`;
+                // Both specs are written for this template's entries, so a fresh project's tests assert something.
+                mkdirSync(join(dir, "tests"), { recursive: true });
+                writeFileSync(join(dir, "tests", `${name}.test.ts`), templateTest(kind, name));
+                writeFileSync(join(dir, "tests", `${name}.test.cpp`), templateGtest(kind, name));
+                const testRel = `tests/${name}.test.cpp`;
 
-            // No slot: project planning assigns dependencies below Main and reuses matching names.
-            const cfg: Record<string, unknown> = {
-                contractName: name,
-                contract: `contracts/${name}.h`,
-                rpc: DEFAULT_RPC_BASE,
-            };
-            if (coreDir) cfg.coreDir = coreDir;
-            if (kind === "intercontract") {
-                writeFileSync(join(dir, "contracts", "Counter.h"), templateSource("counter", "Counter"));
+                // No slot: project planning assigns dependencies below Main and reuses matching names.
+                const cfg: Record<string, unknown> = {
+                    contractName: name,
+                    contract: `contracts/${name}.h`,
+                    rpc: DEFAULT_RPC_BASE,
+                };
+                if (coreDir) cfg.coreDir = coreDir;
+                if (kind === "intercontract") {
+                    writeFileSync(join(dir, "contracts", "Counter.h"), templateSource("counter", "Counter"));
+                }
+                writeFileSync(join(dir, "qinit.json"), JSON.stringify(cfg, null, 2) + "\n");
+                ensureSpecProject(dir);
+                // `.qpi/` and the compile database hold absolute core and sysroot paths; `.clangd` is left out
+                // on purpose, since it carries a relative path and means the same thing on every clone.
+                writeFileSync(
+                    join(dir, ".gitignore"),
+                    ["dist/", "*.wasm", "*.log", "qinit.idl.json", "contracts_dyn/", ".qpi/", "compile_commands.json", "node_modules/", ".DS_Store"].join(
+                        "\n",
+                    ) + "\n",
+                );
+                writeFileSync(
+                    join(dir, "README.md"),
+                    `# ${name}\n\nQubic smart contract (\`qinit new --template ${kind}\`).\n\n` +
+                        "```bash\nqinit node run        # prepare headers + run a dev node\n" +
+                        "qinit dev       # watch contracts/" +
+                        name +
+                        ".h -> auto build+deploy on save\n" +
+                        "qinit test      # run tests/" +
+                        name +
+                        ".test.ts against the dev node through the generated client\n" +
+                        "qinit gtest --compiler typescript   # run tests/" +
+                        name +
+                        ".test.cpp on an isolated node (TS compiler)\n" +
+                        "qinit call      # interactive: pick contract -> fn/proc\n```\n\n" +
+                        "Config in `qinit.json` (contractName, contract, coreDir, rpc). Slot is auto-allocated by contract name.\n" +
+                        "`qinit gtest` needs a core-lite checkout (`test/contract_testing.h`): pass `--core-dir PATH` or set `QINIT_CORE`.\n",
+                );
+
+                add(`✓ created ${dir}/  (template: ${kind})`);
+                add(`  contracts/${name}.h`);
+                add(`  tests/${name}.test.ts`);
+                add(`  ${testRel}`);
+                add(`  qinit.json · package.json · tsconfig.json · .gitignore · README.md`);
+                const types = await installSpecTypes(dir);
+                if (types === "installed") add(`  node_modules/@types/bun (editor typing for the spec)`);
+                if (types === "failed") add(`  note: @types/bun not installed — run \`bun install\` in ${dir}/ for editor typing`);
+                if (TEMPLATE_NOTE[kind]) add(`  note: ${TEMPLATE_NOTE[kind]}`);
+                add("");
+                add(`next:  cd ${dir} && qinit node run && qinit dev`);
+                setDone(true);
+            } catch (e: any) {
+                fail("ERROR: " + String(e?.message ?? e));
             }
-            writeFileSync(join(dir, "qinit.json"), JSON.stringify(cfg, null, 2) + "\n");
-            // `.qpi/` and the compile database hold absolute core and sysroot paths; `.clangd` is left out
-            // on purpose, since it carries a relative path and means the same thing on every clone.
-            writeFileSync(
-                join(dir, ".gitignore"),
-                ["dist/", "*.wasm", "*.log", "qinit.idl.json", "contracts_dyn/", ".qpi/", "compile_commands.json", ".DS_Store"].join("\n") + "\n",
-            );
-            writeFileSync(
-                join(dir, "README.md"),
-                `# ${name}\n\nQubic dynamic contract (\`qinit new --template ${kind}\`).\n\n` +
-                    "```bash\nqinit node run        # prepare headers + run a dev node\n" +
-                    "qinit dev       # watch contracts/" +
-                    name +
-                    ".h -> auto build+deploy on save\n" +
-                    "qinit test      # run tests/" +
-                    name +
-                    ".test.ts against the dev node through the generated client\n" +
-                    "qinit gtest --compiler typescript   # run tests/" +
-                    name +
-                    ".test.cpp on an isolated node (TS compiler)\n" +
-                    "qinit call      # interactive: pick contract -> fn/proc\n```\n\n" +
-                    "Config in `qinit.json` (contractName, contract, coreDir, rpc). Slot is auto-allocated by contract name.\n" +
-                    "`qinit gtest` needs a core-lite checkout (`test/contract_testing.h`): pass `--core-dir PATH` or set `QINIT_CORE`.\n",
-            );
-
-            add(`✓ created ${dir}/  (template: ${kind})`);
-            add(`  contracts/${name}.h`);
-            add(`  tests/${name}.test.ts`);
-            add(`  ${testRel}`);
-            add(`  qinit.json · .gitignore · README.md`);
-            if (TEMPLATE_NOTE[kind]) add(`  note: ${TEMPLATE_NOTE[kind]}`);
-            add("");
-            add(`next:  cd ${dir} && qinit node run && qinit dev`);
-            setDone(true);
-        } catch (e: any) {
-            fail("ERROR: " + String(e?.message ?? e));
-        }
+        })();
     }, []);
     useEffect(() => {
         if (done) {

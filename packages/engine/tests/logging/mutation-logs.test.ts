@@ -1,11 +1,11 @@
 import { beforeAll, expect, test } from "bun:test";
-import { QUBIC_LOG_TYPE } from "@qinit/proto";
+import { CUSTOM_MESSAGE_OP, QUBIC_LOG_TYPE } from "@qinit/proto";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { concatBytes } from "../../src/support/bytes";
 import { initK12, k12Bytes } from "../../src/support/k12";
 import { packAssetName } from "../../src/ledger/assets";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import { LOG_HEADER_SIZE, QubicLogStore } from "../../src/logging/qubic-log-store";
+import { LOG_HEADER_SIZE, LOG_SC_BEGIN_TICK, LOG_SC_END_EPOCH, LOG_SC_INITIALIZE, LOG_SC_NOTIFICATION, QubicLogStore } from "../../src/logging/qubic-log-store";
 import { contractId } from "../support/helpers";
 
 const ZERO32 = new Uint8Array(32);
@@ -46,6 +46,13 @@ function quTransferMessage(source: Uint8Array, destination: Uint8Array, amount: 
     message.set(source, 0);
     message.set(destination, 32);
     new DataView(message.buffer).setBigInt64(64, amount, true);
+    return message;
+}
+
+// core's DummyCustomMessage: the marker and nothing else.
+function markerMessage(marker: bigint): Uint8Array {
+    const message = new Uint8Array(8);
+    new DataView(message.buffer).setBigUint64(0, marker, true);
     return message;
 }
 
@@ -169,6 +176,39 @@ test("transactions log refunds and successful zero transfers", async () => {
     expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...expectedMessages])));
 });
 
+// core takes an oracle fee before its engine can refuse the request, so a refused request leaves a burn and a refund behind, not nothing.
+test("an oracle request the engine refuses logs the fee going out and coming back", async () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ logStore: logger });
+    const probe = contractId(29);
+    sim.deploy(29, await wasm("OracleProbe"));
+    sim.fund(probe, 50_000n);
+
+    const priceInput = (milliseconds: number): Uint8Array => {
+        const input = new Uint8Array(112);
+        input.set(new TextEncoder().encode("mock"), 0);
+        new DataView(input.buffer).setUint32(104, milliseconds, true);
+        return input;
+    };
+
+    logger.begin(5, 0);
+    // a subscription period that is not a whole minute, then a query timeout past the hour core allows.
+    sim.procedure(29, 3, priceInput(59_000));
+    sim.procedure(29, 2, priceInput(3_600_001));
+    logger.end();
+    logger.finalizeTick(5);
+
+    const logs = parseLogs(logger, 4);
+    expect(logs.map((log) => log.type)).toEqual(new Array(4).fill(QUBIC_LOG_TYPE.QU_TRANSFER));
+    expect(logs.map((log) => log.message)).toEqual([
+        quTransferMessage(probe, ZERO32, 10_000n),
+        quTransferMessage(ZERO32, probe, 10_000n),
+        quTransferMessage(probe, ZERO32, 10n),
+        quTransferMessage(ZERO32, probe, 10n),
+    ]);
+    expect(sim.balance(probe)).toBe(50_000n);
+});
+
 test("QPI transfers and burns use the Core payload layouts", () => {
     const logger = new QubicLogStore();
     const sim = new QubicSimulator({ logStore: logger });
@@ -197,19 +237,92 @@ test("QPI transfers and burns use the Core payload layouts", () => {
         burningMessage(source, 10n, 29),
         quTransferMessage(source, destination, 0n),
         burningMessage(source, 0n, 29),
+        markerMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS),
         quTransferMessage(source, shareholder, 0n),
+        markerMessage(CUSTOM_MESSAGE_OP.END_DISTRIBUTE_DIVIDENDS),
     ];
-    const logs = parseLogs(logger, 5);
+    const logs = parseLogs(logger, 7);
     expect(logs.map((log) => log.type)).toEqual([
         QUBIC_LOG_TYPE.QU_TRANSFER,
         QUBIC_LOG_TYPE.BURNING,
         QUBIC_LOG_TYPE.QU_TRANSFER,
         QUBIC_LOG_TYPE.BURNING,
+        QUBIC_LOG_TYPE.CUSTOM_MESSAGE,
         QUBIC_LOG_TYPE.QU_TRANSFER,
+        QUBIC_LOG_TYPE.CUSTOM_MESSAGE,
     ]);
     expect(logs.map((log) => log.message)).toEqual(expectedMessages);
     expect(sim.getEntity(shareholder)?.numberOfIncomingTransfers).toBe(1);
-    expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...expectedMessages])));
+    // custom messages stay out of the tick digest, as on core.
+    const digested = expectedMessages.filter((_, index) => logs[index].type !== QUBIC_LOG_TYPE.CUSTOM_MESSAGE);
+    expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...digested])));
+});
+
+test("a dividend payout is bracketed by its two markers, holders or not", () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ logStore: logger });
+    const paying = contractId(28);
+    const first = new Uint8Array(32).fill(0x46);
+    const second = new Uint8Array(32).fill(0x47);
+
+    sim.mintDeployShares(28, "DIV", first);
+    // contract shares are minted under contract 1's management.
+    sim.host.transferShareOwnershipAndPossession(1, packAssetName("DIV"), new Uint8Array(32), first, first, 76n, second);
+    sim.fund(paying, 676n * 3n);
+    sim.fund(contractId(29), 676n);
+
+    logger.begin(1, 0);
+    expect(sim.host.distributeDividends(28, 3n)).toBe(1);
+    // no asset was ever minted for this contract: the debit and both markers still happen, as on core.
+    expect(sim.host.distributeDividends(29, 1n)).toBe(1);
+    // an unaffordable payout stops before the first marker.
+    expect(sim.host.distributeDividends(29, 1n)).toBe(0);
+    logger.end();
+    logger.finalizeTick(1);
+
+    const messages = parseLogs(logger, 6).map((log) => log.message);
+    // which holder is paid first is the ledger's iteration order, pinned against a core node by the logging dual-engine run and not here.
+    const payouts = messages.slice(1, 3).sort((left, right) => left[32] - right[32]);
+    expect([messages[0], ...payouts, ...messages.slice(3)]).toEqual([
+        markerMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS),
+        quTransferMessage(paying, first, 600n * 3n),
+        quTransferMessage(paying, second, 76n * 3n),
+        markerMessage(CUSTOM_MESSAGE_OP.END_DISTRIBUTE_DIVIDENDS),
+        markerMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS),
+        markerMessage(CUSTOM_MESSAGE_OP.END_DISTRIBUTE_DIVIDENDS),
+    ]);
+    expect(sim.balanceOf(29)).toBe(0n);
+});
+
+// core transfers the requested fee unconditionally and runs each callback through a reward transfer, so a free transfer logs zero-amount records.
+test("a zero-fee rights transfer still logs its fee and callback transfers", async () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ logStore: logger });
+    const approver = contractId(28);
+    const acquirer = contractId(29);
+    const name = packAssetName("TOKEN");
+
+    sim.deploy(28, await wasm("ShareApprover"));
+    sim.deploy(29, await wasm("ShareManager"));
+    sim.host.issueAsset(28, name, approver, 0, 1000n, 0n, approver);
+    // a contract that never held anything has no spectrum entry, and core logs nothing for a transfer out of one.
+    sim.fund(acquirer, 1n);
+
+    logger.begin(1, 0);
+    expect(sim.acquireShares(29, name, approver, approver, approver, 400n, 28, 28, 0n)).toBe(0n);
+    logger.end();
+    logger.finalizeTick(1);
+
+    const logs = parseLogs(logger, Number(logger.range(1, 0).length));
+    expect(logs.map((log) => log.type)).toEqual([
+        QUBIC_LOG_TYPE.QU_TRANSFER,
+        QUBIC_LOG_TYPE.QU_TRANSFER,
+        QUBIC_LOG_TYPE.ASSET_OWNERSHIP_MANAGING_CONTRACT_CHANGE,
+        QUBIC_LOG_TYPE.ASSET_POSSESSION_MANAGING_CONTRACT_CHANGE,
+    ]);
+    // the PRE_RELEASE_SHARES callback's reward transfer, then the fee itself; the approver defines no POST callback, so nothing follows the rights.
+    expect(logs[0].message).toEqual(quTransferMessage(acquirer, approver, 0n));
+    expect(logs[1].message).toEqual(quTransferMessage(acquirer, approver, 0n));
 });
 
 test("QPI transfer logs follow the destination callback logs", async () => {
@@ -281,4 +394,164 @@ test("asset mutations emit exact native records only after success", () => {
     ]);
     expect(logs.map((log) => log.message)).toEqual(expectedMessages);
     expect(logger.digest(1)).toEqual(k12Bytes(concatBytes([ZERO32, ...expectedMessages])));
+});
+
+// every record of one tick, each with the tick-local range it was written under.
+function tickRecords(logger: QubicLogStore, tick: number): { range: number; type: number; message: Uint8Array }[] {
+    const records: { range: number; type: number; message: Uint8Array; logId: bigint }[] = [];
+
+    logger.tickRanges(tick).forEach(({ fromLogId, length }, range) => {
+        if (fromLogId < 0n || length <= 0n) {
+            return;
+        }
+        const bytes = logger.recordsBetween(fromLogId, fromLogId + length - 1n)!;
+        let offset = 0;
+        let logId = fromLogId;
+        while (offset < bytes.length) {
+            const sizeAndType = new DataView(bytes.buffer, bytes.byteOffset + offset).getUint32(6, true);
+            const size = sizeAndType & 0xffffff;
+            records.push({ range, type: sizeAndType >>> 24, message: bytes.slice(offset + LOG_HEADER_SIZE, offset + LOG_HEADER_SIZE + size), logId: logId++ });
+            offset += LOG_HEADER_SIZE + size;
+        }
+    });
+
+    return records.sort((left, right) => Number(left.logId - right.logId)).map(({ range, type, message }) => ({ range, type, message }));
+}
+
+// an epoch's log opens with one marker in the INITIALIZE range of its first tick and closes with the other as the last END_EPOCH record.
+test("an epoch's log opens and closes with core's markers", () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ logStore: logger, epochLength: 3 });
+    sim.bootstrapEpoch(2);
+    const firstTick = sim.initialTick;
+
+    expect(tickRecords(logger, firstTick)).toEqual([
+        { range: LOG_SC_INITIALIZE, type: QUBIC_LOG_TYPE.CUSTOM_MESSAGE, message: markerMessage(CUSTOM_MESSAGE_OP.START_EPOCH) },
+    ]);
+
+    // the switch wipes the old epoch's log, so its closing marker is read between the two halves of one.
+    sim.advance();
+    sim.endEpoch();
+    logger.finalizeTick(sim.currentTick + 1);
+    expect(tickRecords(logger, sim.currentTick + 1)).toEqual([
+        { range: LOG_SC_END_EPOCH, type: QUBIC_LOG_TYPE.CUSTOM_MESSAGE, message: markerMessage(CUSTOM_MESSAGE_OP.END_EPOCH) },
+    ]);
+
+    const switching = new QubicLogStore();
+    const switched = new QubicSimulator({ logStore: switching, epochLength: 1 });
+    switched.advance();
+    switched.advance();
+    expect(switched.currentEpoch).toBe(1);
+    expect(tickRecords(switching, switched.initialTick)).toEqual([
+        { range: LOG_SC_INITIALIZE, type: QUBIC_LOG_TYPE.CUSTOM_MESSAGE, message: markerMessage(CUSTOM_MESSAGE_OP.START_EPOCH) },
+    ]);
+});
+
+test("a metered procedure logs the execution fee its phase accumulated, at the phase boundary", async () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ fees: "metered", logStore: logger });
+    sim.deploy(28, await wasm("Counter"));
+    const before = sim.getContractFeeReserve(28);
+
+    sim.procedure(28, 1);
+    const accrued = sim.executionFee(28);
+    expect(accrued).toBeGreaterThan(0n);
+    expect(sim.getContractFeeReserve(28)).toBe(before); // the transaction itself takes nothing
+
+    // one full phase of ticks, so the boundary reports the accumulation exactly once.
+    let settleTick = 0;
+    for (let i = 0; i < 9 && settleTick === 0; i++) {
+        sim.advance();
+        if (sim.getContractFeeReserve(28) !== before) {
+            settleTick = sim.currentTick;
+        }
+    }
+    expect(before - sim.getContractFeeReserve(28)).toBe(accrued);
+
+    // { deductedAmount, remainingAmount, contractIndex, padding }: logged whole, as core takes it by sizeof.
+    const expected = new Uint8Array(24);
+    const view = new DataView(expected.buffer);
+    view.setBigUint64(0, accrued, true);
+    view.setBigInt64(8, before - accrued, true);
+    view.setUint32(16, 28, true);
+    const deductions = tickRecords(logger, settleTick).filter((record) => record.type === QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION);
+    expect(deductions).toEqual([{ range: LOG_SC_BEGIN_TICK, type: QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION, message: expected }]);
+});
+
+// OracleProbe: procedure 2 queries a price, 3 subscribes, 4 unsubscribes. Price is oracle interface 0.
+test("oracle queries and subscribers leave core's status and subscriber records", async () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ logStore: logger });
+    sim.tickDuration = 60_000;
+    sim.deploy(29, await wasm("OracleProbe"));
+    sim.fund(contractId(29), 1_000_000n);
+
+    const priceInput = new Uint8Array(112);
+    priceInput.set(new TextEncoder().encode("mock"), 0);
+    priceInput.set(new TextEncoder().encode("BTC"), 40);
+    priceInput.set(new TextEncoder().encode("USD"), 72);
+    new DataView(priceInput.buffer).setUint32(104, 60_000, true);
+
+    // { queryingEntity, queryId, interfaceIndex, type, status }
+    const statusChange = (entity: bigint, queryId: bigint, type: number, status: number) => {
+        const message = new Uint8Array(46);
+        const view = new DataView(message.buffer);
+        view.setBigUint64(0, entity, true);
+        view.setBigInt64(32, queryId, true);
+        view.setUint32(40, 0, true);
+        message[44] = type;
+        message[45] = status;
+        return message;
+    };
+    const ofType = (tick: number, type: number) => tickRecords(logger, tick).filter((record) => record.type === type);
+
+    logger.begin(1, 0);
+    const queryId = new DataView(sim.procedure(29, 2, priceInput).buffer).getBigInt64(0, true);
+    logger.end();
+    logger.finalizeTick(1);
+    // a contract's own query is keyed by the contract, and starts pending.
+    expect(ofType(1, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([
+        { range: 0, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(29n, queryId, 0, 1) },
+    ]);
+
+    const reply = new Uint8Array(16);
+    new DataView(reply.buffer).setBigInt64(0, 42n, true);
+    new DataView(reply.buffer).setBigInt64(8, 1n, true);
+    sim.setOracleProvider(() => reply);
+    // tick 1 was written by hand above, so the node's own ticks continue after it.
+    sim.currentTick = 1;
+    sim.advance();
+    // the reply lands between the tick's hooks, so its record sits in the range of the notification it causes.
+    expect(ofType(sim.currentTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([
+        { range: LOG_SC_NOTIFICATION, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(29n, queryId, 0, 2) },
+    ]);
+
+    // the reveal is a tick later, and it is the record that carries success.
+    sim.advance();
+    expect(ofType(sim.currentTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([
+        { range: LOG_SC_NOTIFICATION, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(29n, queryId, 0, 3) },
+    ]);
+
+    sim.setOracleProvider(null);
+    const subscribeTick = sim.currentTick + 1;
+    logger.begin(subscribeTick, 0);
+    const subscriptionId = new DataView(sim.procedure(29, 3, priceInput).buffer).getInt32(0, true);
+    const unsubscribeInput = new Uint8Array(4);
+    new DataView(unsubscribeInput.buffer).setInt32(0, subscriptionId, true);
+    sim.procedure(29, 4, unsubscribeInput);
+    logger.end();
+    logger.finalizeTick(subscribeTick);
+
+    const subscriberRecords = ofType(subscribeTick, QUBIC_LOG_TYPE.ORACLE_SUBSCRIBER_MESSAGE).map((record) => new DataView(record.message.buffer));
+    // { subscriptionId, interfaceIndex, contractIndex, period, first query time }: a period of zero is the unsubscribe.
+    expect(
+        subscriberRecords.map((view) => [view.byteLength, view.getInt32(0, true), view.getUint32(4, true), view.getUint32(8, true), view.getUint32(12, true)]),
+    ).toEqual([
+        [24, subscriptionId, 0, 29, 60_000],
+        [24, subscriptionId, 0, 29, 0],
+    ]);
+    expect(subscriberRecords[0].getBigUint64(16, true)).toBeGreaterThan(0n);
+    expect(subscriberRecords[1].getBigUint64(16, true)).toBe(0n);
+    // the subscription's first query is keyed by the subscription, not by the contract.
+    expect(ofType(subscribeTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE).map((record) => [record.message[44], record.message[45]])).toEqual([[1, 1]]);
 });

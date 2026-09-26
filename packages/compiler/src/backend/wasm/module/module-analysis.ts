@@ -46,10 +46,12 @@ export interface PrepareContractModuleRequest {
     calleeTranslationUnits?: CalleeTranslationUnit[];
     gtestMode: boolean;
     procedureDeclLines?: Map<string, number>;
+    toleratesUnresolvedCalleeTypes?: boolean;
 }
 
 export function prepareContractModule(request: PrepareContractModuleRequest): PreparedContractModule {
     const programAnalysis = createModuleProgramAnalysis(request.semanticAnalysis, request.gtestMode, request.callees, request.calleeStructs);
+    programAnalysis.toleratesUnresolvedCalleeTypes = request.toleratesUnresolvedCalleeTypes ?? false;
     const lhostAbi = request.libraryIndex ? registerLibraryMetadata(programAnalysis, request.libraryIndex) : undefined;
     const contextLayout = contextLayoutFromCodegen(programAnalysis);
     const systemProcedureIndex = indexSystemProcedures(request.libraryIndex?.wasmAbi?.systemProcedures ?? []);

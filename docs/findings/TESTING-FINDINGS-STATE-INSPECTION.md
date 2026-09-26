@@ -944,6 +944,12 @@ Ten rows before, ten after, in both directions of the sequence: no byte that mov
 element the contract actually wrote keeps the outer key, and `state --all` reads `complete True` /
 `maplists status loaded` either side.
 
+*Superseded on 2026-09-16 by the key chain in `state-diff.ts`: a change under a keyed slot carries every
+keyed level on the way down, so `mapsets[PKTG…].slot[0] = IOQK… (new)` now reads `mapsets[PKTG…][IOQK…] (new)`,
+the inner set's counter reads `mapsets[PKTG…] 0 → 1 entries`, and bookkeeping can never take an entry's wording
+because a `word` part only borrows the chain for its label. The `role !== "payload"` cut above is what the chain
+generalises; the rows it protected still hold.*
+
 ## Verification
 
 **1. Every filed repro, replayed against a live node** (`QINIT_STATE_DIFF=verify` set, checked through

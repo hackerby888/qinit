@@ -113,10 +113,101 @@ function pidAlive(pid: number): boolean {
     }
 }
 
+// the two nodes qinit launches: core's Qubic binary, or this CLI (compiled, or bun in a checkout) serving the simulator.
+export function isNodeCommand(argv: readonly string[]): boolean {
+    // a windows path read on any host splits on either separator; `basename` alone only knows the host's
+    const executable = (argv[0] ?? "")
+        .split(/[\\/]/)
+        .pop()!
+        .replace(/\.exe$/i, "")
+        .toLowerCase();
+    return executable === "qubic" || argv.includes("__serve");
+}
+
+const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
+// what a pid is running, as argv; undefined when the platform cannot say.
+function commandOf(pid: number): string[] | undefined {
+    try {
+        if (process.platform === "linux") {
+            // cmdline is empty between fork and exec (and for a zombie), so a fresh child gets a few reads before it counts as unknown.
+            for (let attempt = 0; attempt < 5; attempt++) {
+                const argv = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
+                if (argv.length) {
+                    return argv;
+                }
+                Bun.sleepSync(10);
+            }
+            return undefined;
+        }
+        if (isWindows) {
+            // one line each: the image path, then the full command line
+            const script = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}'; $p.ExecutablePath; $p.CommandLine`;
+            const [path, command] = decode(Bun.spawnSync(["powershell", "-NoProfile", "-Command", script]).stdout).split(/\r?\n/);
+            return path ? [path, ...(command ?? "").split(/\s+/)] : undefined;
+        }
+        // `comm` is the executable alone, so a path with a space survives; `args` is split for the marker only.
+        const executable = decode(Bun.spawnSync(["ps", "-o", "comm=", "-p", String(pid)]).stdout).trim();
+        const args = decode(Bun.spawnSync(["ps", "-o", "args=", "-p", String(pid)]).stdout).trim();
+        return executable ? [executable, ...args.split(/\s+/).slice(1)] : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+// the answer for a pid cannot change while it lives, and on Windows each probe is a PowerShell start; waitTicking polls every second.
+const identifiedPids = new Map<number, boolean>();
+
+/** @internal how many pids this process has identified; lets a test see that polling does not re-probe. */
+export const identifiedPidCount = () => identifiedPids.size;
+
+// a pid that is alive but running something else is a reused pid behind a stale pidfile: forget it rather than signal it.
+// an unreadable command proves nothing (exec in flight, a zombie, no ps), so that pid stays trusted the way it always was.
+function trackedNodePid(scratch: string): number | undefined {
+    const pid = trackedPid(scratch);
+    if (pid === undefined || !pidAlive(pid)) {
+        return pid;
+    }
+
+    let isNode = identifiedPids.get(pid);
+    if (isNode === undefined) {
+        const argv = commandOf(pid);
+        isNode = argv === undefined || isNodeCommand(argv);
+        // an unreadable command is not cached: exec may still be in flight, and the next poll can read it
+        if (argv !== undefined) {
+            identifiedPids.set(pid, isNode);
+        }
+    }
+    if (isNode) {
+        return pid;
+    }
+    rmSync(pidFile(scratch), { force: true });
+    forgetActiveScratch(scratch);
+    forgetNodeScratch(scratch);
+    return undefined;
+}
+
+// a node dying on a taken port only says so in its own log; probing first names the port and the flag that moves it.
+export function busyPorts(ports: readonly number[]): number[] {
+    const busy: number[] = [];
+    for (const port of ports) {
+        // both hosts: the rpc listener binds every interface and the peer socket loopback, and some platforms let one bind while the other is held.
+        for (const hostname of ["0.0.0.0", LOOPBACK_HOST]) {
+            try {
+                Bun.listen({ hostname, port, socket: { data() {} } }).stop(true);
+            } catch {
+                busy.push(port);
+                break;
+            }
+        }
+    }
+    return busy;
+}
+
 // Never kill by image name: a developer may be running other Qubic nodes. True once the tracked pid is dead, false when nothing is tracked or it outlived.
 export async function killNode(scratch = activeNodeScratchDir()): Promise<boolean> {
     const resolvedScratch = resolve(scratch);
-    const pid = trackedPid(resolvedScratch);
+    const pid = trackedNodePid(resolvedScratch);
     if (pid === undefined) {
         return false;
     }
@@ -148,7 +239,7 @@ export async function killNode(scratch = activeNodeScratchDir()): Promise<boolea
 }
 
 export function nodeAlive(scratch = activeNodeScratchDir()): boolean {
-    const pid = trackedPid(resolve(scratch));
+    const pid = trackedNodePid(resolve(scratch));
     if (pid !== undefined) {
         return pidAlive(pid);
     }
@@ -292,6 +383,12 @@ export function launchNode(options: LaunchOptions): { pid: number; scratch: stri
     return { pid, scratch, log };
 }
 
+// JSC's fast wasm memories share one ~37 GiB reservation, about a GiB per system contract, which ran out at the 28th; the
+// bounds-checked path lifts that to ~62 GiB and measured within noise (queries, procedures and ticks alike), so it is always on.
+export function serveEnvironment(coreDirectory?: string): NodeJS.ProcessEnv {
+    return { ...process.env, BUN_JSC_useWasmFastMemory: "0", ...(coreDirectory ? { QINIT_CORE: coreDirectory } : {}) };
+}
+
 export function launchSimulatorNode(options: {
     scratchDirectory?: string;
     rpcBaseUrl?: string;
@@ -304,6 +401,7 @@ export function launchSimulatorNode(options: {
     slotBase?: number;
     slotCount?: number;
     compiler?: "clang" | "typescript";
+    fees?: "metered" | "off";
     coreDirectory?: string;
 }): { pid: number; scratch: string; log: string } {
     const scratch = resolve(options.scratchDirectory || defaultNodeScratchDir());
@@ -331,6 +429,7 @@ export function launchSimulatorNode(options: {
         ...(options.liteTicking === false ? ["--full-tick"] : []),
         ...(options.system?.length ? ["--system", options.system.join(",")] : []),
         ...(options.compiler ? ["--compiler", options.compiler] : []),
+        ...(options.fees ? ["--fees", options.fees] : []),
     ];
 
     // A compiled binary can self-exec; Bun needs the source entry point again.
@@ -340,7 +439,7 @@ export function launchSimulatorNode(options: {
         stdio: ["ignore", logFd, logFd],
         detached: true,
         windowsHide: true,
-        env: options.coreDirectory ? { ...process.env, QINIT_CORE: options.coreDirectory } : process.env,
+        env: serveEnvironment(options.coreDirectory),
     });
 
     child.unref();

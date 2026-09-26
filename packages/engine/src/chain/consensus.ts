@@ -1,5 +1,7 @@
 // Deterministic tick-consensus model where one process plays all honest computors, each signing the same state digests and transaction set.
 import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "../support/k12";
+import { hexToBytes } from "@qinit/core";
+import { DEFAULT_COMMITTEE } from "./generated/default-committee";
 import { dateFields } from "../contract/runtime";
 import { rootFromSiblings } from "../ledger/merkle";
 import { M256i, Tick, TickData, DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, TICKDATA_SIZE } from "../protocol/wire";
@@ -8,7 +10,7 @@ import type { Id } from "../support/bytes";
 
 export { MAX_NUMBER_OF_CONTRACTS, TXS_PER_TICK, TICKDATA_SIZE };
 export const DEFAULT_ARBITRATOR_SEED = "a".repeat(55);
-export const DEFAULT_NUMBER_OF_COMPUTORS = 8; // core-lite LITE testnet committee (common_def.h)
+export const DEFAULT_NUMBER_OF_COMPUTORS = 676; // the committee every core build seats (qpi_types.h)
 export const TICK_SIZE = Tick.SIZE; // network_messages/tick.h (352), including the 64-byte signature
 const TICK_TYPE = 3; // BROADCAST_TICK — XORed into computorIndex for vote-signature domain separation (qubic.cpp)
 const SEED_ALPHABET = "abcdefghijklmnopqrstuvwxyz";
@@ -33,9 +35,33 @@ export interface Computor extends KeyPair {
 }
 
 export interface CommitteeOpts {
-    numberOfComputors?: number; // default 8 (ignored when computorSeeds is given)
-    computorSeeds?: string[]; // explicit seeds (reproducible); else N random seeds
+    numberOfComputors?: number; // default 676, seated from the generated dev committee (ignored when computorSeeds is given)
+    computorSeeds?: string[]; // explicit seeds (reproducible); else the first N seats of the dev committee, random past its 676
     arbitratorSeed?: string;
+}
+
+// deriving a FourQ key pair costs about two milliseconds, and a test suite builds committees by the hundred.
+const keyCache = new Map<string, KeyPair>();
+
+function keysFor(seed: string): KeyPair {
+    let keys = keyCache.get(seed);
+    if (!keys) {
+        keys = deriveKeysSync(seed);
+        keyCache.set(seed, keys);
+    }
+    return keys;
+}
+
+// the dev committee ships with its keys, so seating it is a table read; a seat past the table gets a fresh random identity.
+function defaultComputors(n: number): Computor[] {
+    return Array.from({ length: n }, (_, index) => {
+        const row = DEFAULT_COMMITTEE[index];
+        if (!row) {
+            const seed = randomSeed();
+            return { index, seed, ...keysFor(seed) };
+        }
+        return { index, seed: row[0], publicKey: hexToBytes(row[1]), privateKey: hexToBytes(row[2]) };
+    });
 }
 
 // Derives every key synchronously — construct after initK12().
@@ -46,11 +72,10 @@ export class Committee {
 
     constructor(opts: CommitteeOpts = {}) {
         const n = opts.numberOfComputors ?? DEFAULT_NUMBER_OF_COMPUTORS;
-        const seeds = opts.computorSeeds ?? Array.from({ length: n }, () => randomSeed());
 
-        this.computors = seeds.map((seed, index) => ({ index, seed, ...deriveKeysSync(seed) }));
+        this.computors = opts.computorSeeds ? opts.computorSeeds.map((seed, index) => ({ index, seed, ...keysFor(seed) })) : defaultComputors(n);
         const arbSeed = opts.arbitratorSeed ?? DEFAULT_ARBITRATOR_SEED;
-        this.arbitrator = { seed: arbSeed, ...deriveKeysSync(arbSeed) };
+        this.arbitrator = { seed: arbSeed, ...keysFor(arbSeed) };
         this.quorum = quorumOf(this.computors.length);
     }
 
@@ -114,6 +139,14 @@ function saltedDigest(publicKey: Id, prev: Uint8Array): Uint8Array {
     return k12Bytes(buf);
 }
 
+// the four-byte salts: K12 over publicKey(32) ‖ value(4), read as a little-endian u32, as qubic-cli's salt check recomputes them.
+function saltedWord(publicKey: Id, value: number): number {
+    const buf = new Uint8Array(DIGEST_SIZE + 4);
+    buf.set(publicKey.subarray(0, DIGEST_SIZE), 0);
+    new DataView(buf.buffer).setUint32(DIGEST_SIZE, value >>> 0, true);
+    return new DataView(k12Bytes(buf).buffer).getUint32(0, true);
+}
+
 // State roots are the prev*Digest plus K12(publicKey ‖ digest) salted fields.
 export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickStateDigests, timeMs: number): Tick {
     const v = Tick.alloc();
@@ -121,7 +154,9 @@ export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickS
     v.epoch = epoch;
     v.tick = tick;
 
-    // tx-body u32 digests stay zero — not modeled in the dev sim.
+    // the resource-testing and transaction-body words stay zero here, but their salts are real: a full quorum makes qubic-cli check every vote.
+    v.saltedResourceTestingDigest = saltedWord(c.publicKey, v.prevResourceTestingDigest);
+    v.saltedTransactionBodyDigest = saltedWord(c.publicKey, v.prevTransactionBodyDigest);
     const t = dateFields(timeMs);
     v.millisecond = t.milli;
     v.second = t.second;
