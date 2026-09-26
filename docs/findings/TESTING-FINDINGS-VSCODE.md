@@ -2458,6 +2458,35 @@ So the new rule adds no editor diagnostic anywhere in the corpus and throws on n
 packages/compiler` is 1414 pass / 0 fail, sc-corpus included: 38 core contracts parsed, compiled to wasm
 and engine-loaded.
 
+### E27's check, generalised
+
+The version above names the methods it watches and the operator they need. That is a table of what one
+container's bodies happen to ask of a type, transcribed into TypeScript, and it goes stale the moment core
+edits a body — silently, because nothing compares the two. The rule the editor is missing is not
+"`HashMap::set` needs `operator==`"; it is "this container body does not accept this contract's types", and
+qinit can already answer that, because lowering compiles those bodies for every build.
+
+`container-body-validation.ts` calls `compileContainerMethod` — the same entry lowering uses — for each
+container method the contract calls, and reports the first error the body produces:
+
+```
+HashMap::set rejects this contract's types: no viable operator== for 'Pair'
+```
+
+Nothing lists methods, nothing names `operator==`, and the `id` exception disappears with the list that
+needed it: the body accepts an `id` key, so there is nothing to report and no restriction to write. A
+requirement core adds to a body is reported the day core adds it.
+
+Two things it has to get right. A speculative compile can fail for reasons that are not the contract's —
+lowering services absent in a caller that only wanted an analysis, most of all — and those arrive as a
+warning, so only an error counts; reporting a warning would squiggle working code wherever the analyzer
+runs less equipped than a build. And those services register themselves as a module side effect, so the
+check imports them explicitly rather than working or not by accident of who else was loaded.
+
+Re-verified on the same population: the six fixtures give the same verdicts with the general reason, the
+corpus is 6613 clean / 41 pre-existing / 0 new / 0 threw, core's 32 contracts report nothing, and no test in
+the compiler suite mentions the new message.
+
 ## Round 30 — the editor's own view, run over the corpus
 
 Round 29 measured what the editor cannot see. This round asks the other direction, which the campaign had
@@ -2723,3 +2752,99 @@ that half of E24 was always the lesser one.
 project's TypeScript lib does not declare. `bun test` passed, so I had not noticed; `tsc -p packages/vscode`
 fails on it, and CI runs that. Replaced with `readdirSync`. The lesson is narrow and practical: a green
 `bun test` is not a green typecheck, and for this package both have to be run.
+
+## Round 35 — the safety net's hole: a callee's typedef spelled bare
+
+`test:xross` came back 5 passing / 1 failing once main was merged, and I recorded the failure as main's.
+That attribution was wrong. The round that chased it found a hole in the extension's own fallback that no
+commit on either side opened.
+
+Two receivers out of twenty-two failed, and they are the two of a kind:
+
+```
+locals.in.hist.                    ->  91 items, setAll MISSING
+locals.in.tranche.hist.            ->  91 items, setAll MISSING
+locals.in.tranche.tier.bits.       ->   7 items, setAll ✓
+locals.in.lots. / .grid. / .flags. ->   7 / 7 / 5 ✓
+```
+
+`hist` is `Bank::Hist`, `typedef Array<uint64, 8> Hist;`, spelled bare inside `Bank::Quote_input`. `bits`,
+`lots`, `grid` and `flags` are the same containers written out. 91 items is clangd's word-scrape, so both
+oracles were down at once — the campaign's worst tier, where the developer reads "this type has no members".
+
+**Which oracle failed.** Asked in-process, away from the editor, the fallback answers every other receiver
+in that contract and returns `UNRESOLVED` for exactly those two. clangd declined, and the safety net that
+exists for clangd declining had nothing either.
+
+**The shape, isolated.** One callee declaring an alias several ways, one caller reaching each:
+
+| receiver                | the field's type as written                    | before | after |
+| ----------------------- | ---------------------------------------------- | ------ | ----- |
+| `locals.in.hist.`       | `Hist` — callee alias to a container, **bare** | ✗      | 8     |
+| `locals.in.alias.`      | the same alias as `using`, **bare**            | ✗      | 8     |
+| `locals.in.tierAlias.`  | callee alias to a **struct**, bare             | 2      | 2     |
+| `locals.in.tier.`       | the struct itself, bare                        | 2      | 2     |
+| `locals.qualifiedHist.` | `Vault::Hist` — the same alias, **qualified**  | 8      | 8     |
+| `locals.ownHist.`       | the caller's own alias                         | 8      | 8     |
+
+One row was broken: an alias to a container, declared in another contract, spelled bare. An alias to a
+struct resolved, which is why nothing had noticed.
+
+**Bounded on the other side too.** A contract's own aliases were never affected — its declarations are
+registered under their bare names, so `locals.bag.hist.`, `input.bag.hist.` and `state.mut().hist.` all
+answer with the container's members, before the fix and after. The hole needed another contract's
+qualifier.
+
+## E28 — a callee's typedef spelled bare resolves nowhere (fixed)
+
+A callee's declarations are registered under its own qualifier. A struct becomes `Vault::Tier`, a typedef
+becomes `Vault::Hist`, and the bare spelling is deliberately not registered for either, so an alias the
+querying contract declares is never hijacked by a callee's. `targetOfType` then re-qualified — but only
+after resolving, and only for structs:
+
+```ts
+resolved = programAnalysis.resolveType(stripPtrRefConst(type), bindings);            // bare `Hist`: nothing to find
+if (resolved.kind === AstKind.TEMPLATE_INSTANCE) { … }                               // so this is never taken
+const structDeclaration = structInScope(programAnalysis, resolved, bindings, scope); // looks for a struct `Vault::Hist`
+```
+
+The scope belongs to the **name**, not to what the name turns out to mean, so re-qualifying has to happen
+before resolution rather than after. `targetOfType` now tries the scoped spelling first and falls back to the
+bare one — C++'s own order, the enclosing class before the global that would otherwise shadow — and it
+applies to every kind of type rather than to structs alone. `structInScope` is gone: it was that rule,
+narrowed to one kind.
+
+**Blast radius, measured on the real population rather than argued.** Every entry payload of every core
+contract, one field hop deep, through the same query the editor runs, before and after:
+
+```
+contracts 29   payloads 779   fields 2023
+unresolved      1478  ->  1477
+```
+
+One verdict changed in all of core, and it is the shape:
+
+```
+GQMPROP::GetProposal_output.proposal : ProposalDataT
+  before   UNRESOLVED
+  after    url, epoch, type, tick, data, checkValidity, supportScalarVotes
+```
+
+`typedef ProposalDataV1<false> ProposalDataT;` — the alias GQMPROP declares and spells bare in its own
+output struct. Anyone calling `GetProposal` and typing `locals.out.proposal.` got the word-scrape. Nothing
+else moved: the two runs differ by one removed line and no added ones, so nothing that resolved before
+stopped. The 1477 that remain are overwhelmingly scalars, which have no members and correctly answer with
+nothing.
+
+**Not a regression, and not #26's.** The fallback never covered this shape — its scope rule has only ever
+been the struct one. Round 4 recorded `locals.in.hist.` answering with 7 items, which must therefore have
+been clangd, and clangd declines on it today. I have not established when clangd's answer changed and do not
+claim a commit caused it. The durable point is the other one: the shape was covered only by the oracle the
+fallback exists to cover for.
+
+Pinned by `member-query.test.ts` through both entry points — a contract's own receiver and a gtest's spelled
+root type — and verified to fail without the fix.
+
+**Verification.** `test:xross` **6 passing / 0 failing**, the row that was pinned as failing. `test:int` 17
+passing, `test:campaign` 16 passing, `bun test packages/vscode` 99 pass / 0 fail, `bun run typecheck` clean
+across the workspace.
