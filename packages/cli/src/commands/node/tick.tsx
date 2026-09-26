@@ -218,8 +218,8 @@ export function Tick({ commandArgs }: { commandArgs: CommandArguments }) {
                         ["epoch last tick", String(e.epochLastTick)],
                         ["epoch", String(e.epoch)],
                     ]);
-                } else if (o.sub) {
-                    throw new Error(`unknown subcommand '${o.sub}' (use: advance <n> | advance-to-last [gap] | rate <ms>)`);
+                } else if (o.sub && o.sub !== "show") {
+                    throw new Error(`unknown subcommand '${o.sub}' (use: show | advance <n> | advance-to-last [gap] | rate <ms>)`);
                 } else {
                     factsRef.current = {
                         ...NO_TICK_FACTS,
