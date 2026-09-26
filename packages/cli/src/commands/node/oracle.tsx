@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { readFileSync } from "node:fs";
 import { LiteRpc } from "@qinit/core";
@@ -74,6 +74,32 @@ function pendingRows(queries: PendingQuery[]): [string, string][] {
     ]);
 }
 
+export type OracleFacts = {
+    pending?: { queryId: string; interface: string; interfaceIndex: number; slot: number; query: string }[];
+    resolved?: { queryId: string; interface: string; status: string; reply: string | null };
+};
+
+// --json returns the data behind the rows: ids as decimal strings, query and reply bytes as full hex.
+export function oracleJsonResult(action: string, facts: OracleFacts | null, error: string) {
+    return {
+        ok: !error,
+        action,
+        pending: facts?.pending ?? null,
+        resolved: facts?.resolved ?? null,
+        error: error || null,
+    };
+}
+
+export function pendingFacts(queries: PendingQuery[]): OracleFacts["pending"] {
+    return queries.map((query) => ({
+        queryId: String(query.queryId),
+        interface: interfaceOf(query.interfaceIndex).name,
+        interfaceIndex: query.interfaceIndex,
+        slot: query.slot,
+        query: Buffer.from(query.query).toString("hex"),
+    }));
+}
+
 export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
     const o = {
         rpc: commandArgs.get("rpc"),
@@ -90,6 +116,8 @@ export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
     const [busy, setBusy] = useState("");
     const [err, setErr] = useState("");
     const [served, setServed] = useState<string[]>([]);
+    // a ref, not state: the emit below must not read a batched-stale null.
+    const factsRef = useRef<OracleFacts | null>(null);
 
     useEffect(() => {
         let stopped = false;
@@ -97,7 +125,9 @@ export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
             const rpc = new LiteRpc(rpcBaseUrl);
             try {
                 if (o.sub === "pending") {
-                    setRows(pendingRows(await rpc.oraclePending()));
+                    const queries = await rpc.oraclePending();
+                    factsRef.current = { pending: pendingFacts(queries) };
+                    setRows(pendingRows(queries));
                 } else if (o.sub === "resolve") {
                     if (!o.arg) throw new Error("resolve <queryId> [--reply <value text> | --reply-hex <hex>] [--status success|unavailable]");
                     const status = STATUS_BY_NAME[o.status];
@@ -112,6 +142,14 @@ export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
                     const result = await rpc.oracleResolve(queryId, reply, status);
                     if (!result.ok) throw new Error(`the node refused the reply${result.message ? `: ${result.message}` : ""}`);
 
+                    factsRef.current = {
+                        resolved: {
+                            queryId: String(queryId),
+                            interface: interfaceOf(query.interfaceIndex).name,
+                            status: o.status,
+                            reply: status === ORACLE_STATUS.SUCCESS ? Buffer.from(reply).toString("hex") : null,
+                        },
+                    };
                     setRows([
                         ["query", String(queryId)],
                         ["interface", interfaceOf(query.interfaceIndex).name],
@@ -151,7 +189,7 @@ export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
 
     useEffect(() => {
         if (rows || err) {
-            if (output.json) process.stdout.write(JSON.stringify({ ok: !err, rows: rows ?? [], error: err || undefined }) + "\n");
+            if (output.json) process.stdout.write(JSON.stringify(oracleJsonResult(o.sub, factsRef.current, err)) + "\n");
             process.exitCode = err ? 1 : 0;
             const timer = setTimeout(() => exit(), 30);
             return () => clearTimeout(timer);
