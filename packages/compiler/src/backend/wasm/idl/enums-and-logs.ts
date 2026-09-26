@@ -6,7 +6,7 @@ import { LOG_TERMINATOR_FIELD } from "../abi/log-payload";
 import type { PreparedContractModule } from "../module/module-analysis";
 import { scalarKindForName } from "./scalars";
 import type { AbiTypeBuilder } from "./abi-type-builder";
-import { collectLogTypeValues } from "./log-type-values";
+import { collectLogFacts } from "./log-facts";
 
 export function contractEnums(prepared: PreparedContractModule): ContractEnum[] {
     const enums: ContractEnum[] = [];
@@ -49,7 +49,7 @@ export function contractEnums(prepared: PreparedContractModule): ContractEnum[] 
 
 export function contractLogs(prepared: PreparedContractModule, builder: AbiTypeBuilder): ContractLog[] {
     const logs: ContractLog[] = [];
-    const typeValues = collectLogTypeValues(prepared);
+    const facts = collectLogFacts(prepared);
 
     for (const declaration of userDeclarations(prepared)) {
         if (declaration.kind !== AstKind.STRUCT || !declaration.name) {
@@ -74,7 +74,8 @@ export function contractLogs(prepared: PreparedContractModule, builder: AbiTypeB
 
         const fields = new Map([...fullLayout.fields].filter(([name]) => name !== LOG_TERMINATOR_FIELD));
         const align = fields.size === 0 ? 1 : Math.max(...[...fields.values()].map((field) => prepared.programAnalysis.alignOfType(field.type)));
-        const types = typeValues.get(struct.name);
+        // a set is emitted only when every write to it was traced and folded; a decoder treats a missing set as "any value".
+        const types = facts.untracedTypeWrite === undefined ? facts.structs.get(struct.name)?.types : null;
 
         logs.push({
             name: struct.name,
@@ -88,7 +89,7 @@ export function contractLogs(prepared: PreparedContractModule, builder: AbiTypeB
                 true,
                 struct,
             ),
-            ...(types ? { types: [...types].map(Number).sort((left, right) => left - right) } : {}),
+            ...(types?.size ? { types: [...types].map(Number).sort((left, right) => left - right) } : {}),
         });
     }
 

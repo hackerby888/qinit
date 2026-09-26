@@ -105,14 +105,23 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   struct TradeLog { uint32 _contractIndex; uint32 _type; uint64 amount; sint8 _terminator; };
   struct FeeLog { uint32 _contractIndex; uint32 _type; uint64 fee; sint8 _terminator; };
   struct AuditLog { uint32 _contractIndex; uint32 _type; uint64 checksum; sint8 _terminator; };
+  struct KindLog { uint32 _contractIndex; uint32 _type; uint64 kind; sint8 _terminator; };
+  struct BraceLog { uint32 _contractIndex; uint32 _type; uint64 amount; sint8 _terminator; };
+  struct ListLog { uint32 _contractIndex; uint32 _type; uint64 amount; sint8 _terminator; };
+  struct ShortLog { uint32 _contractIndex; uint32 _type; uint64 amount; sint8 _terminator; };
   struct StateData { AuditLog last; };
   struct Swap_input { uint32 kind; }; struct Swap_output {};
-  struct Swap_locals { TradeLog trade; FeeLog fee; };
+  struct Swap_locals { CONTRACT_STATE_TYPE::TradeLog trade; FeeLog fee; KindLog kindLog; BraceLog brace; ListLog list; ShortLog shortLog; };
   PUBLIC_PROCEDURE_WITH_LOCALS(Swap) {
     locals.trade._type = LOG_TRADE;
     locals.fee._type = 4;
-    locals.fee._type = input.kind;
+    locals.kindLog._type = 4;
+    locals.kindLog._type = input.kind;
     state.mut().last._type = (7);
+    locals.brace = BraceLog{ CONTRACT_INDEX, LogType::LOG_FEE, 5, 0 };
+    locals.brace = BraceLog{ CONTRACT_INDEX, 9, 5, 0 };
+    locals.list = { CONTRACT_INDEX, LOG_TRADE, 5, 0 };
+    locals.shortLog = ShortLog{ CONTRACT_INDEX };
     LOG_INFO(locals.trade);
     LOG_INFO(locals.fee);
   }
@@ -126,6 +135,24 @@ test("a log struct records the folded _type values the contract writes into it",
     expect(typesOf("TradeLog")).toEqual([3]);
     expect(typesOf("FeeLog")).toEqual([4]);
     expect(typesOf("AuditLog")).toEqual([7]);
+    // brace init fills _type by position; a partial init leaves it value-initialised to zero
+    expect(typesOf("BraceLog")).toEqual([4, 9]);
+    expect(typesOf("ListLog")).toEqual([3]);
+    expect(typesOf("ShortLog")).toEqual([0]);
+});
+
+// a value the build cannot fold could be anything, so a partial set would let a decoder rule the struct out wrongly.
+test("a _type write that does not fold drops the struct's value set", () => {
+    const logs = extractIdl(LOG_TYPES_SOURCE, "Types", { slot: 7 }).logs;
+
+    expect(logs.find((entry) => entry.name === "KindLog")?.types).toBeUndefined();
+});
+
+test("a _type write the walk cannot attribute drops every value set", () => {
+    const source = LOG_TYPES_SOURCE.replace("state.mut().last._type = (7);", "state.mut().last._type = (7); TradeLog stackLog; stackLog._type = 1;");
+    const logs = extractIdl(source, "Types", { slot: 7 }).logs;
+
+    expect(logs.every((entry) => entry.types === undefined)).toBe(true);
 });
 
 test("empty source still returns a complete v4 schema", () => {
