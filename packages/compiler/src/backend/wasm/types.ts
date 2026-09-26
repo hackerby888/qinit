@@ -72,6 +72,7 @@ export interface ResolvedLvalue {
     addr: string; // WAT producing the i32 byte address
     size: number;
     type?: TypeSpec | null; // pointee type when known — drives signed sub-64-bit load extension
+    readOnly?: string;
 }
 
 export interface ResolvedAddress {
@@ -79,4 +80,5 @@ export interface ResolvedAddress {
     type: TypeSpec | null;
     size: number;
     layout: StructLayout | null;
+    readOnly?: string; // why this lvalue is const (a const reference return, a const cast); members and elements inherit it
 }

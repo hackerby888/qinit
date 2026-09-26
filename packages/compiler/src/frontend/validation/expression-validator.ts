@@ -199,10 +199,6 @@ export function checkAssignTarget(
     while (root.kind === AstKind.MEMBER_ACCESS || root.kind === AstKind.SUBSCRIPT) {
         root = root.kind === AstKind.MEMBER_ACCESS ? root.object : root.object;
     }
-    if (root.kind === AstKind.CALL && root.callee.kind === AstKind.MEMBER_ACCESS && root.callee.member === "get") {
-        validator.error(`cannot modify through get(): it returns a read-only view — use mut()`, target.span);
-        return;
-    }
     if (root.kind === AstKind.IDENTIFIER) {
         const local = lookup(root.name);
         if (local?.const) {

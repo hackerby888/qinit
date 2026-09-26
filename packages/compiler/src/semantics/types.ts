@@ -117,4 +117,7 @@ export interface CompiledMethod {
     retKind: WatNodeType;
     retAgg?: number; // aggregate (id/struct) return size — ABI prepends a $ret dest-address param
     retType?: TypeSpec; // concrete return/referent type
+    retReadOnly?: boolean; // returns `const T&` or `const T*`
+    isConst?: boolean;
+    isStatic?: boolean;
 }
