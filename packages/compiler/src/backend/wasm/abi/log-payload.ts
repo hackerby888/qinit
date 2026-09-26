@@ -1,4 +1,5 @@
 import { AstKind, LogPayloadDefect } from "../../../shared/enums";
+import { QUBIC_LOG_TYPE } from "@qinit/proto";
 import { SCALAR_SIZE } from "../../../shared/scalar-sizes";
 import type { StructLayout } from "../../../semantics/types";
 import type { TypeSpec } from "../../../ast";
@@ -6,6 +7,14 @@ import type { TypeSpec } from "../../../ast";
 // The host logs the payload bytes preceding _terminator, so a log struct must carry one past the contract index and type words — core's logging.h agrees.
 export const LOG_TERMINATOR_FIELD = "_terminator";
 export const MIN_TERMINATOR_OFFSET_BYTES = 8;
+
+// the intrinsic each LOG_* macro expands to, with the header type the host records for it
+export const LOG_INTRINSIC_LEVELS: ReadonlyMap<string, number> = new Map([
+    ["__qinit_log_error", QUBIC_LOG_TYPE.CONTRACT_ERROR_MESSAGE],
+    ["__qinit_log_warning", QUBIC_LOG_TYPE.CONTRACT_WARNING_MESSAGE],
+    ["__qinit_log_info", QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE],
+    ["__qinit_log_debug", QUBIC_LOG_TYPE.CONTRACT_DEBUG_MESSAGE],
+]);
 
 // The host overwrites the payload's leading word with the contract index, so a field spanning those bytes loses them; core spells that word several ways.
 export const LOG_HEADER_WORD_BYTES = 4;

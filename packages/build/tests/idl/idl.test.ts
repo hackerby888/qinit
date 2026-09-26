@@ -124,6 +124,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     locals.shortLog = ShortLog{ CONTRACT_INDEX };
     LOG_INFO(locals.trade);
     LOG_INFO(locals.fee);
+    LOG_ERROR(locals.fee);
   }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Swap, 1); }
 };`;
@@ -153,6 +154,24 @@ test("a _type write the walk cannot attribute drops every value set", () => {
     const logs = extractIdl(source, "Types", { slot: 7 }).logs;
 
     expect(logs.every((entry) => entry.types === undefined)).toBe(true);
+    expect(logs.find((entry) => entry.name === "TradeLog")?.severities).toEqual([6]);
+});
+
+test("a log struct records the header types it is logged under", () => {
+    const logs = extractIdl(LOG_TYPES_SOURCE, "Types", { slot: 7 }).logs;
+    const severitiesOf = (name: string) => logs.find((entry) => entry.name === name)?.severities;
+
+    expect(severitiesOf("TradeLog")).toEqual([6]);
+    expect(severitiesOf("FeeLog")).toEqual([4, 6]);
+    expect(severitiesOf("KindLog")).toBeUndefined();
+});
+
+test("a LOG_* payload the walk cannot attribute drops every severity set", () => {
+    const source = LOG_TYPES_SOURCE.replace("LOG_ERROR(locals.fee);", "LOG_ERROR(locals.fee); TradeLog stackLog; LOG_DEBUG(stackLog);");
+    const logs = extractIdl(source, "Types", { slot: 7 }).logs;
+
+    expect(logs.every((entry) => entry.severities === undefined)).toBe(true);
+    expect(logs.find((entry) => entry.name === "TradeLog")?.types).toEqual([3]);
 });
 
 test("empty source still returns a complete v4 schema", () => {

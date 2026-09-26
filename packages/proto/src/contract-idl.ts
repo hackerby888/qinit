@@ -147,6 +147,8 @@ export interface ContractLog {
     type: AbiStruct;
     // The `_type` values the contract writes into this struct, when the build could fold them.
     types?: number[];
+    // the header types (QUBIC_LOG_TYPE) the contract logs this struct under, when the build could trace every call
+    severities?: number[];
 }
 
 // One CC_PRINT argument: a literal part carries text and emits no code; a value part carries the decoded type plus the argument's source text as its label.
@@ -397,10 +399,15 @@ function parseLog(value: unknown, label: string): ContractLog {
     const entry = requireObject(value, label);
     const types =
         entry.types === undefined ? undefined : requireArray(entry.types, `${label} types`).map((item, index) => requireUint(item, `${label} type ${index}`));
+    const severities =
+        entry.severities === undefined
+            ? undefined
+            : requireArray(entry.severities, `${label} severities`).map((item, index) => requireUint(item, `${label} severity ${index}`));
     return {
         name: requireString(entry.name, `${label} name`),
         type: parseAbiStruct(entry.type, `${label} type`, true),
         ...(types ? { types } : {}),
+        ...(severities ? { severities } : {}),
     };
 }
 

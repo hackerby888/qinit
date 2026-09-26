@@ -43,6 +43,13 @@ test("a log's recorded _type values must be unsigned integers", () => {
     expect(() => parseContractIdl(contractIdl(STATE, { logs: [{ name: "L", type: unpadded, types: [3, "x"] as never }] }))).toThrow(/log 0 type 1/);
 });
 
+test("a log's recorded severities must be unsigned integers", () => {
+    const unpadded = { ...(st(u64, u8) as AbiStruct), size: 9 };
+    expect(parseContractIdl(contractIdl(STATE, { logs: [{ name: "L", type: unpadded, severities: [4, 6] }] })).logs[0].severities).toEqual([4, 6]);
+    expect(parseContractIdl(contractIdl(STATE, { logs: [{ name: "L", type: unpadded }] })).logs[0].severities).toBeUndefined();
+    expect(() => parseContractIdl(contractIdl(STATE, { logs: [{ name: "L", type: unpadded, severities: [-1] as never }] }))).toThrow(/log 0 severity 0/);
+});
+
 test("only a log may omit its tail padding — migration and state may not", () => {
     const padded = st(u64, u8) as AbiStruct;
     const unpadded = { ...padded, size: 9 };

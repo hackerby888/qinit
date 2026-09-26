@@ -34,7 +34,8 @@ export async function decodeLog(type: number, size: number, hex: string, catalog
         size,
         hex: "0x" + (hex.startsWith("0x") ? hex.slice(2) : hex),
     };
-    const sized = catalog.filter((entry) => loggedSizeOf(entry.type) === size);
+    // an entry that recorded its severities is ruled out by a header type it never logs under; one without stays a candidate
+    const sized = catalog.filter((entry) => loggedSizeOf(entry.type) === size && (!entry.severities?.length || entry.severities.includes(type)));
     const hit = sized.length > 1 ? byTypeWord(sized, hex) : sized;
     if (hit.length === 1) {
         try {

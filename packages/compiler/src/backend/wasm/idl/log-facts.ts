@@ -4,6 +4,7 @@ import { parseIntLiteral } from "../../../frontend/lexer";
 import type { ProgramAnalysis } from "../../../semantics/program-analysis";
 import type { StructLayout } from "../../../semantics/types";
 import type { PreparedContractModule } from "../module/module-analysis";
+import { LOG_INTRINSIC_LEVELS } from "../abi/log-payload";
 import { collectPayloadRoots, resolvePayload, visitStatement, type PayloadRoots } from "../module/log-call-validation";
 
 export const LOG_TYPE_FIELD = "_type";
@@ -11,15 +12,18 @@ export const LOG_TYPE_FIELD = "_type";
 // what the walk learned about one log struct. `types` turns null once a `_type` write cannot be folded: a partial set would let a decoder rule the struct out wrongly.
 export interface LogStructFacts {
     types: Set<bigint> | null;
+    // the header types the struct is logged under
+    severities: Set<number>;
 }
 
 export interface LogFacts {
     structs: Map<string, LogStructFacts>;
-    // the line of a `_type` write the walk could not attribute to a struct; past it no struct's value set is complete.
+    // the line of a `_type` write, or of a LOG_* payload, the walk could not attribute to a struct; past it no struct's set is complete.
     untracedTypeWrite?: number;
+    untracedLog?: number;
 }
 
-// the `_type` values a contract writes into each log struct, keyed by bare name: two structs of one size are told apart by this word.
+// the `_type` values a contract writes into each log struct and the severities it logs it at, keyed by bare name: two structs of one size are told apart by these.
 export function collectLogFacts(prepared: PreparedContractModule): LogFacts {
     const facts: LogFacts = { structs: new Map() };
     const contract = prepared.contract;
@@ -49,6 +53,11 @@ export function collectLogFacts(prepared: PreparedContractModule): LogFacts {
 
             const expression = statement.expression;
 
+            if (expression.kind === AstKind.CALL) {
+                recordLogCall(prepared.programAnalysis, roots, facts, expression, statement);
+                return;
+            }
+
             if (expression.kind !== AstKind.ASSIGN || expression.operator !== AssignOp.ASSIGN) {
                 return;
             }
@@ -67,6 +76,28 @@ export function collectLogFacts(prepared: PreparedContractModule): LogFacts {
     }
 
     return facts;
+}
+
+function recordLogCall(programAnalysis: ProgramAnalysis, roots: PayloadRoots, facts: LogFacts, call: Expression & { kind: AstKind.CALL }, statement: Statement): void {
+    const level = call.callee.kind === AstKind.IDENTIFIER ? LOG_INTRINSIC_LEVELS.get(call.callee.name) : undefined;
+    const argument = call.callArguments[0];
+
+    if (level === undefined || !argument) {
+        return;
+    }
+
+    const payload = resolvePayload(programAnalysis, roots, argument);
+
+    if (!payload?.layout) {
+        facts.untracedLog ??= statement.span.line;
+        return;
+    }
+
+    const structName = payload.type ? bareStructName(programAnalysis, payload.type) : null;
+
+    if (structName) {
+        structFacts(facts, structName).severities.add(level);
+    }
 }
 
 function recordTypeWrite(programAnalysis: ProgramAnalysis, roots: PayloadRoots, facts: LogFacts, object: Expression, value: Expression, statement: Statement): void {
@@ -136,7 +167,7 @@ function structFacts(facts: LogFacts, structName: string): LogStructFacts {
     let recorded = facts.structs.get(structName);
 
     if (!recorded) {
-        recorded = { types: new Set() };
+        recorded = { types: new Set(), severities: new Set() };
         facts.structs.set(structName, recorded);
     }
 

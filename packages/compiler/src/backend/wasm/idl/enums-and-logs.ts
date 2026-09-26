@@ -74,8 +74,10 @@ export function contractLogs(prepared: PreparedContractModule, builder: AbiTypeB
 
         const fields = new Map([...fullLayout.fields].filter(([name]) => name !== LOG_TERMINATOR_FIELD));
         const align = fields.size === 0 ? 1 : Math.max(...[...fields.values()].map((field) => prepared.programAnalysis.alignOfType(field.type)));
-        // a set is emitted only when every write to it was traced and folded; a decoder treats a missing set as "any value".
-        const types = facts.untracedTypeWrite === undefined ? facts.structs.get(struct.name)?.types : null;
+        // a set is emitted only when every write or call feeding it was traced; a decoder treats a missing set as "any".
+        const recorded = facts.structs.get(struct.name);
+        const types = facts.untracedTypeWrite === undefined ? recorded?.types : null;
+        const severities = facts.untracedLog === undefined ? recorded?.severities : null;
 
         logs.push({
             name: struct.name,
@@ -90,6 +92,7 @@ export function contractLogs(prepared: PreparedContractModule, builder: AbiTypeB
                 struct,
             ),
             ...(types?.size ? { types: [...types].map(Number).sort((left, right) => left - right) } : {}),
+            ...(severities?.size ? { severities: [...severities].sort((left, right) => left - right) } : {}),
         });
     }
 

@@ -1,22 +1,14 @@
 import { AstKind, LogPayloadDefect, UnaryOp, WatNodeType } from "../../../shared/enums";
-import { QUBIC_LOG_TYPE } from "@qinit/proto";
 import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
 import type { WatNode } from "../wat-ir";
-import { LOG_TERMINATOR_FIELD, logPayloadDefect, logPayloadMessage } from "../abi/log-payload";
+import { LOG_INTRINSIC_LEVELS, LOG_TERMINATOR_FIELD, logPayloadDefect, logPayloadMessage } from "../abi/log-payload";
 import { addrIr } from "../memory/memory-operations";
 import { resolveExpressionAddress } from "../memory/address-resolution";
 import { CHEAT_OP } from "@qinit/core";
 import { foldCheatLine } from "../idl/collect-cheats";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";
-
-const LOG_LEVELS: Readonly<Record<string, number>> = {
-    __qinit_log_error: QUBIC_LOG_TYPE.CONTRACT_ERROR_MESSAGE,
-    __qinit_log_warning: QUBIC_LOG_TYPE.CONTRACT_WARNING_MESSAGE,
-    __qinit_log_info: QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE,
-    __qinit_log_debug: QUBIC_LOG_TYPE.CONTRACT_DEBUG_MESSAGE,
-};
 
 export function tryEmitHostIntrinsicCall(context: FunctionEmissionContext, expression: CallExpression): boolean {
     if (expression.callee.kind !== AstKind.IDENTIFIER) {
@@ -154,7 +146,7 @@ function emitKangarooTwelveCall(context: FunctionEmissionContext, expression: Ca
 
 function emitLoggingCall(context: FunctionEmissionContext, expression: CallExpression): void {
     const callName = expression.callee.kind === AstKind.IDENTIFIER ? expression.callee.name : "";
-    const logLevel = LOG_LEVELS[callName];
+    const logLevel = LOG_INTRINSIC_LEVELS.get(callName);
 
     if (logLevel !== undefined) {
         emitLogMessage(context, expression, callName, logLevel);
