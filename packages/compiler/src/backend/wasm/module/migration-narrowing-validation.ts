@@ -60,7 +60,7 @@ function reportNarrowedFields(
             const loss = whatIsLost(oldScalar, newScalar);
 
             if (loss) {
-                prepared.programAnalysis.warn(
+                prepared.programAnalysis.advise(
                     `migration narrows persisted field '${fieldPath}': ${loss}. Every stored value outside the new range is rewritten once, irreversibly`,
                     span,
                 );
