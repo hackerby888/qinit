@@ -371,8 +371,9 @@ jobs:
   solidity-port:
     needs: resolve-core
     runs-on: ubuntu-latest
-    # the nightly full sweep alone takes about 40 minutes.
-    timeout-minutes: 90
+    # the full sweep took 36 minutes on 2026-09-21 and over 90 every night since; 180 keeps the run
+    # alive while that slowdown is chased, and still kills a runaway
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - name: Checkout core-lite (${{ needs.resolve-core.outputs.sha }})
