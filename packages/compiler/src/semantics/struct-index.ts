@@ -48,6 +48,8 @@ export function collectNested(programAnalysis: ProgramAnalysis, contract: Struct
                     returnType: fn.returnType,
                     body: fn.body,
                     isConstexpr: fn.isConstexpr,
+                    isConst: fn.isConst,
+                    isStatic: fn.isStatic,
                     span: fn.span,
                 };
                 const akey = `${fn.name}/${(fn.params ?? []).length}`;
@@ -123,6 +125,8 @@ export function captureStructMethods(programAnalysis: ProgramAnalysis, structDec
             returnType: fn.returnType,
             body: fn.body,
             isConstexpr: fn.isConstexpr,
+            isConst: fn.isConst,
+            isStatic: fn.isStatic,
             span: fn.span,
         };
         const akey = `${fn.name}/${functionParameters.length}`;

@@ -71,8 +71,10 @@ export class TemplateParser {
     parseFunctionTemplate(params: TemplateParam[]): FunctionTemplateDecl {
         // Storage-class / qualifier specifiers before the return type (static constexpr inline ...).
         let isConstexpr = false;
+        let isStatic = false;
         while (true) {
             if (this.parser.state.tryConsumeKeyword("static")) {
+                isStatic = true;
                 continue;
             }
             if (this.parser.state.tryConsumeKeyword("inline")) {
@@ -102,7 +104,7 @@ export class TemplateParser {
         this.parser.state.expect(TokenKind.L_PAREN, "function params");
         const functionParameters = this.parser.functions.parseFunctionParams();
         this.parser.state.expect(TokenKind.R_PAREN, "function params close");
-        this.parser.state.tryConsumeKeyword("const");
+        const isConst = !!this.parser.state.tryConsumeKeyword("const");
         this.parser.state.tryConsumeKeyword("noexcept");
         let body: Statement | undefined;
         if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
@@ -118,6 +120,8 @@ export class TemplateParser {
             returnType: retType,
             body,
             isConstexpr,
+            isConst,
+            isStatic,
             span: this.parser.recovery.makeSpan(retType.span ?? this.parser.state.peek().span),
         };
     }

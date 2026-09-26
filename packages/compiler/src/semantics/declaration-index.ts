@@ -187,6 +187,8 @@ export function registerTopLevelDeclarations(
                         returnType: fn.returnType,
                         body: fn.body,
                         isConstexpr: fn.isConstexpr,
+                        isConst: fn.isConst,
+                        isStatic: fn.isStatic,
                         span: fn.span,
                     };
                     programAnalysis.namespaceContexts.set(def, lookupContext);
@@ -262,6 +264,8 @@ export function registerTopLevelDeclarations(
                               returnType: memberDeclaration.returnType,
                               body: (memberDeclaration as FunctionDecl).body,
                               isConstexpr: memberDeclaration.isConstexpr,
+                              isConst: memberDeclaration.isConst,
+                              isStatic: memberDeclaration.isStatic,
                               span: memberDeclaration.span,
                           };
                 programAnalysis.namespaceContexts.set(def, lookupContext);
@@ -309,6 +313,8 @@ export function registerTopLevelDeclarations(
                               returnType: fn.returnType,
                               body: fn.body,
                               isConstexpr: fn.isConstexpr,
+                              isConst: fn.isConst,
+                              isStatic: fn.isStatic,
                               span: fn.span,
                           };
                 programAnalysis.namespaceContexts.set(methodDefinition, lookupContext);
