@@ -1073,6 +1073,10 @@ missing ones at once (`missing 48 input fields: dst2, …`); a bare string where
 A 60-letter identity whose last four letters do not match its key is reported as
 a checksum mismatch, not as the wrong length.
 
+An `Array<uint8, N>` or `Array<sint8, N>` in `--args` and generated clients also
+takes one hex string of exactly `N` bytes, so a `qinit sign` signature pastes as-is
+(`"signature": "0dc5…0e00"`); bytes above `0x7f` land as negative `sint8`s.
+
 For `BitArray<N>`, typed `--args` and generated clients use an exact-length JSON
 array of `0` and `1` values in logical bit order. Raw `--in` remains the physical
 `uint64`-word representation. `Collection`, `HashMap`, `HashSet`, and `LinkedList`

@@ -28,6 +28,10 @@ async function encodeAbiType(view: DataView, offset: number, type: AbiType, valu
             return;
         }
         case AbiTypeKind.ARRAY: {
+            if (typeof value === "string" && type.element.kind === AbiTypeKind.SCALAR && BYTE_SCALARS.has(type.element.scalar)) {
+                writeBytes(view, offset, byteArrayHex(formatAbiType(type), type.count, value));
+                return;
+            }
             if (!Array.isArray(value)) {
                 throw new Error(`array '${formatAbiType(type)}' needs a JSON array`);
             }
@@ -201,6 +205,17 @@ function scalarBits(scalar: AbiScalarKind): 8 | 16 | 32 | 64 | 128 {
             return 128;
         default:
             throw new Error(`'${scalar}' is not an integer scalar`);
+    }
+}
+
+// a byte array also takes one hex string, e.g. the signature `qinit sign` prints for an Array<sint8, 64>
+const BYTE_SCALARS = new Set<AbiScalarKind>([AbiScalarKind.UINT8, AbiScalarKind.SINT8]);
+
+function byteArrayHex(format: string, count: number, hex: string): Uint8Array {
+    try {
+        return hexToBytes(hex, count);
+    } catch (error: any) {
+        throw new Error(`array '${format}': ${error.message}`);
     }
 }
 
@@ -385,6 +400,10 @@ function jsonValueToInputFormat(typeTok: string, value: any): string {
         const semi = inner.indexOf(";");
         const n = parseInt(inner.slice(0, semi), 10);
         const elem = inner.slice(semi + 1).trim();
+        if (typeof value === "string" && BYTE_SCALARS.has(elem as AbiScalarKind)) {
+            const bytes = byteArrayHex(typeTok, n, value);
+            return `[${n}; ${Array.from(bytes, (byte) => `${elem === AbiScalarKind.SINT8 ? (byte << 24) >> 24 : byte}${elem}`).join(", ")}]`;
+        }
         if (!Array.isArray(value)) throw new Error(`array '${typeTok}' needs a JSON array, got ${JSON.stringify(value)}`);
         if (value.length !== n) throw new Error(`array '${typeTok}' expects ${n} elements, got ${value.length}`);
         return `[${n}; ${value.map((v) => jsonValueToInputFormat(elem, v)).join(", ")}]`;
