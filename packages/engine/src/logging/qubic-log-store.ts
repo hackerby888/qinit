@@ -32,17 +32,26 @@ const DIGEST_MESSAGE_TYPES = new Set<number>([
     QUBIC_LOG_TYPE.ASSET_POSSESSION_MANAGING_CONTRACT_CHANGE,
 ]);
 
+// what a range answers in place of log ids. core sends the first and the last; the middle one is this store's own, since core never drops a tick's ranges.
+const RANGE_NOTHING_LOGGED = -1n;
+const RANGE_NOT_RETAINED = -2n;
+const RANGE_NOT_FINALIZED = -3n;
+
 interface FinalizedTickRecords {
     tick: number;
     fromLogId: number;
     toLogId: number;
 }
 
-function emptyRanges(): QubicLogRange[] {
+function uniformRanges(code: bigint): QubicLogRange[] {
     return Array.from({ length: LOG_RANGES_PER_TICK }, () => ({
-        fromLogId: -1n,
-        length: -1n,
+        fromLogId: code,
+        length: code,
     }));
+}
+
+function emptyRanges(): QubicLogRange[] {
+    return uniformRanges(RANGE_NOTHING_LOGGED);
 }
 
 // Core-compatible in-memory qLogger storage.
@@ -61,6 +70,7 @@ export class QubicLogStore {
     private finalizedLogCount = 0;
     private finalizedTicks: FinalizedTickRecords[] = [];
     private tickBegin = 0;
+    private evictedThroughTick = -1;
     private overflowedTick: number | null = null;
 
     constructor(private readonly maxRetainedBytes = 64 * 1024 * 1024) {}
@@ -185,39 +195,33 @@ export class QubicLogStore {
         this.finalizedLogCount = 0;
         this.finalizedTicks = [];
         this.tickBegin = tickBegin;
+        this.evictedThroughTick = -1;
         this.overflowedTick = null;
     }
 
-    range(tick: number, txId: number): QubicLogRange {
+    // a tick or tx that never existed answers "nothing logged", as core does, so "not retained" only ever means the data aged out.
+    private missingRangeCode(tick: number): bigint {
         if (tick > this.lastUpdatedTick) {
-            return { fromLogId: -3n, length: -3n };
+            return RANGE_NOT_FINALIZED;
         }
-        if (tick < this.tickBegin) {
-            return { fromLogId: -2n, length: -2n };
+
+        return tick < this.tickBegin || tick <= this.evictedThroughTick ? RANGE_NOT_RETAINED : RANGE_NOTHING_LOGGED;
+    }
+
+    range(tick: number, txId: number): QubicLogRange {
+        const retained = tick <= this.lastUpdatedTick ? this.ranges.get(tick) : undefined;
+        if (retained) {
+            return retained[txId] ?? { fromLogId: RANGE_NOTHING_LOGGED, length: RANGE_NOTHING_LOGGED };
         }
-        return this.ranges.get(tick)?.[txId] ?? { fromLogId: -2n, length: -2n };
+
+        const code = this.missingRangeCode(tick);
+        return { fromLogId: code, length: code };
     }
 
     tickRanges(tick: number): QubicLogRange[] {
-        if (tick > this.lastUpdatedTick) {
-            return Array.from({ length: LOG_RANGES_PER_TICK }, () => ({
-                fromLogId: -3n,
-                length: -3n,
-            }));
-        }
-        if (tick < this.tickBegin) {
-            return Array.from({ length: LOG_RANGES_PER_TICK }, () => ({
-                fromLogId: -2n,
-                length: -2n,
-            }));
-        }
-        return (
-            this.ranges.get(tick)?.map((r) => ({ ...r })) ??
-            Array.from({ length: LOG_RANGES_PER_TICK }, () => ({
-                fromLogId: -2n,
-                length: -2n,
-            }))
-        );
+        const retained = tick <= this.lastUpdatedTick ? this.ranges.get(tick) : undefined;
+
+        return retained ? retained.map((r) => ({ ...r })) : uniformRanges(this.missingRangeCode(tick));
     }
 
     digest(tick: number): Uint8Array | null {
@@ -278,6 +282,7 @@ export class QubicLogStore {
             this.records[id] = null;
         }
         this.ranges.delete(oldest.tick);
+        this.evictedThroughTick = oldest.tick;
     }
 
     private discardUnfinalizedRecords(): void {

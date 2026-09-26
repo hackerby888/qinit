@@ -2,17 +2,9 @@ import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { DEFAULT_PEER_PORT, LOOPBACK_HOST, LiteRpc, loadCoreWasmSlotLayout, loadManifest, readCurrent, updateCurrent } from "@qinit/core";
 import {
-    DEFAULT_PEER_PORT,
-    DEFAULT_RPC_BASE,
-    LOOPBACK_HOST,
-    LiteRpc,
-    loadCoreWasmSlotLayout,
-    loadManifest,
-    readCurrent,
-    updateCurrent,
-} from "@qinit/core";
-import {
+    busyPorts,
     cachedReleaseRef,
     cachedNode,
     ensureNodeBinary,
@@ -25,7 +17,7 @@ import {
     launchSimulatorNode,
     waitTicking,
 } from "../../ops/node";
-import { loadConfig, resolveCompilerBackend, resolveRuntime } from "../../config";
+import { loadConfig, resolveCompilerBackend, resolveFeeMode, resolveRuntime, resolveRpc, assertLoopbackRpc } from "../../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../../ui";
 import { jsonEnvelope, output, type CommandArguments } from "../../args";
 import { prepareNodeRunCore } from "../../ops/node-core";
@@ -47,15 +39,16 @@ type Phase = { key: string; label: string; state: StepState; detail?: string };
 
 export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
-    const rpcBaseUrl = commandArgs.get("rpc") || DEFAULT_RPC_BASE;
     const peerPort = Number(commandArgs.get("peer-port") || DEFAULT_PEER_PORT);
     const requestedRef = commandArgs.get("ref");
     const nodeBinaryOverride = commandArgs.get("node-bin");
     const offline = commandArgs.has("offline");
     const projectConfig = loadConfig();
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), projectConfig);
     const useSimulator = resolveRuntime(commandArgs.get("runtime")) === "simulator";
     const coreDirectory = commandArgs.get("core-dir") ?? (useSimulator && !requestedRef ? projectConfig.coreDir : undefined);
     const compiler = resolveCompilerBackend(commandArgs.get("compiler"));
+    const fees = resolveFeeMode(commandArgs.get("fees"));
     const [steps, setSteps] = useState<Phase[]>([
         { key: "headers", label: "core headers", state: "pending" },
         { key: "node", label: "node binary", state: "pending" },
@@ -152,6 +145,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
 
                 // Run: reuse a node that's already ticking (keeps deployed state); else (re)launch.
                 set("run", "active", "checking");
+                assertLoopbackRpc(rpcBaseUrl);
                 const st = await nodeStatus(rpcBaseUrl);
                 const requestedBackend = useSimulator ? "simulator" : "core";
                 const runningBackend = st.up && st.ticking ? (await new LiteRpc(rpcBaseUrl).whoami()).backend : undefined;
@@ -177,6 +171,21 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                     if (runningBackend && runningBackend !== requestedBackend && (await nodeStatus(rpcBaseUrl)).up) {
                         throw new Error(`${rpcBaseUrl} is served by an untracked ${runningBackend} node; stop it or choose another --rpc`);
                     }
+                    const rpcPort = useSimulator ? portFromRpc(rpcBaseUrl) : resolveHttpPort(commandArgs.get("http-port"), rpcBaseUrl);
+                    // core's peer port is compiled in (31841 on testnet), the simulator's follows --peer-port
+                    const nodePeerPort = useSimulator ? peerPort : DEFAULT_PEER_PORT;
+                    const busy = busyPorts([rpcPort, nodePeerPort]);
+                    if (busy.length) {
+                        throw new Error(
+                            busy
+                                .map((port) =>
+                                    port === rpcPort
+                                        ? `port ${port} (rpc) is already in use — stop the process holding it, or choose another with ${useSimulator ? "--rpc" : "--rpc / --http-port"}`
+                                        : `port ${port} (peer) is already in use — stop the process holding it${useSimulator ? ", or choose another with --peer-port" : ""}`,
+                                )
+                                .join("\n"),
+                        );
+                    }
                     const launched = useSimulator
                         ? launchSimulatorNode({
                               scratchDirectory: commandArgs.get("scratch-dir"),
@@ -188,6 +197,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                               liteTicking: commandArgs.has("full-tick") ? false : undefined,
                               system: projectConfig.system,
                               compiler,
+                              fees,
                               coreDirectory: currentHeaders,
                               slotBase: slotLayout!.slotBase,
                               slotCount: slotLayout!.slotCount,
@@ -272,7 +282,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
             {done && (
                 <Box marginTop={1}>
                     <Panel title={done.title} color={done.color}>
-                        <KV rows={done.rows} />
+                        <KV rows={done.rows} full={!done.ok} />
                     </Panel>
                 </Box>
             )}

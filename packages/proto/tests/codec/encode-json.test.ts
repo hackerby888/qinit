@@ -59,6 +59,18 @@ test("jsonToInputFormat: uint128 decimal string remains lossless", async () => {
 
 test("jsonToInputFormat: missing field + arity mismatch throw", () => {
     expect(() => jsonToInputFormat([{ name: "value", type: "uint64" }], {})).toThrow(/missing input field 'value'/);
+    // every absent field at once, in the IDL-fields form and the typed form alike.
+    expect(() =>
+        jsonToInputFormat(
+            [
+                { name: "a", type: "uint64" },
+                { name: "b", type: "uint64" },
+                { name: "c", type: "uint8" },
+            ],
+            { b: 1 },
+        ),
+    ).toThrow("missing 2 input fields: a, c — the interactive `qinit call` pre-fills every field");
+    expect(() => jsonToInputFormat(st(u8, u8), {})).toThrow("missing 2 input fields: f0, f1");
     expect(() => jsonToInputFormat([{ name: "xs", type: "[2;uint64]" }], { xs: [1] })).toThrow(/expects 2 elements/);
     expect(() => jsonToInputFormat([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1] })).toThrow(/expects 2 values/);
 });
@@ -373,7 +385,7 @@ test("typed container decode keeps nested field offsets", async () => {
     view.setBigUint64(32, 1n, true);
     view.setBigUint64(40, 1n, true);
 
-    expect(await decodeAbi(bytes, map)).toEqual([{ slot: 0, key: 3, value: [7, 99n] }]);
+    expect(await decodeAbi(bytes, map)).toEqual([{ elementIndex: 0, key: 3, value: [7, 99n] }]);
 });
 
 test("typed BitArray encodes logical bits LSB-first and ignores padding", async () => {
@@ -437,19 +449,19 @@ test("typed LinkedList decodes logical order and rejects public input", async ()
     const setNode = (slot: number, item: bigint, next: bigint, previous: bigint) => {
         const offset = slot * geometry.nodeStride;
         view.setBigUint64(offset, item, true);
-        view.setBigInt64(offset + geometry.nextOffset, next, true);
-        view.setBigInt64(offset + geometry.prevOffset, previous, true);
+        view.setBigInt64(offset + geometry.nextIndexOffset, next, true);
+        view.setBigInt64(offset + geometry.prevIndexOffset, previous, true);
     };
     setNode(5, 50n, 1n, -1n);
     setNode(1, 10n, -1n, 5n);
     bytes[geometry.flagsOffset] = (1 << 5) | (1 << 1);
-    view.setBigInt64(geometry.headOffset, 5n, true);
-    view.setBigInt64(geometry.tailOffset, 1n, true);
+    view.setBigInt64(geometry.headIndexOffset, 5n, true);
+    view.setBigInt64(geometry.tailIndexOffset, 1n, true);
     view.setBigUint64(geometry.populationOffset, 2n, true);
 
     expect(await decodeAbi(bytes, linkedList)).toEqual([
-        { slot: 5, value: 50n },
-        { slot: 1, value: 10n },
+        { elementIndex: 5, value: 50n },
+        { elementIndex: 1, value: 10n },
     ]);
     await expect(encodeInputJson(linkedList, bytes)).rejects.toThrow(/LinkedList input is not supported/);
     expect(() => jsonToInputFormat(linkedList, [])).toThrow(/LinkedList input is not supported/);

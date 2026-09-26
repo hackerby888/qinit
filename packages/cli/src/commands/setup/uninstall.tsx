@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { existsSync, unlinkSync, renameSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { cacheInfo, wipeCache, human } from "../../ops/cache";
+import { runsFromSource } from "../../ops/update";
 import { Header, Status, Spinner, KV, theme } from "../../ui";
 import type { CommandArguments } from "../../args";
 
 const isWin = process.platform === "win32";
 // the running exe (unless dev: bun/node) + the canonical install path, de-duped.
-function binTargets(): string[] {
+export function binTargets(executablePath = process.execPath): string[] {
     const out: string[] = [];
-    const self = process.execPath;
-    if (basename(self) !== "bun" && basename(self) !== "node") out.push(self);
+    // runsFromSource strips `.exe`: a raw basename check listed a Windows checkout's own bun.exe for removal.
+    if (!runsFromSource(executablePath)) out.push(executablePath);
     // canonical install dir: install.ps1 -> %LOCALAPPDATA%\qinit\bin (qinit.exe); install.sh -> ~/.local/bin (qinit)
     const dir = process.env.QINIT_BIN || (isWin ? join(process.env.LOCALAPPDATA || homedir(), "qinit", "bin") : join(homedir(), ".local", "bin"));
     const installed = join(dir, isWin ? "qinit.exe" : "qinit");

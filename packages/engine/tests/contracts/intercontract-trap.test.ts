@@ -12,6 +12,9 @@ function words(bytes: Uint8Array): bigint[] {
     return values;
 }
 
+// the callee's three management-rights words sit in the same diff chunk and stay zero here.
+const UNTOUCHED_RIGHTS_FIELDS = "00".repeat(24);
+
 test("a trapped nested callee keeps its write and the caller recovers", async () => {
     await initK12();
 
@@ -38,8 +41,8 @@ test("a trapped nested callee keeps its write and the caller recovers", async ()
     expect(trapped?.stateDiff).toEqual([
         {
             off: 0,
-            before: "07000000000000000000000000000000415745454c4c4143",
-            after: "0c000000000000000100000000000000415745454c4c4143",
+            before: "07000000000000000000000000000000415745454c4c4143" + UNTOUCHED_RIGHTS_FIELDS,
+            after: "0c000000000000000100000000000000415745454c4c4143" + UNTOUCHED_RIGHTS_FIELDS,
         },
     ]);
 
@@ -73,6 +76,27 @@ test("a trapped nested function returns zero output and remains callable", async
     expect(trapped?.stateDiff).toEqual([]);
     expect(words(sim.query(28, 1))).toEqual([7n, 0n, 0x43414c4c45455741n]);
     expect(sim.isFaulted()).toBe(false);
+});
+
+test("a warp spans one root call tree and a prank reaches callees, issuance and callbacks", async () => {
+    await initK12();
+
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("QpiDualCallee"));
+    sim.deploy(29, await wasm("QpiDual"));
+    // the self-transfer under the prank needs a balance to move.
+    sim.fund(sim.contractId(29), 10n);
+
+    const bob = new Uint8Array(32).fill(0xbb);
+    const input = new Uint8Array(8);
+    new DataView(input.buffer).setBigUint64(0, BigInt(sim.currentTick), true);
+
+    // each flag is one check inside Cheat; see the fixture for which.
+    expect(words(sim.procedure(29, 3, input, { invocator: bob }))).toEqual([0x1ffn]);
+    expect(sim.isFaulted()).toBe(false);
+
+    const observed = words(sim.query(28, 3));
+    expect(observed.slice(0, 2)).toEqual([BigInt(sim.currentTick), BigInt(sim.currentEpoch)]);
 });
 
 test("a nested abort halts the engine and the fault names the callee", async () => {

@@ -181,8 +181,10 @@ export interface SimulatorDeployRequest {
     emit: Emit;
 }
 
+const SIMULATOR_CONSTRUCT_POLLS = 120;
+
 // The simulator deploys over a direct route instead of the chunked on-chain protocol, so upload and deploy complete together and there is nothing to confirm.
-export async function deployToSimulator(request: SimulatorDeployRequest): Promise<{ ok: boolean; error?: string }> {
+export async function deployToSimulator(request: SimulatorDeployRequest): Promise<{ ok: boolean; constructed?: boolean; error?: string }> {
     const { rpc, slot, wasm, hash, emit } = request;
 
     let directDeployment: Awaited<ReturnType<typeof rpc.directDeploy>>;
@@ -209,7 +211,28 @@ export async function deployToSimulator(request: SimulatorDeployRequest): Promis
         // Source metadata is optional for a successful deployment.
     }
 
+    // the simulator constructs a routed deploy at the head of its next tick, as a core node does, so ready means constructed and not only armed.
+    let constructed = false;
+    for (let attempt = 0; attempt < SIMULATOR_CONSTRUCT_POLLS && !constructed; attempt++) {
+        const fault = await readFault(rpc).catch(() => null);
+        if (fault) {
+            return { ok: false, error: await describeFault(rpc, fault) };
+        }
+
+        const registry = await rpc.dynRegistry().catch(() => null);
+        constructed = registry?.contracts.find((contract) => contract.index === slot)?.constructed ?? false;
+        if (!constructed) {
+            const tick = (await rpc.tickInfo()).tick;
+            if ((await rpc.hurryToTick(tick + 1)) <= tick) {
+                await sleep(250);
+            }
+        }
+    }
+
     request.saveIdl();
-    emit({ step: "confirm", state: "ok", detail: `ready · ${hash}` });
-    return { ok: true };
+    emit({ step: "confirm", state: "ok", detail: constructed ? `ready · ${hash}` : `armed (construct pending) · ${hash}` });
+    if (!constructed) {
+        emit({ note: "⚠ armed but INITIALIZE hasn't settled — a call now may read pre-init state; retry shortly" });
+    }
+    return { ok: true, constructed };
 }

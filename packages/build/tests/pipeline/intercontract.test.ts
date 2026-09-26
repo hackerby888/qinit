@@ -3,6 +3,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildCalleePrelude, contractIndexDefines, parseContractDef, scanCallees } from "../../src/contracts/intercontract";
+import { systemContracts } from "../../src/contracts/system-contracts";
+import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 
 test("contract_def wrappers keep the existing static contract rules", () => {
     const root = mkdtempSync(join(tmpdir(), "contract-def-"));
@@ -387,4 +389,20 @@ test("a dropped sibling is reported with the reason it could not be analysed", (
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
+});
+
+// a system callee declared as a dynamic callee (a project build's plan) resolves to the same prelude contract_def.h gives it.
+test.skipIf(!HAS_CORE)("a system callee reads the same whether the plan names it or contract_def.h does", () => {
+    const source =
+        "struct Main : public ContractBase { struct S { QX::Fees_output fees; }; PUBLIC_FUNCTION(F) { CALL_OTHER_CONTRACT_FUNCTION(QX, Fees, input, output); } };";
+    const qx = systemContracts(CORE_PATH).find((contract) => contract.name === "QX")!;
+    const header = join(CORE_PATH, "src", "contracts", qx.file);
+
+    const fromDefinitions = buildCalleePrelude(CORE_PATH, source, {}, "Main");
+    const fromPlan = buildCalleePrelude(CORE_PATH, source, { QX: { header, slot: qx.index } }, "Main");
+
+    expect(fromDefinitions).toContain(`#define CONTRACT_INDEX ${qx.index}\n#include "contracts/${qx.file}"`);
+    expect(fromPlan).toContain(`#define CONTRACT_INDEX ${qx.index}\n#include "${header}"`);
+    expect(fromPlan.replace(`"${header}"`, `"contracts/${qx.file}"`)).toBe(fromDefinitions);
+    expect(fromPlan).toContain("QX_Fees_inputType = 1;");
 });

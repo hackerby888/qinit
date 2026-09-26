@@ -6,6 +6,7 @@ import * as QubicLogRead from "./qubic-log-read";
 
 interface OracleLayout {
     readonly SIZE: number;
+    readonly OFFSETS: Readonly<Record<string, number>>;
 }
 
 export interface OracleInterfaceDefinition {
@@ -13,6 +14,7 @@ export interface OracleInterfaceDefinition {
     readonly name: string;
     readonly query: OracleLayout;
     readonly reply: OracleLayout;
+    readonly replyFormat: string;
     getQueryFee(query: Uint8Array): bigint;
 }
 
@@ -22,6 +24,7 @@ export const ORACLE_INTERFACES = [
         name: "Price",
         query: Price.OracleQuery,
         reply: Price.OracleReply,
+        replyFormat: Price.REPLY_FORMAT,
         getQueryFee(query: Uint8Array): bigint {
             return Price.getQueryFee(Price.OracleQuery.wrap(query));
         },
@@ -31,6 +34,7 @@ export const ORACLE_INTERFACES = [
         name: "Mock",
         query: Mock.OracleQuery,
         reply: Mock.OracleReply,
+        replyFormat: Mock.REPLY_FORMAT,
         getQueryFee(query: Uint8Array): bigint {
             return Mock.getQueryFee(Mock.OracleQuery.wrap(query));
         },
@@ -40,6 +44,7 @@ export const ORACLE_INTERFACES = [
         name: "DogeShareValidation",
         query: DogeShareValidation.OracleQuery,
         reply: DogeShareValidation.OracleReply,
+        replyFormat: DogeShareValidation.REPLY_FORMAT,
         getQueryFee(query: Uint8Array): bigint {
             return DogeShareValidation.getQueryFee(DogeShareValidation.OracleQuery.wrap(query));
         },
@@ -49,6 +54,7 @@ export const ORACLE_INTERFACES = [
         name: "EvmLogRead",
         query: EvmLogRead.OracleQuery,
         reply: EvmLogRead.OracleReply,
+        replyFormat: EvmLogRead.REPLY_FORMAT,
         getQueryFee(query: Uint8Array): bigint {
             return EvmLogRead.getQueryFee(EvmLogRead.OracleQuery.wrap(query));
         },
@@ -58,6 +64,7 @@ export const ORACLE_INTERFACES = [
         name: "QubicLogRead",
         query: QubicLogRead.OracleQuery,
         reply: QubicLogRead.OracleReply,
+        replyFormat: QubicLogRead.REPLY_FORMAT,
         getQueryFee(query: Uint8Array): bigint {
             return QubicLogRead.getQueryFee(QubicLogRead.OracleQuery.wrap(query));
         },

@@ -99,12 +99,13 @@ test("the registry file keys contracts by slot and validates its artifact string
     expect(() => parseContractIdlFile({ version: 5, contracts: { "-1": one } })).toThrow("IDL file contract key '-1' is not a slot");
     expect(() => parseContractIdlFile({ version: 5, contracts: { "5": one } })).toThrow("IDL contract 5 stores slot 1");
 
-    for (const key of ["codeHash", "debugWasm", "linesJson"]) {
-        expect(() => parseContractIdlFile({ version: 5, contracts: { "1": { ...one, [key]: 7 } } })).toThrow(`IDL artifact ${key} must be a string`);
-    }
+    expect(() => parseContractIdlFile({ version: 5, contracts: { "1": { ...one, codeHash: 7 } } })).toThrow("IDL artifact codeHash must be a string");
 
+    // keys older builds wrote are ignored, so their files still parse.
     const parsed = parseContractIdlFile({ version: 5, contracts: { "1": { ...one, codeHash: "aa", debugWasm: "bb", linesJson: "cc" } } });
-    expect([parsed.contracts["1"].codeHash, parsed.contracts["1"].debugWasm, parsed.contracts["1"].linesJson]).toEqual(["aa", "bb", "cc"]);
+    expect(parsed.contracts["1"].codeHash).toBe("aa");
+    expect(Object.keys(parsed.contracts["1"])).not.toContain("debugWasm");
+    expect(Object.keys(parsed.contracts["1"])).not.toContain("linesJson");
 });
 
 // Every `format` in the document is advisory — the validator recomputes it from the type tree, so a stale one from an older generator cannot mislead a decoder.

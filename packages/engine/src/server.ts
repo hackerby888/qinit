@@ -159,6 +159,13 @@ export class EngineServer {
             return json(await engine.stateRead(Number(query.get("slot")), Number(query.get("off") ?? 0), Number(query.get("len") ?? 0)));
         }
 
+        // raw slice of a slot's state, for dumps: hex-in-JSON doubles the bytes and costs a decode per byte
+        if (path === "/live/v1/dev/state-bytes") {
+            const { bytes, stateSize } = engine.stateBytes(Number(query.get("slot")), Number(query.get("off") ?? 0), Number(query.get("len") ?? 0));
+
+            return new Response(bytes as RequestInit["body"], { headers: { "content-type": "application/octet-stream", "x-state-size": String(stateSize) } });
+        }
+
         if (path === "/live/v1/dev/contract-digest") {
             const slot = Number(query.get("slot"));
             const contract = engine.sim.contracts.get(slot);
@@ -370,13 +377,21 @@ export class EngineServer {
 
             const wasm = Uint8Array.from(Buffer.from(body.wasm ?? "", "base64"));
 
-            engine.deploy(slot, wasm, name);
+            engine.deploy(wasm, { slot, name, deferActivation: true });
 
             return json({
                 ok: true,
                 slot,
                 digest: engine.sim.digest(slot),
             });
+        }
+
+        if (path === "/live/v1/dev/state-stage" && request.method === "POST") {
+            const slot = Number(query.get("slot"));
+            const chunk = new Uint8Array(await request.arrayBuffer());
+            const staged = engine.stageState(slot, Number(query.get("off") ?? 0), Number(query.get("total") ?? 0), chunk);
+
+            return staged.ok ? json({ ...staged, slot }) : json(staged, 400);
         }
 
         if (path === "/live/v1/dev/undeploy" && request.method === "POST") {

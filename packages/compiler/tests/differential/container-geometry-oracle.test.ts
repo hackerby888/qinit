@@ -76,7 +76,7 @@ const ll32 = linkedListGeometry(u32, 8);
 const coll32 = collectionGeometry(u32, 8);
 
 const OFFSET_GTEST = `TEST(Geometry, InternalOffsetsLandWhereQpiLayoutSaysTheyDo) {
-  // LinkedList<uint32,8>: a uint32 value pads the node's next index up to 8, so a wrong nextOffset reads the wrong slot even though sizeof is unchanged.
+  // LinkedList<uint32,8>: a uint32 value pads the node's next index up to 8, so a wrong nextIndexOffset reads the wrong slot even though sizeof is unchanged.
   QPI::LinkedList<QPI::uint32, 8> list;
   list.reset();
   QPI::sint64 first = list.addTail(11u);
@@ -85,8 +85,8 @@ const OFFSET_GTEST = `TEST(Geometry, InternalOffsetsLandWhereQpiLayoutSaysTheyDo
   EXPECT_EQ(second, 1ll);
 
   const unsigned char* raw = (const unsigned char*)&list;
-  QPI::sint64 nextOfFirst = *(const QPI::sint64*)(raw + 0 * ${ll32.nodeStride} + ${ll32.nextOffset});
-  EXPECT_EQ(nextOfFirst, second) << "LinkedList<uint32,8> nextOffset ${ll32.nextOffset}";
+  QPI::sint64 nextOfFirst = *(const QPI::sint64*)(raw + 0 * ${ll32.nodeStride} + ${ll32.nextIndexOffset});
+  EXPECT_EQ(nextOfFirst, second) << "LinkedList<uint32,8> nextIndexOffset ${ll32.nextIndexOffset}";
   QPI::uint32 valueOfSecond = *(const QPI::uint32*)(raw + 1 * ${ll32.nodeStride});
   EXPECT_EQ(valueOfSecond, 22u) << "LinkedList<uint32,8> nodeStride ${ll32.nodeStride}";
 

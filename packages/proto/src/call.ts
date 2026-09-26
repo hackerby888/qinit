@@ -1,5 +1,15 @@
 // Contract call/invoke, qubic-cli style, over the built-in RPC — a function (read) goes to POST /live/v1/querySmartContract.
-import { LiteRpc, buildSignedTx, broadcastTx, type BroadcastResult, type SignedTx } from "@qinit/core";
+import {
+    LiteRpc,
+    buildSignedTx,
+    broadcastTx,
+    deriveIdentity,
+    hexToBytes,
+    type BroadcastResult,
+    type DebugEntry,
+    type EngineFaultInfo,
+    type SignedTx,
+} from "@qinit/core";
 import { decodeAbi, encodeInputFormat, encodeInputJson } from "./abi";
 import type { AbiType } from "./contract-idl";
 import { TX_TICK_OFFSET } from "./protocol";
@@ -70,6 +80,10 @@ export type SubmittedTx = BroadcastResult & {
     confirmed?: boolean;
     included?: boolean;
     moneyFlew?: boolean;
+    fault?: EngineFaultInfo;
+    traceEntry?: DebugEntry;
+    failedCallees?: DebugEntry[];
+    output?: unknown;
 };
 
 interface SubmitOptions {
@@ -86,18 +100,53 @@ interface SubmitOptions {
 type TransactionBuilder = (tick: number) => Promise<SignedTx>;
 
 const MAX_TX_RESENDS = 3;
+const TRACE_KIND_PROCEDURE = 1;
+const TRACE_KIND_SYSTEM_PROCEDURE = 2;
+
+// the frames a dispatch called directly. a node too old to record `children` leaves only the completion window,
+// which can still catch an unrelated same-tick frame; sysprocs are the one kind a user dispatch never calls.
+export function traceChildren(parent: DebugEntry, entries: readonly DebugEntry[], sinceSeq: number): DebugEntry[] {
+    if (parent.children) {
+        return entries.filter((entry) => parent.children!.includes(entry.seq));
+    }
+    return entries.filter(
+        (entry) => entry.seq > sinceSeq && entry.seq < parent.seq && entry.tick === parent.tick && entry.kind !== TRACE_KIND_SYSTEM_PROCEDURE,
+    );
+}
+
+// every frame under a dispatch with its depth, callees before their own callees' siblings: the order they completed in.
+export function traceDescendants(parent: DebugEntry, entries: readonly DebugEntry[], sinceSeq: number, depth = 0): { entry: DebugEntry; depth: number }[] {
+    return traceChildren(parent, entries, sinceSeq).flatMap((entry) => [{ entry, depth }, ...traceDescendants(entry, entries, sinceSeq, depth + 1)]);
+}
+const TRACE_POLL_ATTEMPTS = 10;
+const POLL_INTERVAL_MS = 300;
+
+type ProcessedVerdict = { found: boolean; moneyFlew: boolean } | { fault: EngineFaultInfo };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Poll until the node has processed the tx's target tick. Undefined means the node cannot say, so the tx's fate is unknown and must not be assumed.
-async function awaitProcessed(rpc: LiteRpc, txId: string, tick: number, opts: SubmitOptions): Promise<{ found: boolean; moneyFlew: boolean } | undefined> {
+async function awaitProcessed(rpc: LiteRpc, txId: string, tick: number, opts: SubmitOptions): Promise<ProcessedVerdict | undefined> {
     const deadline = Date.now() + (opts.confirmTimeoutMs ?? 30000);
+    let faultRouteServed = true;
     for (;;) {
         try {
             const status = await rpc.txStatus(tick, txId);
             opts.onProgress?.({ tick: status.currentTick ?? 0, target: tick });
             if (status.processed) {
                 return { found: status.found, moneyFlew: status.moneyFlew };
+            }
+
+            // a halted node never passes the target tick, so ask why instead of waiting out the deadline.
+            if (faultRouteServed) {
+                try {
+                    const fault = await rpc.faultInfo();
+                    if (fault) {
+                        return { fault };
+                    }
+                } catch {
+                    faultRouteServed = false;
+                }
             }
         } catch {
             // addon missing — degrade to a tick-margin wait (node passed the target tick)
@@ -113,7 +162,7 @@ async function awaitProcessed(rpc: LiteRpc, txId: string, tick: number, opts: Su
         if (Date.now() > deadline) {
             return undefined;
         }
-        await sleep(300);
+        await sleep(POLL_INTERVAL_MS);
     }
 }
 
@@ -129,14 +178,20 @@ async function broadcastAndConfirm(buildTx: TransactionBuilder, opts: SubmitOpti
         const result = { ...broadcast, txId: tx.id, tick };
 
         // The tx is in the mempool now, so a dev node can be pulled straight past the tick that executes it.
-        await rpc.hurryToTick(tick + 1);
+        const hurried = rpc.hurryToTick(tick + 1);
         if (!opts.confirm) {
+            await hurried;
             return result;
         }
 
+        // not awaited: an older node that halts on this tx holds the advance open for its whole time budget.
         const processed = await awaitProcessed(rpc, tx.id, tick, opts);
         if (!processed) {
             return { ...result, confirmed: false };
+        }
+
+        if ("fault" in processed) {
+            return { ...result, confirmed: false, fault: processed.fault };
         }
 
         if (processed.found || attempt >= resends) {
@@ -173,6 +228,59 @@ export async function sendTransfer(
     return broadcastAndConfirm(buildTx, opts);
 }
 
+// The newest trace seq before dispatch, or undefined when the node serves no trace.
+async function armTrace(rpc: LiteRpc): Promise<number | undefined> {
+    try {
+        await rpc.setDebug(true);
+        const newest = (await rpc.debugTrace(0, 1)).entries ?? [];
+
+        return newest.length ? newest[newest.length - 1].seq : 0;
+    } catch {
+        return undefined;
+    }
+}
+
+interface TraceMatch {
+    sinceSeq: number;
+    tick: number;
+    contractIndex: number;
+    procedureId: number;
+    invocatorHex: string;
+}
+
+// Find the dispatch a confirmed tx caused. Tick plus signer identifies it, so parallel calls to one procedure do not cross.
+async function collectTrace(rpc: LiteRpc, match: TraceMatch): Promise<{ traceEntry: DebugEntry; failedCallees: DebugEntry[] } | undefined> {
+    for (let attempt = 0; attempt < TRACE_POLL_ATTEMPTS; attempt++) {
+        let entries: DebugEntry[];
+        try {
+            entries = (await rpc.debugTrace(match.sinceSeq, 200)).entries ?? [];
+        } catch {
+            return undefined;
+        }
+
+        const traceEntry = entries.find(
+            (entry) =>
+                entry.seq > match.sinceSeq &&
+                entry.tick === match.tick &&
+                entry.index === match.contractIndex &&
+                entry.kind === TRACE_KIND_PROCEDURE &&
+                entry.entry === match.procedureId &&
+                entry.invocator.toLowerCase() === match.invocatorHex,
+        );
+        if (traceEntry) {
+            const failedCallees = traceDescendants(traceEntry, entries, match.sinceSeq)
+                .map((descendant) => descendant.entry)
+                .filter((entry) => !entry.ok);
+
+            return { traceEntry, failedCallees };
+        }
+
+        await sleep(POLL_INTERVAL_MS);
+    }
+
+    return undefined;
+}
+
 // Invoke a contract procedure (signed tx); tick must be a near-future accepted tick. With confirmation, poll tx status or fall back to tick advancement.
 export async function invokeProcedure(
     opts: SubmitOptions & {
@@ -182,6 +290,8 @@ export async function invokeProcedure(
         amount: number | bigint;
         inputFormat?: string;
         input?: Uint8Array | TypedContractInput;
+        trace?: boolean; // read the dispatch back from the node's debug trace (dev nodes only)
+        outputType?: string | AbiType;
     },
 ): Promise<SubmittedTx> {
     if (opts.input && opts.inputFormat !== undefined) {
@@ -202,5 +312,26 @@ export async function invokeProcedure(
             payload,
         });
 
-    return broadcastAndConfirm(buildTx, opts);
+    const rpc = opts.rpc ?? new LiteRpc(opts.rpcBaseUrl);
+    const sinceSeq = opts.trace ? await armTrace(rpc) : undefined;
+    const submitted = await broadcastAndConfirm(buildTx, { ...opts, rpc });
+    if (sinceSeq === undefined || !submitted.included || submitted.tick === undefined) {
+        return submitted;
+    }
+
+    const traced = await collectTrace(rpc, {
+        sinceSeq,
+        tick: submitted.tick,
+        contractIndex: opts.contractIndex,
+        procedureId: opts.procedureId,
+        invocatorHex: (await deriveIdentity(opts.seed)).publicKeyHex.toLowerCase(),
+    });
+    if (!traced) {
+        return submitted;
+    }
+
+    const decodable = traced.traceEntry.ok && opts.outputType !== undefined;
+    const output = decodable ? await decodeAbi(hexToBytes(traced.traceEntry.outHex), opts.outputType!) : undefined;
+
+    return { ...submitted, ...traced, output };
 }

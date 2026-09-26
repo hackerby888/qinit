@@ -181,12 +181,23 @@ test("fetchWasiSdk survives a dropped connection by resuming the .part", async (
     expect(readdirSync(join(cache, "downloads"))).toEqual([]);
 });
 
-test("fetchWasiSdk keeps the archive when activation fails so the next run does not download again", async () => {
+// upstream publishes no checksum, so a kept archive that cannot be installed would be reused and fail on every rerun.
+test("fetchWasiSdk drops an archive that does not install so the next run downloads afresh", async () => {
     const cache = isolateCache();
     const expectedRoot = managedWasiSdkStatus().expectedRoot;
     serveArchive(makeArchive(expectedRoot, false));
 
     await expect(fetchWasiSdk()).rejects.toThrow("downloaded wasi-sdk is missing clang++ or wasi-sysroot");
+    expect(readdirSync(join(cache, "downloads"))).toEqual([]);
 
-    expect(readdirSync(join(cache, "downloads"))).toEqual([`${basename(expectedRoot)}.tar.gz`]);
+    serveArchive(new TextEncoder().encode("not a tarball"));
+    await expect(fetchWasiSdk()).rejects.toThrow("tar extract failed");
+    expect(readdirSync(join(cache, "downloads"))).toEqual([]);
+    expect(readdirSync(cache).filter((name) => name.includes("wasi-sdk.tmp"))).toEqual([]);
+
+    const requests: string[] = [];
+    serveArchive(makeArchive(expectedRoot), requests);
+    expect(await fetchWasiSdk()).toEqual({ dir: wasiSdkDir(), cached: false });
+    expect(requests.filter((url) => url.endsWith(".tar.gz"))).toHaveLength(1);
+    expect(wasiSdkPaths()?.root).toBe(expectedRoot);
 });

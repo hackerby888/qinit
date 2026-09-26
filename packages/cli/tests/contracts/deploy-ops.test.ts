@@ -43,6 +43,21 @@ test("classifyConfirm: registry-unreadable vs slot-empty vs wrong-code", () => {
     expect(wc.note).toContain("cafebabe");
     // the key fix: a registry that never read back is NOT reported as "slot empty"
     expect(classifyConfirm({ present: false, regOk: false, onNode: "", want: "x" }).detail).not.toContain("slot empty");
+
+    // the node's own account wins over what the slot looks like, and an upload short of chunks is named as that.
+    const refused = classifyConfirm({
+        present: false,
+        regOk: true,
+        onNode: "",
+        want: "ab",
+        refusal: { code: "abi-mismatch", message: "unsupported Wasm ABI version 6; expected 7" },
+    });
+    expect(refused.reason).toBe("deploy-refused");
+    expect(refused.detail).toBe("node refused deploy: unsupported Wasm ABI version 6; expected 7");
+    expect(
+        classifyConfirm({ present: false, regOk: true, onNode: "", want: "ab", refusal: { code: "incomplete", message: "upload incomplete (3/4 chunks)" } })
+            .note,
+    ).toContain("every chunk");
 });
 
 const envPrev = process.env.QINIT_NO_UPDATE;
@@ -199,6 +214,12 @@ test("deployContract rejects an invalid slot before node work", async () => {
     expect(nodeCalls).toBe(0);
 });
 
+// a node ticks between a client's reads; a slot armed by a DEPLOY is constructed at the head of the node's next tick.
+function tickingNode(node: VirtualNode, tick: number): { tick: number; epoch: number } {
+    node.sim.advance();
+    return { tick, epoch: 1 };
+}
+
 test("deployContract: racing deployments preserve the winner's occupied slot", async () => {
     process.env.QINIT_NO_UPDATE = "1";
     const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
@@ -231,7 +252,7 @@ test("deployContract: racing deployments preserve the winner's occupied slot", a
                 if (state.active && stats.sessionId !== null && state.sessionId !== String(stats.sessionId)) releaseWinner();
                 return state;
             },
-            tickInfo: async () => ({ tick: (tick += 10), epoch: 1 }),
+            tickInfo: async () => tickingNode(node, (tick += 10)),
             hurryToTick: async () => 0, // no dev route: deploy waits the chain out, as it does on mainnet
             fundedSeed: async () => undefined,
             dynRegistry: () => node.dynRegistry(),
@@ -300,7 +321,7 @@ test("deployContract: a DEPLOY dropped for a missed tick is resent", async () =>
     let deployBroadcasts = 0;
     const rpc: any = {
         dynUpload: () => node.dynUpload(),
-        tickInfo: async () => ({ tick: (tick += 10), epoch: 1 }),
+        tickInfo: async () => tickingNode(node, (tick += 10)),
         hurryToTick: async () => 0,
         fundedSeed: async () => undefined,
         dynRegistry: () => node.dynRegistry(),
@@ -341,4 +362,156 @@ test("deployContract: a DEPLOY dropped for a missed tick is resent", async () =>
     expect(result.reason).toBeUndefined();
     expect(result.armed).toBe(true);
     expect(result.ok).toBe(true);
+}, 20000);
+
+// a core node accepts a DEPLOY on the wire and refuses it inside the tick, so the broadcast result says nothing; the recorded outcome does.
+test("deployContract: a DEPLOY the node refused fails at once with the node's reason, and is not resent", async () => {
+    process.env.QINIT_NO_UPDATE = "1";
+    const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
+    dirs.push(core);
+    const contractPath = join(core, "Refused.h");
+    await Bun.write(contractPath, "struct Refused {};");
+    const node = await VirtualNode.create({
+        mempool: false,
+        fees: "off",
+        slotBase: wasmFixtureManifest.Counter.slot,
+    });
+
+    let tick = 0;
+    let deployBroadcasts = 0;
+    const rpc: any = {
+        dynUpload: () => node.dynUpload(),
+        tickInfo: async () => tickingNode(node, (tick += 10)),
+        hurryToTick: async () => 0,
+        fundedSeed: async () => undefined,
+        dynRegistry: () => node.dynRegistry(),
+        directDeploy: async () => null,
+        putContractSource: (slot: number, source: string) => node.putContractSource(slot, source),
+        broadcastTx: async (bytes: Uint8Array) => {
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            if (view.getUint16(76, true) !== LITE_TX.DEPLOY) {
+                return node.broadcastTx(bytes);
+            }
+
+            deployBroadcasts++;
+            await node.broadcastTx(bytes);
+            return { ok: true, transactionId: "accepted-on-the-wire" };
+        },
+    };
+
+    // built for the first slot and sent to the second: every wire check passes and the loader refuses it.
+    const result = await deployContract(
+        {
+            contractPath,
+            name: "Refused",
+            core,
+            rpcBaseUrl: "http://unused",
+            seed: "a".repeat(55),
+            slotOverride: wasmFixtureManifest.Counter.slot + 1,
+            artifact: { wasm: await wasm("Counter") },
+            backend: "core" as const,
+            rpc,
+        },
+        () => {},
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("deploy-refused");
+    expect(result.detail).toContain("artifact slot mismatch");
+    expect(deployBroadcasts).toBe(1);
+}, 20000);
+
+// The protocol path has no request to carry a state, so it is staged first and the node's DEPLOY handler takes it; a failed deploy must not leave it behind.
+function protocolRpc(node: VirtualNode, stageCalls: { offset: number; total: number }[]): any {
+    let tick = 0;
+    return {
+        dynUpload: () => node.dynUpload(),
+        tickInfo: async () => tickingNode(node, (tick += 10)),
+        hurryToTick: async () => 0,
+        fundedSeed: async () => undefined,
+        dynRegistry: () => node.dynRegistry(),
+        directDeploy: async () => null,
+        putContractSource: (slot: number, source: string) => node.putContractSource(slot, source),
+        broadcastTx: (bytes: Uint8Array) => node.broadcastTx(bytes),
+        stageState: async (slot: number, offset: number, total: number, chunk: Uint8Array) => {
+            stageCalls.push({ offset, total });
+            return node.stageState(slot, offset, total, chunk);
+        },
+    };
+}
+
+test("deployContract: a state file seeds a protocol deploy", async () => {
+    process.env.QINIT_NO_UPDATE = "1";
+    const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
+    dirs.push(core);
+    const contractPath = join(core, "Seeded.h");
+    const initialStatePath = join(core, "seed.bin");
+    await Bun.write(contractPath, "struct Seeded {};");
+    await Bun.write(initialStatePath, new Uint8Array([41, 0, 0, 0, 0, 0, 0, 0]));
+    const slot = wasmFixtureManifest.Counter.slot;
+    const node = await VirtualNode.create({ mempool: false, fees: "off", slotBase: slot });
+    const stageCalls: { offset: number; total: number }[] = [];
+
+    const result = await deployContract(
+        {
+            contractPath,
+            name: "Seeded",
+            core,
+            rpcBaseUrl: "http://unused",
+            seed: "a".repeat(55),
+            slotOverride: slot,
+            artifact: { wasm: await wasm("Counter") },
+            backend: "core" as const,
+            initialStatePath,
+            rpc: protocolRpc(node, stageCalls),
+        },
+        () => {},
+    );
+
+    expect(result.ok).toBe(true);
+    expect(stageCalls).toEqual([{ offset: 0, total: 8 }]);
+    expect([...node.sim.contracts.get(slot)!.state()]).toEqual([41, 0, 0, 0, 0, 0, 0, 0]);
+}, 20000);
+
+test("deployContract: a state file the node cannot take fails loudly and is not left staged", async () => {
+    process.env.QINIT_NO_UPDATE = "1";
+    const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
+    dirs.push(core);
+    const contractPath = join(core, "Unseeded.h");
+    const initialStatePath = join(core, "seed.bin");
+    await Bun.write(contractPath, "struct Unseeded {};");
+    await Bun.write(initialStatePath, new Uint8Array(8));
+    const slot = wasmFixtureManifest.Counter.slot;
+    const node = await VirtualNode.create({ mempool: false, fees: "off", slotBase: slot });
+    const options = {
+        contractPath,
+        name: "Unseeded",
+        core,
+        rpcBaseUrl: "http://unused",
+        seed: "a".repeat(55),
+        slotOverride: slot,
+        artifact: { wasm: await wasm("Counter") },
+        backend: "core" as const,
+        initialStatePath,
+    };
+
+    // an older node: no staging route
+    const oldNode = { ...protocolRpc(node, []), stageState: async () => null };
+    await expect(deployContract({ ...options, rpc: oldNode }, () => {})).rejects.toThrow("node does not support --state");
+    expect(node.sim.contracts.has(slot)).toBe(false);
+
+    // the state is staged, then the deploy dies: the entry is cleared with a zero total
+    const stageCalls: { offset: number; total: number }[] = [];
+    const dyingNode = {
+        ...protocolRpc(node, stageCalls),
+        broadcastTx: async () => {
+            throw new Error("node went away");
+        },
+    };
+    const died = await deployContract({ ...options, rpc: dyingNode }, () => {}).catch((error: Error) => ({ ok: false, error: error.message }));
+    expect(died.ok).toBe(false);
+    expect(stageCalls).toEqual([
+        { offset: 0, total: 8 },
+        { offset: 0, total: 0 },
+    ]);
 }, 20000);

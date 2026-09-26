@@ -1,6 +1,7 @@
 // Run the persistent in-process engine behind the hidden `__serve` command.
 import { EngineServer } from "@qinit/engine/server";
 import { VirtualNode } from "@qinit/engine";
+import type { FeeMode } from "@qinit/engine";
 import { DEFAULT_PEER_PORT, DEFAULT_RPC_PORT, LOOPBACK_HOST, type WasmSlotLayout } from "@qinit/core";
 import { systemContractClosure } from "@qinit/build";
 import type { SystemContract, SystemContractCompiler } from "@qinit/build";
@@ -42,9 +43,10 @@ export async function serveEngine(
     compiler: SystemContractCompiler = "clang",
     historyTicks?: number,
     liteTicking?: boolean,
+    fees?: FeeMode,
 ): Promise<never> {
     const ms = Number.isFinite(tickMs) ? Math.max(0, tickMs as number) : DEFAULT_TICK_MS;
-    const srv = new EngineServer(new VirtualNode({ ...slotLayout, historyTicks, liteTicking }));
+    const srv = new EngineServer(new VirtualNode({ ...slotLayout, historyTicks, liteTicking, fees }));
     await srv.start(portFromRpc(rpcBaseUrl), ms, peerPort);
     process.stdout.write(`qinit simulator: rpc ${rpcBaseUrl} · peer ${LOOPBACK_HOST}:${peerPort}\n`);
     await seedSystemContracts(srv, system, compiler);

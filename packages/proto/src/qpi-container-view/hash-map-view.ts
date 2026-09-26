@@ -2,14 +2,16 @@ import { decodeAbiValue } from "../abi/decode";
 import { AbiTypeKind, type AbiHashMap } from "../contract-idl";
 import { hashMapGeometry } from "../qpi-layout";
 import { QpiContainerConsistencyError, QpiIncompleteReadError } from "./errors";
-import { occupiedRanges, occupiedSlots, readQpiBytes, readUint64, type QpiByteSource } from "./source";
+import { occupiedRanges, occupiedSlotIndices, readQpiBytes, readUint64, type QpiByteSource } from "./source";
 
+// e.g. { elementIndex: 3, key: 5n, value: 9n }; elementIndex is the physical slot, not an insertion order
 export interface QpiHashMapEntry {
-    slot: number;
+    elementIndex: number;
     key: unknown;
     value: unknown;
 }
 
+// reads _population, then _occupationFlags, then only the occupied _elements
 export class QpiHashMapView {
     readonly kind = AbiTypeKind.HASH_MAP;
     readonly capacity: number;
@@ -29,30 +31,31 @@ export class QpiHashMapView {
         assertSource(source, type.size);
     }
 
+    // e.g. occupied slots [0, 3] of HashMap<uint64, uint64, 4> -> two 16-byte reads at 0 and 48 -> [{ elementIndex: 0, key: 5n, value: 9n }, { elementIndex: 3, ... }]
     async entries(): Promise<QpiHashMapEntry[]> {
         const population = populationOf(await readUint64(this.source, this.geometry.populationOffset), this.capacity);
         // Flags read before the empty shortcut: population 0 over occupied slots is an inconsistency, not empty.
         const flags = await readQpiBytes(this.source, this.geometry.flagsOffset, this.geometry.flagsBytes);
-        const slots = occupiedSlots(flags, this.capacity);
-        if (slots.length !== population) {
-            throw new QpiContainerConsistencyError(`HashMap has ${slots.length} occupied slots but population ${population}`);
+        const occupied = occupiedSlotIndices(flags, this.capacity);
+        if (occupied.length !== population) {
+            throw new QpiContainerConsistencyError(`HashMap has ${occupied.length} occupied slots but population ${population}`);
         }
         if (!population) {
             return [];
         }
 
         const entries: QpiHashMapEntry[] = [];
-        for (const range of occupiedRanges(slots)) {
+        for (const range of occupiedRanges(occupied)) {
             const count = range.end - range.start + 1;
-            const bytes = await readQpiBytes(this.source, range.start * this.geometry.recordStride, count * this.geometry.recordStride);
+            const bytes = await readQpiBytes(this.source, range.start * this.geometry.elementStride, count * this.geometry.elementStride);
             for (let index = 0; index < count; index++) {
-                const slot = range.start + index;
-                const offset = index * this.geometry.recordStride;
+                const elementIndex = range.start + index;
+                const offset = index * this.geometry.elementStride;
                 entries.push({
-                    slot,
+                    elementIndex,
                     key: await decodeAbiValue(bytes.slice(offset, offset + this.type.key.size), this.type.key),
                     value: await decodeAbiValue(
-                        bytes.slice(offset + this.geometry.valueOffset, offset + this.geometry.valueOffset + this.type.value.size),
+                        bytes.slice(offset + this.geometry.elementValueOffset, offset + this.geometry.elementValueOffset + this.type.value.size),
                         this.type.value,
                     ),
                 });

@@ -1,16 +1,16 @@
 import { CheatMode } from "@qinit/compiler";
 import { useEffect, useState } from "react";
-import { resolve, basename } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { contractAddress } from "@qinit/proto";
-import { DEFAULT_RPC_BASE, LiteRpc, bytesToIdentity } from "@qinit/core";
-import { loadConfig, resolveCoreDir, resolveCompilerBackend } from "../../config";
+import { LiteRpc, bytesToIdentity } from "@qinit/core";
+import { loadConfig, projectContractName, projectContractPath, resolveCoreDir, resolveCompilerBackend, resolveRpc } from "../../config";
 import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
+import { parseInitialStates } from "../../contracts/state-stage";
 
 export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
     const dynCallees = parseCallees(commandArgs.getAll("callee"));
@@ -26,13 +26,12 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
         (async () => {
             try {
                 const cfg = loadConfig();
-                const cpath = commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract;
-                if (!cpath) throw new Error("no contract: pass `qinit deploy <file.h>` (or --contract <file.h>, or set contract in qinit.json)");
-                const contractPath = resolve(cpath);
-                const nm = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
-                setName(nm);
+                const requested = commandArgs.get("contract") ?? commandArgs.positionals[0];
+                const contractPath = projectContractPath("deploy", requested, cfg);
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
                 const slotOverride = requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot);
+                const nm = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
+                setName(nm);
                 const emit = (e: DeploymentEvent) => {
                     if ("note" in e) {
                         setNotes((n) => [...n, e.note]);
@@ -46,13 +45,14 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         contractPath,
                         name: nm,
                         core: resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir),
-                        rpcBaseUrl: commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE,
+                        rpcBaseUrl: resolveRpc(commandArgs.get("rpc"), cfg),
                         seed: commandArgs.get("seed"),
                         explicitCallees: dynCallees,
                         slotOverride,
                         skipVerify: commandArgs.has("skip-verify"),
                         buildRules: !commandArgs.has("no-build-rules"),
                         allowStateCarryover: commandArgs.has("allow-state-carryover"),
+                        initialStates: parseInitialStates(commandArgs.getAll("state"), nm),
                         compiler: resolveCompilerBackend(commandArgs.get("compiler")),
                         cheats: commandArgs.has("production") ? CheatMode.OFF : CheatMode.ON,
                     },
@@ -64,7 +64,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         setAddr(id);
                         // F72: the deployed contract's qu balance, so money it holds is visible without a second command.
                         try {
-                            setBal((await new LiteRpc(commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE).balance(id)).balance);
+                            setBal((await new LiteRpc(resolveRpc(commandArgs.get("rpc"), cfg)).balance(id)).balance);
                         } catch {}
                     } catch {}
                 }

@@ -61,7 +61,15 @@ export function identityToBytes(identity: string): Uint8Array {
         return new Uint8Array(32);
     }
 
-    return identityToPublicKey(identity as never);
+    try {
+        return identityToPublicKey(identity as never);
+    } catch (error) {
+        // sixty letters that the library still refuses can only fail their checksum; its own message blames the length.
+        if (/^[A-Z]{60}$/.test(identity) && (error as { code?: string })?.code === "INVALID_IDENTITY") {
+            throw new Error(`identity checksum mismatch: the last 4 letters of ${identity} do not match its key`);
+        }
+        throw error;
+    }
 }
 
 // Identity packs the public key as four 14-char chunks plus a 4-char checksum. A contract key is m256i(index, 0, 0, 0), so only chunk 0 decodes to the index.

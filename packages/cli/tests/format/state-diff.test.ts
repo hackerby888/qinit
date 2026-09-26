@@ -95,7 +95,7 @@ test("a HashMap insert reads as one entry named by its key", async () => {
     expect(lines).toEqual([
         {
             label: "map.slot[4].key",
-            detail: "map.slot[4].key",
+            detail: "map._elements[4].key",
             text: "0 → 11",
             filled: true,
             internal: true,
@@ -104,7 +104,7 @@ test("a HashMap insert reads as one entry named by its key", async () => {
         },
         {
             label: "map[11]",
-            detail: "map.slot[4].value",
+            detail: "map._elements[4].value",
             text: "= 101 (new)",
             filled: true,
             internal: false,
@@ -171,7 +171,7 @@ test("a HashSet insert reads as one entry named by its key", async () => {
     );
 
     expect(lines.map((line) => [line.label, line.detail, line.text, line.internal])).toEqual([
-        ["set[11]", "set.slot[4]", "(new)", false],
+        ["set[11]", "set._keys[4]", "(new)", false],
         ["set._occupationFlags[4]", "set._occupationFlags[4]", "0 → 1", true],
         ["set", "set._population", "0 → 1 entries", false],
     ]);
@@ -503,8 +503,8 @@ test("a struct value reported in parts keeps its member on the entry line", asyn
     const lines = await stateDiffLines(KEYED_FIELDS, [region(before, after, ab + 96, 16), region(before, after, ab + 192, 16)]);
 
     expect(lines.map((line) => [line.label, line.detail, line.text])).toEqual([
-        ["ab.slot[4].key", "ab.slot[4].key", "0 → 11"],
-        ["ab[11].a", "ab.slot[4].value.a", "= 5 (new)"],
+        ["ab.slot[4].key", "ab._elements[4].key", "0 → 11"],
+        ["ab[11].a", "ab._elements[4].value.a", "= 5 (new)"],
         ["ab._occupationFlags[4]", "ab._occupationFlags[4]", "0 → 1"],
         ["ab", "ab._population", "0 → 1 entries"],
     ]);
@@ -557,9 +557,9 @@ const nestedRowsFor = async (write: (after: Uint8Array) => void, span: { off: nu
 };
 
 test("an element of a nested array inside a map value is named through both levels", async () => {
-    const rows = await nestedRowsFor((after) => writeLe(after, NESTED.off + NESTED_GEOMETRY.valueOffset + 8, 7, 8), {
+    const rows = await nestedRowsFor((after) => writeLe(after, NESTED.off + NESTED_GEOMETRY.elementValueOffset + 8, 7, 8), {
         off: NESTED.off,
-        length: NESTED_GEOMETRY.recordStride,
+        length: NESTED_GEOMETRY.elementStride,
     });
 
     expect(rows).toEqual(["nested[0][1] 0 → 7"]); // slot 0, second element of the value array
@@ -569,8 +569,8 @@ test("a nested-map insert names the key, every element it wrote, and the flag", 
     const rows = await nestedRowsFor(
         (after) => {
             writeLe(after, NESTED.off, 5, 8);
-            writeLe(after, NESTED.off + NESTED_GEOMETRY.valueOffset, 1, 8);
-            writeLe(after, NESTED.off + NESTED_GEOMETRY.valueOffset + 8, 2, 8);
+            writeLe(after, NESTED.off + NESTED_GEOMETRY.elementValueOffset, 1, 8);
+            writeLe(after, NESTED.off + NESTED_GEOMETRY.elementValueOffset + 8, 2, 8);
             writeLe(after, NESTED.off + NESTED_GEOMETRY.flagsOffset, 1, 8);
             writeLe(after, NESTED.off + NESTED_GEOMETRY.populationOffset, 1, 8);
         },

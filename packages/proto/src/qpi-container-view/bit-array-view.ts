@@ -8,6 +8,7 @@ export interface QpiBitArrayEntry {
     value: 0 | 1;
 }
 
+// BitArray<N> over ceil(N/64) uint64 words, bits lsb-first, e.g. byte 0 = 0b0000_0101 -> bits 0 and 2 set
 export class QpiBitArrayView {
     readonly kind = AbiTypeKind.BIT_ARRAY;
     readonly capacity: number;
@@ -122,6 +123,7 @@ function assertSource(source: QpiByteSource, size: number): void {
     }
 }
 
+// e.g. bitAt([0x04], 2) -> 1, bitAt([0x00, 0x01], 8) -> 1
 function bitAt(bytes: Uint8Array, index: number): 0 | 1 {
     return ((bytes[index >> 3] >> (index & 7)) & 1) as 0 | 1;
 }

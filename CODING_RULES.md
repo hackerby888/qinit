@@ -1,7 +1,7 @@
 # Coding Rules for Qinit
 
 - Keep behavior unchanged unless explicitly requested.
-- Keep comments short and useful (1–2 lines, no noise).
+- Keep comments short and useful (1–2 lines, no noise, straight into the problem, dont need correct english).
 - Prefer readable multiline code over dense one-line expressions (sometimes one-line is better if the code is still readable and simple, split it to multi-lines may even make it worse)
 - Use clear variable and function names where readability improves clarity.
 - Include the role, path kind, or unit when a shorter name would be ambiguous.
@@ -15,6 +15,6 @@
 
 - Follow this conceptually this clang format (apply for ts,js,cpp,... too):
   IndentWidth: 4
-  ColumnLimit: 160 # effectively unlimited for ordinary code; still wraps long lists/arguments (But be smart about it, don't make it unreadable)
+  ColumnLimit: 0 # no limit, keep the author's breaks: wrap only a list too long to read on one line (imports, parameters, arguments, elements, one per line); never split a message or a single call to fit a width
   BinPackArguments: true
   BinPackParameters: true

@@ -1,6 +1,14 @@
 // resolveContract is the single target-resolution path for call / ls / state: a name or index maps to the same contract, user entries shadowing system ones.
 import { test, expect } from "bun:test";
-import { missingContractMessage, parseContractSlot, resolveContract, systemAsDyn, type ContractSets } from "../../src/contracts/registry";
+import {
+    missingContractMessage,
+    notLoadedMessage,
+    parseContractSlot,
+    resolveContract,
+    systemAsDyn,
+    systemLoaded,
+    type ContractSets,
+} from "../../src/contracts/registry";
 
 const user = (over: any = {}) => ({
     index: 100,
@@ -15,6 +23,7 @@ const user = (over: any = {}) => ({
 const sys = (over: any = {}) => ({
     index: 1,
     name: "QX",
+    stateType: "QX",
     file: "QX.h",
     source: "SYS_SRC",
     idl: { name: "QX", functions: [], procedures: [] } as any,
@@ -118,7 +127,30 @@ test("a registry the node never answered is reported as unknown, not as empty", 
     expect(missingContractMessage(silent, "Probe")).toContain("request timed out");
     expect(missingContractMessage(silent, "Probe")).not.toContain("no contract");
 
-    // An answered, empty registry keeps the old wording in both forms.
-    expect(missingContractMessage(sets(), "Probe")).toBe("no contract 'Probe' (deployed or system — run `qinit node run` to load system contracts)");
-    expect(missingContractMessage(sets())).toBe("no contracts — deploy one, or run `qinit node run` to load system contracts");
+    // An answered, empty registry names the fix in both forms.
+    expect(missingContractMessage(sets(), "Probe")).toBe(
+        "no contract 'Probe' (deployed or system — `qinit system add <name>` loads a system contract on the simulator)",
+    );
+    expect(missingContractMessage(sets())).toBe("no contracts — deploy one, or `qinit system add <name>` to load a system contract on the simulator");
+});
+
+// the catalog lists every system contract; only the simulator can be missing one, and only it says so.
+test("a system contract is loaded unless a simulator never added it", () => {
+    const qx = sys();
+
+    expect(resolveContract("QX", sets({ system: [qx], backend: "simulator" }))?.loaded).toBe(false);
+    expect(resolveContract("QX", sets({ system: [qx], backend: "core" }))?.loaded).toBe(true);
+    expect(resolveContract("QX", sets({ system: [qx] }))?.loaded).toBe(true);
+    // one the simulator runs sits in its registry too, and resolves as that entry.
+    expect(resolveContract("QX", sets({ user: [user({ index: 1, name: "QX", source: "" })], system: [qx], backend: "simulator" }))?.kind).toBe("user");
+    expect(systemLoaded(sets({ backend: "simulator" }))).toBe(false);
+    expect(notLoadedMessage("QX")).toBe("QX is not running on this simulator — qinit system add QX");
+});
+
+test("a state struct named as the contract points at the contract", () => {
+    const qtry = sys({ index: 2, name: "QTRY", stateType: "QUOTTERY" });
+
+    expect(missingContractMessage(sets({ system: [qtry] }), "QUOTTERY")).toBe("QUOTTERY is QTRY's state struct — use QTRY");
+    expect(missingContractMessage(sets({ system: [qtry] }), "quottery")).toBe("QUOTTERY is QTRY's state struct — use QTRY");
+    expect(missingContractMessage(sets({ system: [qtry] }), "Lottery")).toContain("no contract 'Lottery'");
 });

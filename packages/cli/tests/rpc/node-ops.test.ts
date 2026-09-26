@@ -6,7 +6,19 @@ import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { releasePlatformKey } from "@qinit/core";
-import { activeNodeScratchDir, ensureNodeBinary, fetchNodeBinary, killNode, launchNode, nodeAlive, nodeAssetForPlatform, versionDrift } from "../../src/ops/node";
+import {
+    activeNodeScratchDir,
+    busyPorts,
+    ensureNodeBinary,
+    fetchNodeBinary,
+    identifiedPidCount,
+    isNodeCommand,
+    killNode,
+    launchNode,
+    nodeAlive,
+    nodeAssetForPlatform,
+    versionDrift,
+} from "../../src/ops/node";
 
 test("versionDrift only compares two managed release refs", () => {
     // The pointer a --core-dir/--node-bin session leaves behind: local headers, last downloaded node.
@@ -23,8 +35,9 @@ test("versionDrift only compares two managed release refs", () => {
 const scratch = () => mkdtempSync(join(tmpdir(), "qinit-nodeops-"));
 const pidFile = (s: string) => join(s, "node.pid");
 // A detached, long-lived process (own group -> not a child of the test runner, so no zombie on death).
-const sleeper = (): number => {
-    const c = spawn("bun", ["-e", "setTimeout(() => {}, 30000)"], {
+// `__serve` is the simulator node's own argv marker, so the tracked pid passes the identity check like a real node.
+const sleeper = (argv: string[] = ["__serve"]): number => {
+    const c = spawn("bun", ["-e", "setTimeout(() => {}, 30000)", ...argv], {
         detached: true,
         stdio: "ignore",
     });
@@ -41,6 +54,7 @@ const alive = (pid: number): boolean => {
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// on windows killNode identifies the pid through a powershell start (seconds when cold) and then polls up to 5 s for the exit.
 test("killNode stops ONLY the tracked PID, not an unrelated process", async () => {
     const dir = scratch();
     const mine = sleeper(); // the node qinit manages
@@ -59,6 +73,82 @@ test("killNode stops ONLY the tracked PID, not an unrelated process", async () =
             process.kill(mine, "SIGKILL");
         } catch {}
         rmSync(dir, { recursive: true, force: true });
+    }
+}, 30_000);
+
+// a pidfile outliving its node names whatever process got the number next; that process is nobody's node.
+test("a tracked pid running something else is forgotten, not killed", async () => {
+    const dir = scratch();
+    const stranger = sleeper([]);
+    try {
+        writeFileSync(pidFile(dir), String(stranger));
+        expect(nodeAlive(dir)).toBe(false);
+        expect(alive(stranger)).toBe(true);
+        expect(existsSync(pidFile(dir))).toBe(false);
+
+        writeFileSync(pidFile(dir), String(stranger));
+        expect(await killNode(dir)).toBe(false);
+        expect(alive(stranger)).toBe(true);
+        expect(existsSync(pidFile(dir))).toBe(false);
+    } finally {
+        try {
+            process.kill(stranger, "SIGKILL");
+        } catch {}
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("a node is core's Qubic binary by exact name, or this CLI serving the simulator", () => {
+    for (const argv of [
+        ["Qubic"],
+        ["/c/qinit-v1/node/Qubic", "--peers", "127.0.0.1"],
+        ["C:\\q\\node\\Qubic.exe"],
+        ["qubic"],
+        ["bun", "index.tsx", "__serve", "--rpc", "http://x"],
+        ["/usr/local/bin/qinit", "__serve"],
+    ]) {
+        expect(isNodeCommand(argv), argv.join(" ")).toBe(true);
+    }
+    for (const argv of [["QubicBackendServer"], ["/opt/Qubic.exe.bak"], ["qubic-cli"], ["bun", "-e", "x"], []]) {
+        expect(isNodeCommand(argv), argv.join(" ")).toBe(false);
+    }
+});
+
+// waitTicking polls nodeAlive every second, and on Windows each identity probe is a PowerShell start.
+test("polling a tracked node identifies its pid once", async () => {
+    const dir = scratch();
+    const mine = sleeper();
+    try {
+        writeFileSync(pidFile(dir), String(mine));
+        // let the child finish exec, since an unreadable command line is deliberately not cached
+        await sleep(300);
+        const before = identifiedPidCount();
+        for (let poll = 0; poll < 5; poll++) {
+            expect(nodeAlive(dir)).toBe(true);
+        }
+        expect(identifiedPidCount()).toBe(before + 1);
+    } finally {
+        try {
+            process.kill(mine, "SIGKILL");
+        } catch {}
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+// node run probes the ports a node will bind, so a taken port is named before launch instead of in node.log after.
+test("busyPorts reports a port held on either host and forgets it once released", () => {
+    for (const hostname of ["127.0.0.1", "0.0.0.0"]) {
+        const held = Bun.listen({ hostname, port: 0, socket: { data() {} } });
+        const port = held.port;
+        const free = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+        const freePort = free.port;
+        free.stop(true);
+        try {
+            expect(busyPorts([port, freePort]), hostname).toEqual([port]);
+        } finally {
+            held.stop(true);
+        }
+        expect(busyPorts([port]), hostname).toEqual([]);
     }
 });
 

@@ -12,7 +12,15 @@ const TRACE = {
         outDecoded: "{}",
         stateDiff: [
             { label: "counter", detail: "counter", text: "15 → 16", filled: true, internal: false, before: 15n, after: 16n },
-            { label: "abc_map._occupationFlags[167]", detail: "abc_map._occupationFlags[167]", text: "0 → 1", filled: true, internal: true, before: 0, after: 1 },
+            {
+                label: "abc_map._occupationFlags[167]",
+                detail: "abc_map._occupationFlags[167]",
+                text: "0 → 1",
+                filled: true,
+                internal: true,
+                before: 0,
+                after: 1,
+            },
         ],
         logs: [{ severity: "INFO", type: 6, name: "Log1", fields: { _scindex: 29, counter: 16n }, hex: "0x1d" }],
     },
@@ -98,13 +106,96 @@ test("call JSON fails a call whose traced frame trapped and names the trap", () 
 
 test("call JSON marks a state row written past a BitArray's capacity", () => {
     const facts = { contract: "Counter", slot: 29, entry: "Inc", tick: 1, tx: "abc" };
-    const past = { label: "flags[20]", detail: "flags[20]", text: "0 → 1 (past capacity 16)", filled: true, internal: false, before: 0, after: 1, pastCapacity: 16 };
+    const past = {
+        label: "flags[20]",
+        detail: "flags[20]",
+        text: "0 → 1 (past capacity 16)",
+        filled: true,
+        internal: false,
+        before: 0,
+        after: 1,
+        pastCapacity: 16,
+    };
     const trace = { ...TRACE, view: { ...TRACE.view, stateDiff: [TRACE.view.stateDiff[0], past] } };
     const result = callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, facts, trace);
 
     expect(result.state).toEqual([
         { label: "counter", detail: "counter", text: "15 → 16", internal: false, before: 15n, after: 16n },
         { label: "flags[20]", detail: "flags[20]", text: "0 → 1 (past capacity 16)", internal: false, before: 0, after: 1, pastCapacity: 16 },
+    ]);
+});
+
+const CALLEE = {
+    e: { seq: 3, tick: 4738, index: 28, kind: 1, entry: 1, ok: true, execNs: 1200, hostCalls: [] },
+    name: "Counter",
+    entry: "proc#1 (Inc)",
+    depth: 0,
+    view: {
+        caller: "PROXYID",
+        inDecoded: "{}",
+        outDecoded: "{}",
+        stateDiff: [{ label: "counter", detail: "counter", text: "0 → 1", filled: true, internal: false, before: 0n, after: 1n }],
+        logs: [],
+    },
+} as any;
+
+test("call JSON lists each callee frame with the state rows of its own slot", () => {
+    const facts = { contract: "Proxy", slot: 29, entry: "BumpCounter", tick: 4738, tx: "abc" };
+    const trace = { ...TRACE, name: "Proxy", entry: "proc#1 (BumpCounter)", view: { ...TRACE.view, stateDiff: [], logs: [] }, callees: [CALLEE] };
+    const result = callJsonResult("proc", "Proxy", "BumpCounter", { ok: true, label: "Proxy.BumpCounter" }, facts, trace);
+
+    // the caller's own rows stay its own; the callee's write shows under the callee.
+    expect(result.state).toEqual([]);
+    expect(result.callees).toEqual([
+        {
+            contract: "Counter",
+            slot: 28,
+            entry: "proc#1 (Inc)",
+            kind: "procedure",
+            depth: 0,
+            ok: true,
+            execNs: 1200,
+            caller: "PROXYID",
+            in: "{}",
+            state: [{ label: "counter", detail: "counter", text: "0 → 1", internal: false, before: 0n, after: 1n }],
+            logs: [],
+        },
+    ]);
+    expect(Object.keys(callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, facts, TRACE))).not.toContain("callees");
+});
+
+test("call JSON names the trap of a callee that failed inside the call", () => {
+    const facts = { contract: "Proxy", slot: 29, entry: "BumpCounter", tick: 4738, tx: "abc" };
+    const trapped = { ...CALLEE, e: { ...CALLEE.e, ok: false, trap: "abort(3422552174)" } };
+    const result = callJsonResult("proc", "Proxy", "BumpCounter", { ok: true, label: "Proxy.BumpCounter" }, facts, { ...TRACE, callees: [trapped] });
+
+    expect(result.callees?.[0]).toMatchObject({ contract: "Counter", ok: false, trap: "abort(3422552174)" });
+    // a nested trap recovers in the caller, so the call itself still passes.
+    expect(result.ok).toBe(true);
+});
+
+// the host row is the only record of a nested call the runtime refused: the frame itself passed and the callee never ran.
+test("call JSON names the reason a nested call was refused", () => {
+    const facts = { contract: "Sysprobe", slot: 30, entry: "Burn", tick: 1, tx: "abc" };
+    const refused = {
+        ...TRACE,
+        e: {
+            ...TRACE.e,
+            hostCalls: [
+                { name: "invokeProcedure", detail: "→ @4 proc #2 reward=300 ✗ err 4" },
+                { name: "burn", detail: "300" },
+            ],
+        },
+    };
+    const result = callJsonResult("proc", "Sysprobe", "Burn", { ok: true, label: "Sysprobe.Burn" }, facts, refused);
+
+    expect(result.calls).toEqual([
+        {
+            name: "invokeProcedure",
+            detail: "→ @4 proc #2 reward=300 ✗ err 4",
+            error: "contract inactive — not deployed, or its slot is not below the caller's",
+        },
+        { name: "burn", detail: "300" },
     ]);
 });
 

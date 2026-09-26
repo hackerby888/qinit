@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <ctime>
 #include <map>
+#include <ostream>
 #include <set>
 #include <vector>
 #if __has_include("platform/common_types.h")
@@ -19,30 +21,32 @@ typedef wchar_t CHAR16;
 extern "C" {
 QBCT_IMPORT(q_reset)     void          bq_reset();
 QBCT_IMPORT(q_init)      void          bq_init(unsigned int idx);
+// the dispatches return the contract error code, 0 on success: an abort code, WASM_TRAP_ERROR_CODE, or ContractErrorFuncProcUnknown
 QBCT_IMPORT(q_invoke)    unsigned int  bq_invoke(unsigned int idx, unsigned int it, const void* in, unsigned int inLen, long long amount, const void* origin32, void* out, unsigned int outCap);
+// runs only the procedure: the reward is visible to it but not moved, as in core's QpiContextUserProcedureCall
+QBCT_IMPORT(q_call_procedure) unsigned int bq_call_procedure(unsigned int idx, unsigned int it, const void* in, unsigned int inLen, long long amount, const void* origin32, void* out, unsigned int outCap);
+QBCT_IMPORT(q_output_size) unsigned int bq_output_size(unsigned int idx, unsigned int isProcedure, unsigned int it);
 QBCT_IMPORT(q_query)     unsigned int  bq_query(unsigned int idx, unsigned int it, const void* in, unsigned int inLen, void* out, unsigned int outCap);
-QBCT_IMPORT(q_sysproc)   void          bq_sysproc(unsigned int idx, unsigned int sp);
+QBCT_IMPORT(q_sysproc)   unsigned int  bq_sysproc(unsigned int idx, unsigned int sp);
 QBCT_IMPORT(q_fund)      void          bq_fund(const void* id32, long long amount);
 QBCT_IMPORT(q_balance)   long long     bq_balance(const void* id32);
-QBCT_IMPORT(q_notify_pit) void         bq_notify_pit(const void* src32, const void* dst32, long long amount, unsigned int type);
+QBCT_IMPORT(q_fire_pit)  unsigned int  bq_fire_pit(const void* src32, const void* dst32, long long amount, unsigned int type);
 QBCT_IMPORT(q_issue_asset) long long   bq_issue_asset(const void* issuer32, unsigned long long name, int decimals, long long shares, unsigned long long unit, unsigned int slot);
 QBCT_IMPORT(q_shares)    long long     bq_shares(const void* issuer32, unsigned long long assetName);
 QBCT_IMPORT(q_possessed) long long     bq_possessed(unsigned long long name, const void* issuer32, const void* owner32, const void* possessor32, unsigned int om, unsigned int pm);
+QBCT_IMPORT(q_number_of_shares) long long bq_number_of_shares(const void* asset, const void* ownershipSelect, const void* possessionSelect);
 QBCT_IMPORT(q_mint_contract_shares) void bq_mint_contract_shares(unsigned long long name, long long shares, unsigned int qxSlot);
 QBCT_IMPORT(q_transfer_shares) long long bq_transfer_shares(unsigned long long name, const void* src32, const void* dst32, long long shares, unsigned int qxSlot);
 QBCT_IMPORT(q_transfer_holding) long long bq_transfer_holding(unsigned long long name, const void* issuer32, const void* owner32, const void* newOwner32, long long shares, unsigned int mgmt);
 QBCT_IMPORT(q_spectrum)  int           bq_spectrum(const void* id32);
-QBCT_IMPORT(q_decrease)  void          bq_decrease(int idx, long long amount);
+QBCT_IMPORT(q_decrease)  unsigned int  bq_decrease(int idx, long long amount);
+QBCT_IMPORT(q_energy)    long long     bq_energy(int idx);
 QBCT_IMPORT(q_state_size) unsigned int bq_state_size(unsigned int i);
 QBCT_IMPORT(q_state_in)   void         bq_state_in(unsigned int i, void* dst, unsigned int len);
 QBCT_IMPORT(q_state_addr) unsigned int bq_state_addr(unsigned int i);
-QBCT_IMPORT(q_set_epoch)  void         bq_set_epoch(unsigned int e);
-QBCT_IMPORT(q_get_epoch)  unsigned int bq_get_epoch();
-QBCT_IMPORT(q_set_tick)   void         bq_set_tick(unsigned int t);
-QBCT_IMPORT(q_get_tick)   unsigned int bq_get_tick();
-QBCT_IMPORT(q_set_datetime) void       bq_set_datetime(unsigned int y, unsigned int mo, unsigned int d, unsigned int h, unsigned int mi, unsigned int s);
 QBCT_IMPORT(q_set_computor) void       bq_set_computor(unsigned int i, const void* id32);
-QBCT_IMPORT(q_set_prev_spectrum_digest) void bq_set_prev_spectrum_digest(const void* digest32);
+QBCT_IMPORT(q_get_fee_reserve) long long bq_get_fee_reserve(unsigned int idx);
+QBCT_IMPORT(q_set_fee_reserve) void      bq_set_fee_reserve(unsigned int idx, long long amount);
 }
 
 #undef QBCT_IMPORT
@@ -92,42 +96,119 @@ enum : unsigned char {
 };
 #undef QINIT_SYSTEM_PROCEDURE_COUNT
 
-// contractError[slot]: contract execution status array from contract_exec.h (native harness asserts it).
-// In wasm mode a contract dispatch runs in the engine, so errors are engine-side; treat as always-clean
+// contractError[slot]: contract execution status array from contract_exec.h. Sticky like core's: a failed procedure
+// or system procedure sets it, only a new ContractTesting fixture clears it.
 static unsigned int contractError[MAX_NUMBER_OF_CONTRACTS];
 
-struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall {
+// core-lite's contract_exec.h error codes, so a corpus can spell NoContractError; a wasm run only ever yields the last one.
+enum ContractError
+{
+    NoContractError = 0,
+    ContractErrorAllocInputOutputFailed,
+    ContractErrorAllocLocalsFailed,
+    ContractErrorAllocContextOtherFunctionCallFailed,
+    ContractErrorAllocContextOtherProcedureCallFailed,
+    ContractErrorTooManyActions,
+    ContractErrorTimeout,
+    ContractErrorStoppedToResolveDeadlock,
+    ContractErrorIPOFailed,
+    ContractErrorFuncProcUnknown,
+};
+
+// the innermost call context a test built. contract code the test runs with it reaches the host through lhost imports that
+// carry no context, so the host asks here whom a transfer or issuance acts for, as core's context would say.
+static const QPI::QpiContextFunctionCall* qbTestContext = nullptr;
+
+struct QbTestContextScope {
+    const QPI::QpiContextFunctionCall* outer = nullptr;
+
+    void enter(const QPI::QpiContextFunctionCall* context) {
+        outer = qbTestContext;
+        qbTestContext = context;
+    }
+
+    void leave() {
+        qbTestContext = outer;
+    }
+};
+
+extern "C" {
+__attribute__((export_name("qinit_context_parties"))) unsigned int qinit_context_parties(void* invocator32, void* originator32) {
+    if (!qbTestContext) {
+        return 0;
+    }
+    const QPI::id invocator = qbTestContext->invocator();
+    const QPI::id originator = qbTestContext->originator();
+    copyMem(invocator32, &invocator, 32);
+    copyMem(originator32, &originator, 32);
+    return 1;
+}
+}
+
+// core's call contexts keep the output they ran into, sized as the contract registered it, until freeBuffer().
+struct QbCallOutput {
+    char* outputBuffer = nullptr;
+    unsigned short outputSize = 0;
+
+    void allocate(unsigned int contractIndex, unsigned int isProcedure, unsigned short inputType) {
+        freeBuffer();
+        outputSize = (unsigned short)bq_output_size(contractIndex, isProcedure, inputType);
+        outputBuffer = (char*)malloc(outputSize ? outputSize : 1);
+        setMem(outputBuffer, outputSize, 0);
+    }
+
+    void freeBuffer() {
+        free(outputBuffer);
+        outputBuffer = nullptr;
+    }
+};
+
+struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall, public QbCallOutput {
+    QbTestContextScope scope;
+
     QpiContextUserFunctionCall(unsigned int contractIndex)
-        : QPI::QpiContextFunctionCall(contractIndex, QPI::id::zero(), 0, USER_FUNCTION_CALL) {}
+        : QPI::QpiContextFunctionCall(contractIndex, QPI::id::zero(), 0, USER_FUNCTION_CALL) {
+        scope.enter(this);
+    }
+
+    ~QpiContextUserFunctionCall() {
+        scope.leave();
+        freeBuffer();
+    }
 
     // Call a user FUNCTION: route through the engine's query path (read-only, no state mutation).
     unsigned int call(unsigned short inputType, const void* input, unsigned short inputSize) {
-        unsigned char output[4096];
-        bq_query(_currentContractIndex, inputType, input, (unsigned int)inputSize, output, (unsigned int)sizeof(output));
-        return 0;
+        allocate(_currentContractIndex, 0, inputType);
+        return bq_query(_currentContractIndex, inputType, input, (unsigned int)inputSize, outputBuffer, outputSize);
     }
-
-    // In the native harness call() allocates a stack buffer; the caller is expected to free it.
-    // The shim uses a fixed-size local output array — no-op.
-    void freeBuffer() {}
 };
 
 // Mirror of contract_exec.h's QpiContextUserProcedureCall: a corpus constructs one to call a user
 // PROCEDURE (mutable dispatch) in-process, seeded with the invocator and reward.
-struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall {
-    QpiContextUserProcedureCall(unsigned int contractIndex, const m256i& originator, long long invocationReward)
-        : QPI::QpiContextProcedureCall(contractIndex, originator, invocationReward, USER_PROCEDURE_CALL) {}
+struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall, public QbCallOutput {
+    QbTestContextScope scope;
 
-    void call(unsigned short inputType, const void* input, unsigned short inputSize) {
-        unsigned char output[4096];
-        bq_invoke(_currentContractIndex, inputType, input, (unsigned int)inputSize, _invocationReward,
-                  &_originator.u64._0, output, (unsigned int)sizeof(output));
+    QpiContextUserProcedureCall(unsigned int contractIndex, const m256i& originator, long long invocationReward)
+        : QPI::QpiContextProcedureCall(contractIndex, originator, invocationReward, USER_PROCEDURE_CALL) {
+        scope.enter(this);
     }
 
-    void freeBuffer() {}
+    ~QpiContextUserProcedureCall() {
+        scope.leave();
+        freeBuffer();
+    }
 
-    // In-runner qpi asset mutations (QTRY seeds its QUSD supply this way). The runner's lhost surface is
-    // read-only — its ABI carries no contract index, so a mutation resolved there would be a silent no-op.
+    // like core's, it runs only the procedure: invokeUserProcedure moves the reward before it gets here.
+    void call(unsigned short inputType, const void* input, unsigned short inputSize) {
+        allocate(_currentContractIndex, 1, inputType);
+        const unsigned int errorCode = bq_call_procedure(_currentContractIndex, inputType, input, (unsigned int)inputSize, _invocationReward, &_originator.u64._0, outputBuffer, outputSize);
+        if (errorCode) {
+            contractError[_currentContractIndex] = errorCode;
+        }
+    }
+
+    // In-runner qpi asset mutations (QTRY seeds its QUSD supply this way). These act for this context's contract;
+    // the runner's lhost surface has no contract index and acts for the contract under test.
     long long issueAsset(unsigned long long name, const QPI::id& issuer, signed char numberOfDecimalPlaces,
                          long long numberOfShares, unsigned long long unitOfMeasurement) const {
         return bq_issue_asset(&issuer, name, (int)numberOfDecimalPlaces, numberOfShares, unitOfMeasurement,
@@ -144,6 +225,41 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall {
                                    _currentContractIndex);
     }
 };
+
+// Mirror of contract_exec.h's QpiContextSystemProcedureCall, which core's own tests construct directly. Like core's,
+// the POST_INCOMING_TRANSFER call runs only the callback: the caller has already moved the qu.
+struct QpiContextSystemProcedureCall : public QPI::QpiContextProcedureCall {
+    QpiContextSystemProcedureCall(unsigned int contractIndex, SystemProcedureID systemProcId)
+        : QPI::QpiContextProcedureCall(contractIndex, QPI::id::zero(), 0, systemProcId) {}
+
+    void call() {
+        record(bq_sysproc(_currentContractIndex, _entryPoint));
+    }
+
+    void call(QPI::PostIncomingTransfer_input& input) {
+        const QPI::id contract(_currentContractIndex, 0, 0, 0);
+        record(bq_fire_pit(&input.sourceId, &contract, input.amount, input.type));
+    }
+
+private:
+    void record(unsigned int errorCode) {
+        if (errorCode) {
+            contractError[_currentContractIndex] = errorCode;
+        }
+    }
+};
+
+// scratch for contract code the test runs in the runner (CALL() locals, container cleanup): the host takes it from this
+// module's own heap, since memory it grew by hand could later be handed out by malloc too.
+extern "C" {
+__attribute__((export_name("qinit_scratch_acquire"))) void* qinit_scratch_acquire(unsigned int size, unsigned int initZero) {
+    return initZero ? calloc(1, size ? size : 1) : malloc(size ? size : 1);
+}
+
+__attribute__((export_name("qinit_scratch_release"))) void qinit_scratch_release(void* pointer) {
+    free(pointer);
+}
+}
 
 // ---- contractStates: lazy shadow-buffer proxy synced from engine on each access ----
 
@@ -178,6 +294,7 @@ class ContractTesting {
 public:
     ContractTesting() {
         bq_reset();
+        setMem(contractError, sizeof(contractError), 0);
     }
 
     void initEmptySpectrum() {
@@ -189,8 +306,11 @@ public:
     template <typename InputType, typename OutputType>
     unsigned int callFunction(unsigned int contractIndex, unsigned short fnInputType, const InputType& input, OutputType& output, bool checkInputSize = true, bool expectSuccess = true) const {
         setMem(&output, sizeof(output), 0);
-        bq_query(contractIndex, fnInputType, &input, sizeof(input), &output, sizeof(output));
-        return 0;
+        const unsigned int errorCode = bq_query(contractIndex, fnInputType, &input, sizeof(input), &output, sizeof(output));
+        if (expectSuccess) {
+            EXPECT_EQ(errorCode, 0u);
+        }
+        return errorCode;
     }
 
     template <typename InputType, typename OutputType>
@@ -204,90 +324,38 @@ public:
         if (amount < 0 || bq_balance(&user) < amount) {
             return false;
         }
-        bq_invoke(contractIndex, procInputType, &input, sizeof(input), (long long)amount, &user, &output, sizeof(output));
+        const unsigned int errorCode = bq_invoke(contractIndex, procInputType, &input, sizeof(input), (long long)amount, &user, &output, sizeof(output));
+        if (errorCode) {
+            contractError[contractIndex] = errorCode;
+        }
+        if (expectSuccess) {
+            EXPECT_EQ(contractError[contractIndex], 0u);
+        }
         return true;
     }
 
     void callSystemProcedure(unsigned int contractIndex, SystemProcedureID sysProcId, bool expectSuccess = true) {
-        bq_sysproc(contractIndex, (unsigned int)sysProcId);
+        const unsigned int errorCode = bq_sysproc(contractIndex, (unsigned int)sysProcId);
+        if (errorCode) {
+            contractError[contractIndex] = errorCode;
+        }
+        if (expectSuccess) {
+            EXPECT_EQ(contractError[contractIndex], 0u);
+        }
     }
 };
 
-// ---- system.epoch / system.tick control: proxy through q_get/set_epoch and q_get/set_tick ----
-
-struct QbEpochProxy {
-    operator unsigned short() const {
-        return (unsigned short)bq_get_epoch();
-    }
-
-    void operator=(unsigned int e) {
-        bq_set_epoch(e);
-    }
-
-    QbEpochProxy& operator++() {  // ++epoch
-        bq_set_epoch(bq_get_epoch() + 1u);
-        return *this;
-    }
-
-    unsigned int operator++(int) {  // epoch++ (corpora advance the epoch this way)
-        unsigned int v = bq_get_epoch();
-        bq_set_epoch(v + 1u);
-        return v;
-    }
-
-    unsigned int operator+=(unsigned int n) {  // system.epoch += N
-        unsigned int v = bq_get_epoch() + n;
-        bq_set_epoch(v);
-        return v;
-    }
-
-    unsigned int operator-=(unsigned int n) {
-        unsigned int v = bq_get_epoch() - n;
-        bq_set_epoch(v);
-        return v;
-    }
-};
-
-struct QbTickProxy {
-    operator unsigned int() const {
-        return bq_get_tick();
-    }
-
-    void operator=(unsigned int t) {
-        bq_set_tick(t);
-    }
-
-    QbTickProxy& operator++() {
-        bq_set_tick(bq_get_tick() + 1u);
-        return *this;
-    }
-
-    unsigned int operator++(int) {
-        unsigned int v = bq_get_tick();
-        bq_set_tick(v + 1u);
-        return v;
-    }
-
-    unsigned int operator+=(unsigned int n) {  // system.tick += N
-        unsigned int v = bq_get_tick() + n;
-        bq_set_tick(v);
-        return v;
-    }
-
-    unsigned int operator-=(unsigned int n) {
-        unsigned int v = bq_get_tick() - n;
-        bq_set_tick(v);
-        return v;
-    }
-};
+// ---- system / utcTime / etalonTick: core's plain globals ----
+// The test reads and writes them like any variable; the host reads them from here before every call into the engine,
+// so a contract sees what the test last wrote. The engine keeps time in milliseconds, so an out-of-range date arrives normalized.
 
 struct QbSystemStruct {
-    QbEpochProxy epoch;
-    QbTickProxy tick;
+    unsigned short epoch;
+    unsigned int tick;
+    unsigned int initialTick;
 };
+static_assert(offsetof(QbSystemStruct, epoch) == 0 && offsetof(QbSystemStruct, tick) == 4 && offsetof(QbSystemStruct, initialTick) == 8, "gtest.ts reads this layout");
 
-// ---- utcTime / etalonTick / updateTime / updateQpiTime: corpus time control ----
-// The native harness exposes a mutable `etalonTick` (a Tick global) whose date fields ARE the simulated chain
 struct QbEfiTime {
     unsigned short Year;
     unsigned char Month, Day, Hour, Minute, Second, Pad1;
@@ -297,106 +365,83 @@ struct QbEfiTime {
 };
 static QbEfiTime utcTime = { 2024, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
 
-static void qbEtalonSync();  // defined just below etalonTick
-
-// One date component of etalonTick. Supports the mutation/read forms the corpora use (=, +=, -=, ++, and the
-// implicit read via operator unsigned int()); every mutation re-pushes the full date to the engine clock.
-struct QbEtalonField {
-    unsigned int* slot;
-
-    operator unsigned int() const {
-        return *slot;
-    }
-
-    QbEtalonField& operator=(unsigned int v) {
-        *slot = v;
-        qbEtalonSync();
-        return *this;
-    }
-
-    QbEtalonField& operator+=(int v) {
-        *slot = (unsigned int)((int)*slot + v);
-        qbEtalonSync();
-        return *this;
-    }
-
-    QbEtalonField& operator-=(int v) {
-        *slot = (unsigned int)((int)*slot - v);
-        qbEtalonSync();
-        return *this;
-    }
-
-    QbEtalonField& operator++() {
-        *slot += 1u;
-        qbEtalonSync();
-        return *this;
-    }
-
-    unsigned int operator++(int) {
-        unsigned int v = *slot;
-        *slot += 1u;
-        qbEtalonSync();
-        return v;
-    }
-};
-
-// Date-only stand-in for core-lite's Tick global. backing[] holds year (2-digit) / month / day / hour /
-// minute / second / millisecond; the proxy fields alias those slots so writes route through qbEtalonSync().
-struct QbDigestProxy {
-    m256i v;
-    QbDigestProxy& operator=(const m256i& d) {
-        v = d;
-        bq_set_prev_spectrum_digest(&v);
-        return *this;
-    }
-    operator const m256i&() const { return v; }
-};
-
+// the Tick fields a test drives: the date (year is 2-digit) is the chain time contracts read, prevSpectrumDigest their entropy.
 struct QbEtalonTick {
-    unsigned int backing[7];
-    QbEtalonField year, month, day, hour, minute, second, millisecond;
-    QbDigestProxy prevSpectrumDigest;
-    unsigned int tick;   // QTRY/Nostromo corpus: etalonTick.tick += offset; system.tick = etalonTick.tick
-
-    QbEtalonTick()
-        : backing{ 24, 1, 1, 0, 0, 0, 0 },
-          year{ &backing[0] }, month{ &backing[1] }, day{ &backing[2] }, hour{ &backing[3] },
-          minute{ &backing[4] }, second{ &backing[5] }, millisecond{ &backing[6] },
-          prevSpectrumDigest{ m256i::zero() },
-          tick{ 0 } {
-    }
+    m256i prevSpectrumDigest;
+    unsigned short millisecond;
+    unsigned char second, minute, hour, day, month, year;
+    unsigned int tick;  // QTRY/Nostromo corpus: etalonTick.tick += offset; system.tick = etalonTick.tick
 };
+static_assert(offsetof(QbEtalonTick, millisecond) == 32 && offsetof(QbEtalonTick, second) == 34 && offsetof(QbEtalonTick, year) == 39 && offsetof(QbEtalonTick, tick) == 40, "gtest.ts reads this layout");
 
-static QbEtalonTick etalonTick;
+static QbEtalonTick etalonTick = { {}, 0, 0, 0, 0, 1, 1, 24, 0 };
+static QbSystemStruct qubicSystemStruct;
 
-static void qbEtalonSync() {
-    bq_set_datetime(etalonTick.backing[0] + 2000, etalonTick.backing[1], etalonTick.backing[2],
-                    etalonTick.backing[3], etalonTick.backing[4], etalonTick.backing[5]);
+extern "C" {
+__attribute__((export_name("qinit_system"))) void* qinit_system() {
+    return &qubicSystemStruct;
 }
 
+__attribute__((export_name("qinit_etalon"))) void* qinit_etalon() {
+    return &etalonTick;
+}
+}
+
+// core's stdlib_impl.cpp: utcTime becomes the wall clock (UTC).
 static inline void updateTime() {
+    const time_t now = time(nullptr);
+    const struct tm* utc = gmtime(&now);
+    utcTime.Year = (unsigned short)(utc->tm_year + 1900);
+    utcTime.Month = (unsigned char)(utc->tm_mon + 1);
+    utcTime.Day = (unsigned char)utc->tm_mday;
+    utcTime.Hour = (unsigned char)utc->tm_hour;
+    utcTime.Minute = (unsigned char)utc->tm_min;
+    utcTime.Second = (unsigned char)utc->tm_sec;
+    utcTime.Nanosecond = 0;
+    utcTime.TimeZone = 0;
+    utcTime.Daylight = 0;
 }
 
 static inline void updateQpiTime() {
-    etalonTick.year = (unsigned int)(utcTime.Year - 2000);
-    etalonTick.month = utcTime.Month;
-    etalonTick.day = utcTime.Day;
-    etalonTick.hour = utcTime.Hour;
-    etalonTick.minute = utcTime.Minute;
-    etalonTick.second = utcTime.Second;
     etalonTick.millisecond = utcTime.Nanosecond / 1000000;
-}
-
-static QbSystemStruct qubicSystemStruct;
-
-// QPI::mod is `template<T> mod(T, T)`, so `mod(system.tick, (uint32)X)` (RL) can't deduce T from the proxy +
-// a uint32. This non-template overload is an exact match for that call (and wins over the failed-deduction
-static inline unsigned int mod(const QbTickProxy& a, unsigned int b) {
-    return b ? ((unsigned int)a % b) : 0u;
+    etalonTick.second = utcTime.Second;
+    etalonTick.minute = utcTime.Minute;
+    etalonTick.hour = utcTime.Hour;
+    etalonTick.day = utcTime.Day;
+    etalonTick.month = utcTime.Month;
+    etalonTick.year = utcTime.Year - 2000;
 }
 
 // Matches core-lite's `#define system qubicSystemStruct`
 #define system qubicSystemStruct
+
+// core's qpi_ticking_impl.h definition.
+QPI::DateAndTime QPI::DateAndTime::now() {
+    return QPI::DateAndTime(etalonTick.year + 2000, etalonTick.month, etalonTick.day, etalonTick.hour, etalonTick.minute, etalonTick.second, etalonTick.millisecond);
+}
+
+// core's test_util.h helper.
+static void advanceTimeAndTick(unsigned long long milliseconds) {
+    QPI::DateAndTime now = QPI::DateAndTime::now();
+    EXPECT_TRUE(now.addMillisec(milliseconds));
+    etalonTick.year = now.getYear() - 2000;
+    etalonTick.month = now.getMonth();
+    etalonTick.day = now.getDay();
+    etalonTick.hour = now.getHour();
+    etalonTick.minute = now.getMinute();
+    etalonTick.second = now.getSecond();
+    etalonTick.millisecond = now.getMillisec();
+    ++system.tick;
+}
+
+// core's accessors for a contract's execution-fee reserve, which the engine keeps.
+static long long getContractFeeReserve(unsigned int contractIndex) {
+    return bq_get_fee_reserve(contractIndex);
+}
+
+static void setContractFeeReserve(unsigned int contractIndex, long long newValue) {
+    bq_set_fee_reserve(contractIndex, newValue);
+}
 
 // ---- static constants from contract_def.h / assets.h needed by corpora (QTRY/Nostromo) ----
 
@@ -472,9 +517,15 @@ static inline long long getBalance(const QPI::id& who) {
     return bq_balance(&who);
 }
 
-// Simulate an inbound transfer to a contract: credit `dest` and fire its POST_INCOMING_TRANSFER handler.
+// core's test/common_def.cpp version: runs only the POST_INCOMING_TRANSFER callback, moving the qu is the caller's job.
 static inline void notifyContractOfIncomingTransfer(const QPI::id& source, const QPI::id& dest, long long amount, unsigned char type) {
-    bq_notify_pit(&source, &dest, amount, (unsigned int)type);
+    if (amount <= 0 || !isPublicKeyOfContract(dest)) {
+        return;
+    }
+
+    QpiContextSystemProcedureCall qpiContext((unsigned int)dest.u64._0, POST_INCOMING_TRANSFER);
+    QPI::PostIncomingTransfer_input input{ source, amount, type };
+    qpiContext.call(input);
 }
 
 static inline unsigned long long assetNameFromString(const char* s);  // defined below; used by issueAsset
@@ -539,19 +590,23 @@ static inline int spectrumIndex(const QPI::id& who) {
     return bq_spectrum(&who);
 }
 
+// core's spectrum.h: false and nothing taken when amount is negative or above the balance.
 static inline bool decreaseEnergy(int idx, QPI::sint64 amount) {
-    bq_decrease(idx, (long long)amount);
-    return true;
+    return bq_decrease(idx, (long long)amount) != 0;
+}
+
+static inline long long energy(int idx) {
+    return bq_energy(idx);
 }
 
 static inline QPI::sint64 numberOfShares(const QPI::Asset& a,
     const QPI::AssetOwnershipSelect& own = QPI::AssetOwnershipSelect::any(),
     const QPI::AssetPossessionSelect& pos = QPI::AssetPossessionSelect::any()) {
-    // No owner/possessor filter → total issued shares. Otherwise route to the filtered possession query
-    // (the host applies the owner/possessor + managing-contract selects).
+    // No owner/possessor filter → total issued shares. Otherwise the selects go whole to the query contracts use, so an
+    // "any managing contract" flag is honoured rather than read as contract 0.
     if (own.anyOwner && own.anyManagingContract && pos.anyPossessor && pos.anyManagingContract)
         return bq_shares(&a.issuer, a.assetName);
-    return bq_possessed(a.assetName, &a.issuer, &own.owner, &pos.possessor, own.managingContract, pos.managingContract);
+    return bq_number_of_shares(&a, &own, &pos);
 }
 
 // Issue a contract's shares (NULL_ID issuer convention, managed by QX) and transfer them to the initial owners.
@@ -668,6 +723,26 @@ namespace qinit_gtest {
 #define ASSERT_GE(a, b) QBCT_ASSERT(Ge, a, b, "ASSERT_GE(" #a ", " #b ")")
 #define ASSERT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_TRUE(" #x ")", (bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 #define ASSERT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_FALSE(" #x ")", !(bool)(x))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+namespace qinit_gtest {
+    template <class A, class B, class E>
+    static inline bool recNear(const char* f, int l, const char* w, const A& a, const B& b, const E& error) {
+        if (withinError(a, b, error)) { return true; }
+        failAt(f, l, w); appendStr(" ("); appendVal(a); appendStr(" vs "); appendVal(b); appendStr(")");
+        return false;
+    }
+    // SUCCEED() and GTEST_SKIP() stream into this, so their text never lands in a failure message.
+    struct NullSink { template <class T> NullSink& operator<<(const T&) { return *this; } };
+    struct SkipSink { void operator=(const NullSink&) const {} };
+}
+#undef EXPECT_NEAR
+#undef ASSERT_NEAR
+#define EXPECT_NEAR(a, b, error) switch (0) case 0: default: if (::qinit_gtest::recNear(__FILE__, __LINE__, "EXPECT_NEAR(" #a ", " #b ", " #error ")", (a), (b), (error))) ; else ::qinit_gtest::Sink()
+#define ASSERT_NEAR(a, b, error) switch (0) case 0: default: if (::qinit_gtest::recNear(__FILE__, __LINE__, "ASSERT_NEAR(" #a ", " #b ", " #error ")", (a), (b), (error))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+#define ADD_FAILURE() switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ADD_FAILURE()", false)) ; else ::qinit_gtest::Sink()
+#define FAIL() switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "FAIL()", false)) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+#define SUCCEED() ::qinit_gtest::NullSink()
+// the result has no skipped state, so a skipped test reports as passed.
+#define GTEST_SKIP() return ::qinit_gtest::SkipSink() = ::qinit_gtest::NullSink()
 
 static inline long long numberOfPossessedShares(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, const QPI::id& possessor, unsigned int om, unsigned int pm) {
     return bq_possessed(name, &issuer, &owner, &possessor, om, pm);
@@ -710,6 +785,28 @@ static inline bool getPublicKeyFromIdentity(const unsigned char* identity, unsig
     return true;
 }
 
+// core's test_util.h streams an id as its 60-char identity; the checksum is the host's k12 of the key, as four_q.h getIdentity computes it.
+static std::ostream& operator<<(std::ostream& s, const m256i& v) {
+    char identity[61];
+    for (int i = 0; i < 4; i++) {
+        unsigned long long fragment;
+        copyMem(&fragment, &v.m256i_u8[i << 3], 8);
+        for (int j = 0; j < 14; j++) {
+            identity[i * 14 + j] = (char)('A' + fragment % 26);
+            fragment /= 26;
+        }
+    }
+    unsigned char digest[32];
+    lh_k12(v.m256i_u8, 32, digest);
+    unsigned int checksum = ((unsigned int)digest[0] | ((unsigned int)digest[1] << 8) | ((unsigned int)digest[2] << 16)) & 0x3FFFF;
+    for (int i = 0; i < 4; i++) {
+        identity[56 + i] = (char)('A' + checksum % 26);
+        checksum /= 26;
+    }
+    identity[60] = 0;
+    return s << identity;
+}
+
 // Stub disk I/O for corpora that define but never invoke persistence helpers.
 static inline long long load(const CHAR16*, unsigned long long, void*, const CHAR16* = nullptr) {
     return -1;
@@ -721,4 +818,9 @@ static inline long long save(const CHAR16*, unsigned long long, const void*, con
 
 // ---- INIT_CONTRACT macro ----
 
-#define INIT_CONTRACT(name) bq_init(name##_CONTRACT_INDEX)
+// core's harness seeds the execution-fee reserve here too, so a contract reading its own reserve sees the same value.
+#define INIT_CONTRACT(name)                                         \
+    {                                                               \
+        bq_init(name##_CONTRACT_INDEX);                             \
+        setContractFeeReserve(name##_CONTRACT_INDEX, 10000000);     \
+    }

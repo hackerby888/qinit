@@ -58,7 +58,7 @@ comment confidently misdescribing what core does. It was green for months.
 qinit new <name> --template <t>       scaffold a contract project
 qinit build / verify                  build, QPI-compatibility check
 qinit deploy <file> --contract-name   deploy
-qinit call --proc <C> <n> --in "..."  call a procedure  ("5uint64, <ID>id" value format)
+qinit call --proc <C> <n> --in "..."  call a procedure  ("5uint64, 0id" values)
 qinit call --fn   <C> <n> --in "..." --out uint64
 qinit state <C>                       contract state
 qinit debug                           per-call state diffs and logs (TUI)

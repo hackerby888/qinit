@@ -123,33 +123,9 @@ export interface AssetHost {
     logAssetMutation?(type: number, message: Uint8Array): void;
 }
 
-export function packAssetName(name: string): bigint {
-    let packed = 0n;
-
-    for (let index = 0; index < Math.min(name.length, 7); index++) {
-        packed |= BigInt(name.charCodeAt(index) & 0xff) << BigInt(index * 8);
-    }
-
-    return packed;
-}
-
-export function unpackAssetName(name: bigint): string {
-    let text = "";
-    let remaining = name;
-
-    for (let index = 0; index < 8; index++) {
-        const character = Number(remaining & 0xffn);
-        remaining >>= 8n;
-
-        if (character === 0) {
-            break;
-        }
-
-        text += String.fromCharCode(character);
-    }
-
-    return text;
-}
+// the name codec lives in proto so the cli can spell asset names too; the engine keeps exporting it for its callers.
+import { packAssetName, unpackAssetName } from "@qinit/proto";
+export { packAssetName, unpackAssetName };
 
 interface AssetSelection {
     id: Id;
@@ -228,6 +204,7 @@ export class AssetLedger {
         this.firstChildIndex.set(ownershipIndex, possessionIndex);
     }
 
+    // the contract's name is compared as given, like core: only the stored side is 7 bytes, so junk in byte 7 finds nothing
     private issuanceIndex(issuer: Id, name: bigint): number {
         let index = this.startOf(issuer);
 
@@ -246,7 +223,7 @@ export class AssetLedger {
     }
 
     isAssetIssued(issuer: Id, name: bigint): boolean {
-        return this.issuanceIndex(issuer, name & 0xffffffffffffffn) !== NO_ASSET_INDEX;
+        return this.issuanceIndex(issuer, name) !== NO_ASSET_INDEX;
     }
 
     // One step of the node's walk over a record's children (an issuance's ownerships, an ownership's possessions):
@@ -370,6 +347,10 @@ export class AssetLedger {
     }
 
     issueAsset(slot: number, name: bigint, issuer: Id, decimals: number, shares: bigint, unit: bigint, invocator: Id): bigint {
+        // core takes both as unsigned long long; a wasm i64 with the top bit set arrives here negative
+        name = BigInt.asUintN(64, name);
+        unit = BigInt.asUintN(64, unit);
+
         const firstCharacter = Number(name & 0xffn);
         if (firstCharacter < 0x41 || firstCharacter > 0x5a || name > 0xffffffffffffffn) {
             return 0n;
@@ -428,7 +409,7 @@ export class AssetLedger {
         const ownership = parseSelect(ownershipSelectionBytes);
         const possession = parseSelect(possessionSelectionBytes);
 
-        return this.numberOfSharesSel(asset.issuer, asset.assetName & 0xffffffffffffffn, ownership, possession);
+        return this.numberOfSharesSel(asset.issuer, asset.assetName, ownership, possession);
     }
 
     private numberOfSharesSel(issuer: Id, name: bigint, ownership: AssetSelection, possession: AssetSelection): bigint {
@@ -458,7 +439,7 @@ export class AssetLedger {
         const asset = Asset.wrap(assetBytes);
         const ownership = parseSelect(ownershipSelectionBytes);
         const possession = parseSelect(possessionSelectionBytes);
-        const issuanceIndex = this.issuanceIndex(asset.issuer, asset.assetName & 0xffffffffffffffn);
+        const issuanceIndex = this.issuanceIndex(asset.issuer, asset.assetName);
 
         if (issuanceIndex === NO_ASSET_INDEX) {
             return [];
@@ -499,7 +480,7 @@ export class AssetLedger {
     iterBegin(kind: number, assetBytes: Uint8Array, ownershipSelectionBytes: Uint8Array, possessionSelectionBytes: Uint8Array): AssetWalkPosition {
         const asset = Asset.wrap(assetBytes);
         const position: AssetWalkPosition = {
-            issuanceIndex: this.issuanceIndex(asset.issuer, asset.assetName & 0xffffffffffffffn),
+            issuanceIndex: this.issuanceIndex(asset.issuer, asset.assetName),
             ownershipIndex: NO_ASSET_INDEX,
             possessionIndex: NO_ASSET_INDEX,
         };
@@ -610,7 +591,7 @@ export class AssetLedger {
     }
 
     numberOfPossessedShares(name: bigint, issuer: Id, owner: Id, possessor: Id, ownershipManager: number, possessionManager: number): bigint {
-        const issuanceIndex = this.issuanceIndex(issuer, name & 0xffffffffffffffn);
+        const issuanceIndex = this.issuanceIndex(issuer, name);
         if (issuanceIndex === NO_ASSET_INDEX) {
             return 0n;
         }
@@ -811,7 +792,7 @@ export class AssetLedger {
             return -(MAX_AMOUNT + 1n);
         }
 
-        const issuanceIndex = this.issuanceIndex(issuer, name & 0xffffffffffffffn);
+        const issuanceIndex = this.issuanceIndex(issuer, name);
         if (issuanceIndex === NO_ASSET_INDEX) {
             return -shares;
         }
@@ -851,7 +832,7 @@ export class AssetLedger {
                     return INVALID_AMOUNT;
                 }
 
-                return possession.shares;
+                return this.record(possessionIndex)!.shares;
             }
 
             possessionIndex = (possessionIndex + 1) & ASSET_INDEX_MASK;
@@ -995,7 +976,7 @@ export class AssetLedger {
             return false;
         }
 
-        const issuanceIndex = this.issuanceIndex(issuer, name & 0xffffffffffffffn);
+        const issuanceIndex = this.issuanceIndex(issuer, name);
         if (issuanceIndex === NO_ASSET_INDEX) {
             return false;
         }

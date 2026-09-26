@@ -4,7 +4,7 @@ import { AbiTypeKind, type AbiType, type ContractCheat, type ContractIdl } from 
 import type { DebugCheat } from "@qinit/core";
 import { extractIdl, type CalleeSource } from "@qinit/build";
 import { stateDiffLines, type StateDiffLine, type StateKeyReader } from "./state-diff";
-import { enumMap, formatStateValue, holdsContainer, scalarText, stateFieldsOf, type StateField } from "./state-format";
+import { abiValueText, enumMap, holdsContainer, scalarText, stateFieldsOf, type StateField } from "./state-format";
 import { MIGRATE } from "./entry-label";
 import { decodeValueBlocks, type ValueBlocks } from "./state-read";
 import { bytesToIdentity, hexToBytes, type DebugEntry } from "@qinit/core";
@@ -64,14 +64,14 @@ export async function describeTrace(
         if (inputType && entry.inHex) {
             await orElse(undefined, async () => {
                 const decoded = await decodeAbi(hexToBytes(entry.inHex), inputType);
-                input = formatStateValue(decoded, inputType, false, true);
+                input = abiValueText(decoded, inputType, { topLevel: true });
                 inputJson = decodedAbiToJson(decoded, inputType);
             });
         }
         if (metadata && entry.outHex) {
             await orElse(undefined, async () => {
                 const decoded = await decodeAbi(hexToBytes(entry.outHex), metadata.output);
-                output = formatStateValue(decoded, metadata.output, false, true);
+                output = abiValueText(decoded, metadata.output, { topLevel: true });
                 outputJson = decodedAbiToJson(decoded, metadata.output);
             });
         }

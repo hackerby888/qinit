@@ -76,8 +76,6 @@ const runWords = (wasm: Uint8Array): bigint[] => {
     return [...new BigUint64Array(state.buffer.slice(state.byteOffset, state.byteOffset + state.byteLength))];
 };
 
-const runState = (wasm: Uint8Array): bigint => runWords(wasm)[0];
-
 const wasiOk = wasiToolchain().available;
 
 const clangWords = async (contractName: string, source: string): Promise<bigint[]> => {
@@ -209,9 +207,9 @@ describe.skipIf(!HAS_CORE)("differential — asset iterator selectors", () => {
                     arenaSizeBytes: 1 << 20,
                 });
                 expect(ours.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-                expect(runState(ours.wasm)).toBe(EXPECTED);
+                expect(runWords(ours.wasm)).toEqual([EXPECTED]);
 
-                if (wasiOk) expect((await clangWords("AssetIterProbe", probeSource))[0]).toBe(EXPECTED);
+                if (wasiOk) expect(await clangWords("AssetIterProbe", probeSource)).toEqual([EXPECTED]);
             },
             180000,
         );

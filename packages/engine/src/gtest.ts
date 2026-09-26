@@ -1,8 +1,12 @@
 // Run core-lite contract_testing.h suites in an isolated simulator.
+import { ASSET_ENUMERATION_RECORD, WASM_TRAP_ERROR_CODE, type BuildProfile } from "@qinit/core";
+import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
 import { QubicSimulator } from "./qubic-simulator";
-import { Contract, CONTRACT_ENTRY_KIND, dateFields, packDateAndTime } from "./contract/runtime";
+import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, dateFields, packDateAndTime } from "./contract/runtime";
 import { initK12, k12Bytes } from "./support/k12";
 import { EntityRecord, M256i } from "./protocol/wire";
+import { NO_ASSET_INDEX } from "./ledger/assets";
+import type { Id } from "./support/bytes";
 
 export interface TestResult {
     name: string; // "Suite.Name"
@@ -21,6 +25,8 @@ export async function runContractTesting(
         assetNames?: Record<number, string | bigint>;
         excludeTests?: readonly string[];
         filterTests?: readonly string[]; // run only tests whose name contains one of these (case-insensitive)
+        // core's own corpora are compiled for its default committee, so the host that pays their dividends and ipo shares has to be that size too.
+        profile?: BuildProfile;
     } = {},
 ): Promise<TestResult[]> {
     await initK12();
@@ -34,6 +40,29 @@ export async function runContractTesting(
         const note = `${what} trapped: ${String((e as any)?.message ?? e).slice(0, 120)}`;
         trapNotes.push(note);
         (globalThis as any).process?.stderr?.write?.(`[gtest] ${note}\n`);
+    };
+
+    // core's harness hands a failed dispatch back as a code; the same codes core-lite's wasm host reports, so a test reads them the same way
+    const CONTRACT_ERROR_FUNC_PROC_UNKNOWN = 9;
+    const dispatchErrorCode = (e: unknown): number | undefined => {
+        if (e instanceof ContractExecutionError) {
+            return e.cause instanceof ContractAbort ? e.cause.code >>> 0 : WASM_TRAP_ERROR_CODE;
+        }
+        if (e instanceof Error && e.message.startsWith("unknown contract")) {
+            return CONTRACT_ERROR_FUNC_PROC_UNKNOWN;
+        }
+        return undefined;
+    };
+
+    // a returned code fails nothing by itself, so it still shows in the run output
+    const failed = (what: string, e: unknown): number | undefined => {
+        const code = dispatchErrorCode(e);
+        if (code === undefined) {
+            trap(what, e);
+        } else {
+            (globalThis as any).process?.stderr?.write?.(`[gtest] ${what} failed with code 0x${code.toString(16).toUpperCase()}\n`);
+        }
+        return code;
     };
 
     let sim: QubicSimulator;
@@ -81,32 +110,48 @@ export async function runContractTesting(
     }
     const runnerMemory = (): WebAssembly.Memory | undefined => runner?.exports?.memory as WebAssembly.Memory | undefined;
 
+    // core's contracts read the `system` and `etalonTick` globals directly; the runner exports where its copies live (layout pinned by
+    // static_asserts in wasm_contract_testing.h), and every host call copies them into the engine first. A runner without them keeps the engine's clock.
+    let systemAddr = 0;
+    let etalonAddr = 0;
+    const syncClockFromRunner = () => {
+        if (!systemAddr || !etalonAddr) return;
+        const view = new DataView(mem().buffer);
+        sim.currentEpoch = view.getUint16(systemAddr, true);
+        sim.currentTick = view.getUint32(systemAddr + 4, true);
+        sim.initialTickOverride = view.getUint32(systemAddr + 8, true);
+        const millisecond = view.getUint16(etalonAddr + 32, true);
+        const [second, minute, hour, day, month, year] = mem().subarray(etalonAddr + 34, etalonAddr + 40);
+        sim.timeBaseMs = Date.UTC(year + 2000, month - 1, day, hour, minute, second, millisecond) - sim.currentTick * sim.tickDuration;
+        sim.prevSpectrumDigestOverride = read(etalonAddr, 32);
+    };
+    const syncedClock = (imports: Record<string, Function>): Record<string, Function> =>
+        Object.fromEntries(
+            Object.entries(imports).map(([name, call]) => [
+                name,
+                (...args: unknown[]) => {
+                    syncClockFromRunner();
+                    return call(...args);
+                },
+            ]),
+        );
+
+    // Constructing a fixture resets spectrum/universe/contract states; system and etalonTick are the runner's own globals, synced in on every call.
     const deployAll = () => {
-        // The corpus `system` proxy mirrors real Qubic's persistent global: constructing a fixture resets spectrum/universe/contract states but never system.
-        const previousEpoch = sim?.currentEpoch;
-        const previousTick = sim?.currentTick;
-        const previousTimeBase = sim?.timeBaseMs;
-        const previousDigest = sim?.prevSpectrumDigestOverride;
         sim = new QubicSimulator({
             mempool: false,
             fees: "off",
             liteTicking: true,
+            haltOnContractFault: false,
+            ...(opts.profile === "core-gtest" ? { consensus: { numberOfComputors: MAINNET_COMPUTOR_COUNT } } : {}),
         });
-        // Pin the corpus clock to the native harness's fixed date so it does not follow VirtualNode's wall-clock override; preservation wins on redeploy.
+        // Pin the corpus clock to the native harness's fixed date so it does not follow VirtualNode's wall-clock override; syncClockFromRunner replaces it.
         sim.timeBaseMs = Date.UTC(2024, 0, 1);
         // Native-harness clock semantics: etalonTick's date fields ARE the chain time and only move when a corpus writes them. Freeze the per-tick advance.
         sim.tickDuration = 0;
         // Native etalonTick.prevSpectrumDigest is a zero-initialized global the corpus may pin; contracts read exactly that, not a live digest.
-        sim.prevSpectrumDigestOverride = previousDigest ?? new Uint8Array(32);
-        if (previousEpoch !== undefined) {
-            sim.currentEpoch = previousEpoch;
-        }
-        if (previousTick !== undefined) {
-            sim.currentTick = previousTick;
-        }
-        if (previousTimeBase !== undefined) {
-            sim.timeBaseMs = previousTimeBase;
-        }
+        sim.prevSpectrumDigestOverride = new Uint8Array(32);
+        syncClockFromRunner();
         handles = {};
         spectrumIds = [];
         spectrumBytes = [];
@@ -179,6 +224,66 @@ export async function runContractTesting(
     let dispatchCount = 0; // QINIT_GTEST_PROGRESS: dispatch-rate telemetry for slow/hanging corpora
     const t0Progress = performance.now();
 
+    // q_invoke is invokeUserProcedure's path and moves the reward first; q_call_procedure is QpiContextUserProcedureCall::call, which core leaves to its caller.
+    const runProcedure = (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number, transferReward: boolean): number => {
+        if (env_.QINIT_GTEST_PROGRESS && ++dispatchCount % 500 === 0) {
+            (globalThis as any).process?.stderr?.write?.(
+                `[gtest] ${dispatchCount} dispatches (${((performance.now() - t0Progress) / 1000).toFixed(1)}s)\n`,
+            );
+        }
+        pushShadowsToEngine();
+        const input = read(inPtr, inLen);
+        const origin = id32(originPtr);
+        let out: Uint8Array;
+        let code = 0;
+        try {
+            out = traceDisp(`invoke[${idx >>> 0}:${it >>> 0}]`, () =>
+                sim.procedure(idx >>> 0, it >>> 0, input, {
+                    reward: BigInt(amount),
+                    invocator: origin,
+                    originator: origin,
+                    transferReward,
+                }),
+            );
+        } catch (e: any) {
+            code = failed(`invoke[${idx >>> 0}:${it >>> 0}]`, e) ?? 0;
+            out = new Uint8Array(0);
+        }
+        const n = Math.min(out.length, outCap >>> 0);
+        if (n) write(outPtr, out.subarray(0, n));
+        pullShadowsFromEngine();
+        // QINIT_GTEST_WATCH_SLOT=<n>: print the watched contract balance after each invocation.
+        if (env_.QINIT_GTEST_WATCH_SLOT) {
+            const ws = Number(env_.QINIT_GTEST_WATCH_SLOT);
+            const bal = sim.balance((sim as any).contractId(ws));
+            // QINIT_GTEST_WATCH_OFF=<byteOff>: also print the u64 at that state offset, e.g. a counter identified by a snapshot diff.
+            let fld = "";
+            if (env_.QINIT_GTEST_WATCH_OFF) {
+                const off = Number(env_.QINIT_GTEST_WATCH_OFF);
+                const c2 = handles[ws];
+                if (c2) {
+                    const sv = c2.stateView(off + 8);
+                    fld = ` fld=${new DataView(sv.buffer, sv.byteOffset + off, 8).getBigUint64(0, true)}`;
+                }
+            }
+            (globalThis as any).process?.stderr?.write?.(
+                `[watch] #${++dispatchCount} it=${it >>> 0} amt=${amount} org=${hex(origin).slice(0, 12)} bal=${bal}${fld}\n`,
+            );
+            // QINIT_GTEST_SNAP="<dispatchN>:<filePrefix>": dump the watched contract state.
+            const snap = (env_.QINIT_GTEST_SNAP ?? "") as string;
+            if (snap) {
+                const [nStr, prefix] = snap.split(":");
+                if (dispatchCount === Number(nStr)) {
+                    const c2 = handles[ws];
+                    const fs = require("node:fs");
+                    const f = `${prefix}.${dispatchCount}.bin`;
+                    if (c2) fs.writeFileSync(fs.existsSync(f) ? f.replace(/\.bin$/, ".simulator.bin") : f, c2.stateView(c2.stateSize));
+                }
+            }
+        }
+        return code;
+    };
+
     const thost = {
         q_reset: () => {
             deployAll();
@@ -187,82 +292,37 @@ export async function runContractTesting(
             /* contracts pre-deployed in deployAll */
         },
 
-        // A contract trap inside a dispatch fails the CURRENT TEST, not the whole run, as the native harness does; `trap()` records it for t_report.
-        q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number => {
-            if (env_.QINIT_GTEST_PROGRESS && ++dispatchCount % 500 === 0) {
-                (globalThis as any).process?.stderr?.write?.(
-                    `[gtest] ${dispatchCount} dispatches (${((performance.now() - t0Progress) / 1000).toFixed(1)}s)\n`,
-                );
-            }
-            pushShadowsToEngine();
-            const input = read(inPtr, inLen);
-            const origin = id32(originPtr);
-            if (amount > 0n) sim.decreaseEnergy(sim.spectrumIndex(origin), BigInt(amount));
-            let out: Uint8Array;
-            try {
-                out = traceDisp(`invoke[${idx >>> 0}:${it >>> 0}]`, () =>
-                    sim.procedure(idx >>> 0, it >>> 0, input, {
-                        reward: BigInt(amount),
-                        invocator: origin,
-                        originator: origin,
-                    }),
-                );
-            } catch (e: any) {
-                trap(`invoke[${idx >>> 0}:${it >>> 0}]`, e);
-                out = new Uint8Array(0);
-            }
-            const n = Math.min(out.length, outCap >>> 0);
-            if (n) write(outPtr, out.subarray(0, n));
-            pullShadowsFromEngine();
-            // QINIT_GTEST_WATCH_SLOT=<n>: print the watched contract balance after each invocation.
-            if (env_.QINIT_GTEST_WATCH_SLOT) {
-                const ws = Number(env_.QINIT_GTEST_WATCH_SLOT);
-                const bal = sim.balance((sim as any).contractId(ws));
-                // QINIT_GTEST_WATCH_OFF=<byteOff>: also print the u64 at that state offset, e.g. a counter identified by a snapshot diff.
-                let fld = "";
-                if (env_.QINIT_GTEST_WATCH_OFF) {
-                    const off = Number(env_.QINIT_GTEST_WATCH_OFF);
-                    const c2 = handles[ws];
-                    if (c2) {
-                        const sv = c2.stateView(off + 8);
-                        fld = ` fld=${new DataView(sv.buffer, sv.byteOffset + off, 8).getBigUint64(0, true)}`;
-                    }
-                }
-                (globalThis as any).process?.stderr?.write?.(
-                    `[watch] #${++dispatchCount} it=${it >>> 0} amt=${amount} org=${hex(origin).slice(0, 12)} bal=${bal}${fld}\n`,
-                );
-                // QINIT_GTEST_SNAP="<dispatchN>:<filePrefix>": dump the watched contract state.
-                const snap = (env_.QINIT_GTEST_SNAP ?? "") as string;
-                if (snap) {
-                    const [nStr, prefix] = snap.split(":");
-                    if (dispatchCount === Number(nStr)) {
-                        const c2 = handles[ws];
-                        const fs = require("node:fs");
-                        const f = `${prefix}.${dispatchCount}.bin`;
-                        if (c2) fs.writeFileSync(fs.existsSync(f) ? f.replace(/\.bin$/, ".simulator.bin") : f, c2.stateView(c2.stateSize));
-                    }
-                }
-            }
-            return n >>> 0;
+        // A contract failure inside a dispatch comes back as its code, as in the native harness; only an engine error fails the CURRENT TEST via `trap()`.
+        q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number =>
+            runProcedure(idx, it, inPtr, inLen, amount, originPtr, outPtr, outCap, true),
+        q_call_procedure: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number =>
+            runProcedure(idx, it, inPtr, inLen, amount, originPtr, outPtr, outCap, false),
+        // the registered output size of a function (0) or procedure (1), which core's call contexts expose as outputSize
+        q_output_size: (idx: number, isProcedure: number, it: number): number => {
+            const kind = isProcedure ? CONTRACT_ENTRY_KIND.PROCEDURE : CONTRACT_ENTRY_KIND.FUNCTION;
+            const entry = handles[idx >>> 0]?.entries.find((candidate) => candidate.kind === kind && candidate.inputType === it >>> 0);
+            return (entry?.outputSizeBytes ?? 0) >>> 0;
         },
 
         q_query: (idx: number, it: number, inPtr: number, inLen: number, outPtr: number, outCap: number): number => {
             pushShadowsToEngine();
             let out: Uint8Array;
+            let code = 0;
             try {
                 out = traceDisp(`query[${idx >>> 0}:${it >>> 0}]`, () => sim.query(idx >>> 0, it >>> 0, read(inPtr, inLen)));
             } catch (e: any) {
-                trap(`query[${idx >>> 0}:${it >>> 0}]`, e);
+                code = failed(`query[${idx >>> 0}:${it >>> 0}]`, e) ?? 0;
                 out = new Uint8Array(0);
             }
             const n = Math.min(out.length, outCap >>> 0);
             if (n) write(outPtr, out.subarray(0, n));
-            return n >>> 0;
+            return code;
         },
 
-        q_sysproc: (idx: number, sp: number) => {
+        q_sysproc: (idx: number, sp: number): number => {
             pushShadowsToEngine();
             const c = handles[idx >>> 0];
+            let code = 0;
             try {
                 if (c && c.hasSysproc(sp >>> 0))
                     traceDisp(`sysproc[${idx >>> 0}:${sp >>> 0}]`, () =>
@@ -271,12 +331,13 @@ export async function runContractTesting(
                         }),
                     );
             } catch (e: any) {
-                trap(`sysproc[${idx >>> 0}:${sp >>> 0}]`, e);
+                code = failed(`sysproc[${idx >>> 0}:${sp >>> 0}]`, e) ?? 0;
             }
             pullShadowsFromEngine();
             if (env_.QINIT_GTEST_DUMP_ASSETS) {
                 (globalThis as any).process.stderr.write(`[assets after sysproc ${sp >>> 0}] ${JSON.stringify(sim.assetUniverse())}\n`);
             }
+            return code;
         },
 
         q_fund: (idPtr: number, amount: bigint) => {
@@ -286,11 +347,17 @@ export async function runContractTesting(
             const b = sim.balance(id32(idPtr));
             return typeof b === "bigint" ? b : 0n;
         },
-        // Move the amount to dest and fire its POST_INCOMING_TRANSFER.
-        q_notify_pit: (srcPtr: number, dstPtr: number, amount: bigint, type: number) => {
+        // fire only the POST_INCOMING_TRANSFER callback: core's QpiContextSystemProcedureCall leaves moving the qu to its caller.
+        q_fire_pit: (srcPtr: number, dstPtr: number, amount: bigint, type: number): number => {
             pushShadowsToEngine();
-            sim.notifyIncomingTransfer(id32(srcPtr), id32(dstPtr), BigInt(amount), type >>> 0);
+            let code = 0;
+            try {
+                sim.notifyContractOfIncomingTransfer(id32(dstPtr), id32(srcPtr), BigInt(amount), type >>> 0);
+            } catch (e: any) {
+                code = failed("post incoming transfer", e) ?? 0;
+            }
             pullShadowsFromEngine();
+            return code;
         },
         // issueAsset(issuer, name, decimals, unit, shares, mgmt): mint an asset (issuer == invocator path). Returns shares.
         q_issue_asset: (issuerPtr: number, name: bigint, decimals: number, shares: bigint, unit: bigint, slot: number): bigint => {
@@ -350,9 +417,13 @@ export async function runContractTesting(
             return i;
         },
 
-        q_decrease: (idx: number, amount: bigint) => {
+        q_decrease: (idx: number, amount: bigint): number => {
             const b = spectrumBytes[idx >>> 0];
-            if (b) sim.decreaseEnergy(sim.spectrumIndex(b), BigInt(amount));
+            return b && sim.decreaseEnergy(sim.spectrumIndex(b), BigInt(amount)) ? 1 : 0;
+        },
+        q_energy: (idx: number): bigint => {
+            const b = spectrumBytes[idx >>> 0];
+            return b ? sim.balance(b) : 0n;
         },
 
         q_shares: (issuerPtr: number, assetName: bigint): bigint => {
@@ -424,21 +495,11 @@ export async function runContractTesting(
             shadowsToPush.add(slot);
         },
 
-        q_set_epoch: (e: number) => {
-            sim.currentEpoch = e >>> 0;
-        },
-        q_get_epoch: (): number => sim.currentEpoch >>> 0,
-        q_set_tick: (t: number) => {
-            sim.currentTick = t >>> 0;
-        },
-        q_get_tick: (): number => sim.currentTick >>> 0,
-        q_set_prev_spectrum_digest: (ptr: number) => {
-            sim.prevSpectrumDigestOverride = read(ptr, 32);
-        },
-        // updateQpiTime() pushes its utcTime fields here; set the chain clock so the qpi date accessors return them, with timeBaseMs chosen to match.
-        q_set_datetime: (y: number, mo: number, d: number, h: number, mi: number, s: number) => {
-            const ms = Date.UTC(y >>> 0, (mo >>> 0) - 1, d >>> 0, h >>> 0, mi >>> 0, s >>> 0);
-            sim.timeBaseMs = ms - sim.currentTick * sim.tickDuration;
+        q_number_of_shares: (assetPtr: number, ownershipPtr: number, possessionPtr: number): bigint =>
+            sim.host.numberOfShares(read(assetPtr, 40), read(ownershipPtr, 40), read(possessionPtr, 40)),
+        q_get_fee_reserve: (i: number): bigint => sim.getContractFeeReserve(i >>> 0),
+        q_set_fee_reserve: (i: number, amount: bigint) => {
+            sim.setContractFeeReserve(i >>> 0, amount);
         },
 
         // Proposal-voting corpora seed their committee via broadcastedComputors.publicKeys[i]; the harness routes each write here so qpi.computor(i) matches.
@@ -484,6 +545,162 @@ export async function runContractTesting(
         return off >>> 0;
     };
 
+    // Whom contract code the runner runs acts for: the invocator and originator of the innermost call context the test built, as core's
+    // context carries them, else the contract under test. The lhost imports carry no context, so the harness reports it.
+    let partiesOff = 0;
+    const parties = (): { invocator: Id; originator: Id } => {
+        const report = runner?.exports?.qinit_context_parties as Function | undefined;
+        const acquire = runner?.exports?.qinit_scratch_acquire as Function | undefined;
+        if (report && acquire) {
+            partiesOff ||= acquire(64, 1) >>> 0;
+            if (report(partiesOff, partiesOff + 32)) {
+                return { invocator: id32(partiesOff), originator: id32(partiesOff + 32) };
+            }
+        }
+        const self = sim.contractId(mainSlot);
+        return { invocator: self, originator: self };
+    };
+
+    // The rest of core-lite's lhost surface, reached when a test runs contract code in the runner (a private function it calls directly).
+    // The caller is the contract under test acting for parties(); a call that can move qu or shares or run contract code syncs the shadows around it.
+    const runnerQpiImports = (): Record<string, Function> => {
+        const originator = (): Id => parties().originator;
+        const synced = <T>(call: () => T): T => {
+            pushShadowsToEngine();
+            try {
+                return call();
+            } finally {
+                pullShadowsFromEngine();
+            }
+        };
+        const writeAssetIndex = (off: number, index: number) => new DataView(mem().buffer).setInt32(off >>> 0, index, true);
+        return {
+            beginFn: () => {},
+            endFn: () => {},
+            pauseLog: () => {},
+            resumeLog: () => {},
+            logBytes: () => {},
+            markDirty: () => sim.host.markDirty(mainSlot),
+            // core cannot continue past an abort either (a procedure spins, a function long-jumps), so the test fails here.
+            abort: (code: number) => {
+                throw new ContractAbort(code >>> 0);
+            },
+            transferTyped: (destOff: number, amount: bigint, type: number): bigint => synced(() => sim.host.transfer(mainSlot, id32(destOff), amount, type & 0xff, originator())),
+            initialTick: (): number => sim.host.initialTick() >>> 0,
+            numberOfTickTransactions: (): number => sim.host.numberOfTickTransactions(),
+            queryFeeReserve: (ci: number): bigint => sim.host.queryFeeReserve(mainSlot, ci >>> 0),
+            nextId: (idOff: number, outOff: number) => write(outOff, sim.host.nextId(id32(idOff)).subarray(0, 32)),
+            prevId: (idOff: number, outOff: number) => write(outOff, sim.host.prevId(id32(idOff)).subarray(0, 32)),
+            isContractId: (idOff: number): number => sim.host.isContractId(id32(idOff)),
+            arbitrator: (outOff: number) => write(outOff, sim.host.arbitrator().subarray(0, 32)),
+            computor: (index: number, outOff: number) => write(outOff, sim.host.computor(index >>> 0).subarray(0, 32)),
+            prevUniverseDigest: (outOff: number) => write(outOff, sim.host.getPrevUniverseDigest().subarray(0, 32)),
+            prevComputerDigest: (outOff: number) => write(outOff, sim.host.getPrevComputerDigest().subarray(0, 32)),
+            isAssetIssued: (issuerOff: number, name: bigint): number => sim.host.isAssetIssued(id32(issuerOff), name),
+            issueAsset: (name: bigint, issuerOff: number, decimals: number, shares: bigint, unit: bigint): bigint =>
+                synced(() => sim.host.issueAsset(mainSlot, name, id32(issuerOff), (decimals << 24) >> 24, shares, unit, parties().invocator)),
+            numberOfShares: (assetOff: number, ownershipOff: number, possessionOff: number): bigint =>
+                sim.host.numberOfShares(read(assetOff, 40), read(ownershipOff, 40), read(possessionOff, 40)),
+            numberOfPossessedShares: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, ownMgmt: number, posMgmt: number): bigint =>
+                sim.host.numberOfPossessedShares(name, id32(issuerOff), id32(ownerOff), id32(possessorOff), ownMgmt & 0xffff, posMgmt & 0xffff),
+            // the iterator keeps the universe indices in the contract's own object: begin and next advance them there, record reads the current one.
+            assetIterBegin: (kind: number, issuanceOff: number, ownershipOff: number, possessionOff: number, issuanceIdxOff: number, ownershipIdxOff: number, possessionIdxOff: number) => {
+                const position = sim.host.assetIterBegin(kind >>> 0, read(issuanceOff, 40), read(ownershipOff, 36), read(possessionOff, 36));
+                writeAssetIndex(issuanceIdxOff, position.issuanceIndex);
+                writeAssetIndex(ownershipIdxOff, position.ownershipIndex);
+                if (kind === 1) writeAssetIndex(possessionIdxOff, position.possessionIndex);
+            },
+            assetIterNext: (kind: number, _issuanceOff: number, ownershipOff: number, possessionOff: number, issuanceIdxOff: number, ownershipIdxOff: number, possessionIdxOff: number): number => {
+                const view = new DataView(mem().buffer);
+                const position = {
+                    issuanceIndex: view.getInt32(issuanceIdxOff >>> 0, true),
+                    ownershipIndex: view.getInt32(ownershipIdxOff >>> 0, true),
+                    possessionIndex: kind === 1 ? view.getInt32(possessionIdxOff >>> 0, true) : NO_ASSET_INDEX,
+                };
+                const step = sim.host.assetIterNext(kind >>> 0, position, read(ownershipOff, 36), read(possessionOff, 36));
+                writeAssetIndex(ownershipIdxOff, step.position.ownershipIndex);
+                if (kind === 1) writeAssetIndex(possessionIdxOff, step.position.possessionIndex);
+                return step.selected ? 1 : 0;
+            },
+            assetIterRecord: (kind: number, ownershipIdx: number, possessionIdx: number, outOff: number) => {
+                const entry = sim.host.assetIterRecord(kind >>> 0, ownershipIdx | 0, possessionIdx | 0);
+                const record = ASSET_ENUMERATION_RECORD;
+                const out = outOff >>> 0;
+                mem().fill(0, out, out + record.size);
+                if (!entry) return;
+                const view = new DataView(mem().buffer);
+                mem().set(entry.owner.subarray(0, record.fields.owner.size), out + record.fields.owner.offset);
+                mem().set(entry.possessor.subarray(0, record.fields.possessor.size), out + record.fields.possessor.offset);
+                view.setBigInt64(out + record.fields.shares.offset, entry.shares, true);
+                view.setUint16(out + record.fields.ownershipManagingContract.offset, entry.ownMgmt & 0xffff, true);
+                view.setUint16(out + record.fields.possessionManagingContract.offset, entry.posMgmt & 0xffff, true);
+            },
+            transferShareOwnershipAndPossession: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, shares: bigint, newOwnerOff: number): bigint =>
+                synced(() => sim.host.transferShareOwnershipAndPossession(mainSlot, name, id32(issuerOff), id32(ownerOff), id32(possessorOff), shares, id32(newOwnerOff))),
+            acquireShares: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, shares: bigint, srcOwnMgmt: number, srcPosMgmt: number, fee: bigint): bigint =>
+                synced(() => sim.host.acquireShares(mainSlot, name, id32(issuerOff), id32(ownerOff), id32(possessorOff), shares, srcOwnMgmt & 0xffff, srcPosMgmt & 0xffff, fee, originator())),
+            releaseShares: (name: bigint, issuerOff: number, ownerOff: number, possessorOff: number, shares: bigint, dstOwnMgmt: number, dstPosMgmt: number, fee: bigint): bigint =>
+                synced(() => sim.host.releaseShares(mainSlot, name, id32(issuerOff), id32(ownerOff), id32(possessorOff), shares, dstOwnMgmt & 0xffff, dstPosMgmt & 0xffff, fee, originator())),
+            distributeDividends: (amountPerShare: bigint): number => synced(() => sim.host.distributeDividends(mainSlot, amountPerShare, originator())),
+            dayOfWeek: (year: number, month: number, day: number): number => sim.host.dayOfWeek(year & 0xff, month & 0xff, day & 0xff),
+            signatureValidity: (entityOff: number, digestOff: number, signatureOff: number): number =>
+                sim.host.signatureValidity(id32(entityOff), id32(digestOff), read(signatureOff, 64)),
+            bidInIPO: (ipoIdx: number, price: bigint, quantity: number): bigint => synced(() => sim.host.bidInIPO(mainSlot, ipoIdx >>> 0, price, quantity >>> 0)),
+            ipoBidId: (ipoIdx: number, bidIdx: number, outOff: number) => write(outOff, sim.host.ipoBidId(ipoIdx >>> 0, bidIdx >>> 0).subarray(0, 32)),
+            ipoBidPrice: (ipoIdx: number, bidIdx: number): bigint => sim.host.ipoBidPrice(ipoIdx >>> 0, bidIdx >>> 0),
+            computeMiningFunction: (seedOff: number, publicKeyOff: number, nonceOff: number, outOff: number) =>
+                write(outOff, sim.host.computeMiningFunction(id32(seedOff), id32(publicKeyOff), id32(nonceOff)).subarray(0, 32)),
+            initMiningSeed: (seedOff: number) => sim.host.initMiningSeed(id32(seedOff)),
+            getOracleQueryStatus: (queryId: bigint): number => sim.host.getOracleQueryStatus(queryId),
+            getOcInvocationStatus: (invocationId: bigint): number => sim.host.getOcInvocationStatus(invocationId),
+            invokeOc: (interfaceIdx: number, requestOff: number, requestSize: number): bigint =>
+                synced(() => sim.host.invokeOc(mainSlot, interfaceIdx >>> 0, read(requestOff, requestSize))),
+            queryOracle: (interfaceIdx: number, queryOff: number, querySize: number, replySize: number, procId: number, timeout: number, fee: bigint): bigint =>
+                synced(() => sim.host.queryOracle(mainSlot, interfaceIdx >>> 0, read(queryOff, querySize), replySize >>> 0, procId >>> 0, timeout >>> 0, fee)),
+            subscribeOracle: (
+                interfaceIdx: number,
+                queryOff: number,
+                querySize: number,
+                replySize: number,
+                timestampOffset: number,
+                procId: number,
+                period: number,
+                notifyPrev: number,
+                fee: bigint,
+            ): number =>
+                synced(() =>
+                    sim.host.subscribeOracle(
+                        mainSlot,
+                        interfaceIdx >>> 0,
+                        read(queryOff, querySize),
+                        replySize >>> 0,
+                        timestampOffset >>> 0,
+                        procId >>> 0,
+                        period >>> 0,
+                        notifyPrev !== 0,
+                        fee,
+                    ),
+                ),
+            unsubscribeOracle: (subscriptionId: number): number => synced(() => sim.host.unsubscribeOracle(mainSlot, subscriptionId | 0)),
+            getOracleQuery: (queryId: bigint, outOff: number, size: number): number => {
+                const query = sim.host.getOracleQuery(queryId);
+                if (!query || query.length !== size) return 0;
+                write(outOff, query);
+                return 1;
+            },
+            getOracleReply: (queryId: bigint, outOff: number, size: number): number => {
+                const reply = sim.host.getOracleReply(queryId);
+                if (!reply || reply.length !== size) return 0;
+                write(outOff, reply);
+                return 1;
+            },
+            liteSetShareholderProposal: (calleeIdx: number, proposalOff: number, reward: bigint): number =>
+                synced(() => sim.host.setShareholderProposal(mainSlot, calleeIdx >>> 0, read(proposalOff, 1024), reward, originator())),
+            liteSetShareholderVotes: (calleeIdx: number, voteOff: number, voteSize: number, reward: bigint): number =>
+                synced(() => sim.host.setShareholderVotes(mainSlot, calleeIdx >>> 0, read(voteOff, voteSize), reward, originator())),
+        };
+    };
+
     // Read-only host surface for in-runner QPI contexts.
     const lhost: Record<string, Function> = {
         k12: (inOff: number, len: number, outOff: number) => mem().set(k12Bytes(read(inOff, len)), outOff >>> 0),
@@ -501,7 +718,7 @@ export async function runContractTesting(
         // Real host transfer, not a noop: QTF's CheckContractBalance reads qpi.getEntity(SELF), and delegating keeps the deployed runtime's semantics.
         transfer: (destOff: number, amount: bigint): bigint => {
             pushShadowsToEngine();
-            const remaining = sim.host.transfer(mainSlot, id32(destOff), amount, 2 /*qpiTransfer*/);
+            const remaining = sim.host.transfer(mainSlot, id32(destOff), amount, 2 /*qpiTransfer*/, parties().originator);
             pullShadowsFromEngine();
             return remaining;
         },
@@ -514,7 +731,7 @@ export async function runContractTesting(
             return 0;
         },
         liteInvokeProcedure: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number, reward: bigint): number => {
-            const originator = sim.contractId(mainSlot);
+            const originator = parties().originator;
             pushShadowsToEngine();
             const result = sim.host.invokeProcedure(mainSlot, calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize), reward, originator);
             pullShadowsFromEngine();
@@ -536,14 +753,22 @@ export async function runContractTesting(
             rec.latestOutgoingTransferTick = e ? e.latestOutgoingTransferTick : 0;
             return e ? 1 : 0;
         },
-    };
-    if (sharedSlots.size) {
-        lhost.acquireScratch = scratchAcquire;
-        lhost.releaseScratch = (off: number) => {
+        ...runnerQpiImports(),
+        // CALL() locals and container cleanup in the runner. The harness's own malloc when it exports one, so the scratch never lands on heap pages.
+        acquireScratch: (size: bigint, initZero: number): number => {
+            const acquire = runner?.exports?.qinit_scratch_acquire as Function | undefined;
+            return acquire ? acquire(Number(size), initZero) >>> 0 : scratchAcquire(size, initZero);
+        },
+        releaseScratch: (off: number) => {
+            const release = runner?.exports?.qinit_scratch_release as Function | undefined;
+            if (release) {
+                release(off);
+                return;
+            }
             const p = off >>> 0;
             if (p >= scratchBase && p <= scratchBump) scratchBump = p;
-        };
-    }
+        },
+    };
 
     // env: PRNG (global in the runner) + contract-specific symbols.
     const envObj: Record<string, Function> = { ...env };
@@ -584,12 +809,14 @@ export async function runContractTesting(
         }
     }
 
-    const imports: Record<string, Record<string, Function>> = { thost };
-    if (Object.keys(lhost).length) imports.lhost = lhost;
+    const imports: Record<string, Record<string, Function>> = { thost: syncedClock(thost) };
+    if (Object.keys(lhost).length) imports.lhost = syncedClock(lhost);
     if (Object.keys(envObj).length) imports.env = envObj;
     imports.wasi_snapshot_preview1 = wasiObj;
 
     runner = await WebAssembly.instantiate(mod, imports as any);
+    systemAddr = ((runner.exports.qinit_system as Function)?.() ?? 0) >>> 0;
+    etalonAddr = ((runner.exports.qinit_etalon as Function)?.() ?? 0) >>> 0;
     // Deploy after instantiation so _initialize can call the host with live shared memory.
     deployAll();
     (runner.exports._initialize as Function)?.();

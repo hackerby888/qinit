@@ -1,6 +1,7 @@
 // Single source of truth for QPI container on-wire layouts (mirrors core src/qpi/qpi_containers.h).
 import { roundUp } from "@qinit/core";
 
+// bits -> whole uint64 words, e.g. 256 -> 4, 65 -> 2
 export const bitWordCount = (bitCount: number) => Math.ceil(bitCount / 64);
 
 interface Layout {
@@ -8,6 +9,7 @@ interface Layout {
     align: number;
 }
 
+// occupation flags are 2 bits per slot (32 a word) in the hash containers and collection povs, 1 bit per node (64 a word) in the linked list
 const hashMapFlagWordCount = (capacity: number) => Math.ceil(capacity / 32);
 const hashSetFlagWordCount = (capacity: number) => Math.ceil(capacity / 32);
 const collectionFlagWordCount = (capacity: number) => Math.ceil(capacity / 32);
@@ -20,6 +22,8 @@ function layoutSize(value: number): number {
     return value;
 }
 
+// core static_asserts L = 2^N for every container, which is what lets `index & (L - 1)` stand in for a bounds check.
+// e.g. Array<uint64, 4> -> { stride: 8, size: 32, align: 8 }; stride is the element size padded to its own align
 export function arrayGeometry(element: Layout, count: number) {
     const stride = roundUp(element.size, element.align);
     return {
@@ -29,6 +33,7 @@ export function arrayGeometry(element: Layout, count: number) {
     };
 }
 
+// whole words, e.g. BitArray<256> -> { size: 32, align: 8 }, BitArray<65> -> size 16 with 63 unused tail bits
 export function bitArrayGeometry(bitCount: number) {
     return {
         size: layoutSize(bitWordCount(bitCount) * 8),
@@ -36,46 +41,57 @@ export function bitArrayGeometry(bitCount: number) {
     };
 }
 
+// core: struct Element { KeyT key; ValueT value; } _elements[L]; uint64 _occupationFlags[(L * 2 + 63) / 64]; uint64 _population; uint64 _markRemovalCounter;
+// e.g. HashMap<uint64, uint64, 4> -> elementStride 16, value at 8, flags at 64, population at 72, markRemovalCounter at 80, size 88
 export function hashMapGeometry(key: Layout, value: Layout, capacity: number) {
-    const valueOffset = roundUp(key.size, value.align);
+    const elementValueOffset = roundUp(key.size, value.align);
     const align = Math.max(key.align, value.align, 8);
-    const recordStride = roundUp(valueOffset + value.size, Math.max(key.align, value.align));
-    const flagsOffset = roundUp(layoutSize(capacity * recordStride), 8);
+    const elementStride = roundUp(elementValueOffset + value.size, Math.max(key.align, value.align));
+    const flagsOffset = roundUp(layoutSize(capacity * elementStride), 8);
     const flagsBytes = hashMapFlagWordCount(capacity) * 8;
     const populationOffset = layoutSize(flagsOffset + flagsBytes);
+    const markRemovalCounterOffset = populationOffset + 8;
     return {
-        recordStride,
-        valueOffset,
+        elementStride,
+        elementValueOffset,
         flagsOffset,
         flagsBytes,
         populationOffset,
-        size: layoutSize(roundUp(populationOffset + 16, align)),
+        markRemovalCounterOffset,
+        size: layoutSize(roundUp(markRemovalCounterOffset + 8, align)),
         align,
     };
 }
 
+// core: KeyT _keys[L]; uint64 _occupationFlags[(L * 2 + 63) / 64]; uint64 _population; uint64 _markRemovalCounter;
+// e.g. HashSet<uint64, 4> -> keyStride 8, flags at 32, population at 40, markRemovalCounter at 48, size 56
 export function hashSetGeometry(key: Layout, capacity: number) {
     const align = Math.max(key.align, 8);
-    const recordStride = roundUp(key.size, key.align);
-    const flagsOffset = roundUp(layoutSize(capacity * recordStride), 8);
+    const keyStride = roundUp(key.size, key.align);
+    const flagsOffset = roundUp(layoutSize(capacity * keyStride), 8);
     const flagsBytes = hashSetFlagWordCount(capacity) * 8;
     const populationOffset = layoutSize(flagsOffset + flagsBytes);
+    const markRemovalCounterOffset = populationOffset + 8;
     return {
-        recordStride,
+        keyStride,
         flagsOffset,
         flagsBytes,
         populationOffset,
-        size: layoutSize(roundUp(populationOffset + 16, align)),
+        markRemovalCounterOffset,
+        size: layoutSize(roundUp(markRemovalCounterOffset + 8, align)),
         align,
     };
 }
 
+// core: struct PoV { id value; uint64 population; sint64 headIndex, tailIndex; sint64 bstRootIndex; } _povs[L]; uint64 _povOccupationFlags[(L * 2 + 63) / 64];
+//       struct Element { T value; sint64 priority; sint64 povIndex; sint64 bstParentIndex; sint64 bstLeftIndex; sint64 bstRightIndex; } _elements[L];
+//       uint64 _population; uint64 _markRemovalCounter;
 export function collectionGeometry(value: Layout, capacity: number) {
     const povValueOffset = 0;
     const povPopulationOffset = 32;
-    const povHeadOffset = 40;
-    const povTailOffset = 48;
-    const povBstRootOffset = 56;
+    const povHeadIndexOffset = 40;
+    const povTailIndexOffset = 48;
+    const povBstRootIndexOffset = 56;
     const povStride = 64;
     const flagsOffset = layoutSize(capacity * povStride);
     const flagsBytes = collectionFlagWordCount(capacity) * 8;
@@ -84,19 +100,20 @@ export function collectionGeometry(value: Layout, capacity: number) {
     const elementValueOffset = 0;
     const elementPriorityOffset = roundUp(value.size, 8);
     const elementPovIndexOffset = elementPriorityOffset + 8;
-    const elementBstParentOffset = elementPovIndexOffset + 8;
-    const elementBstLeftOffset = elementBstParentOffset + 8;
-    const elementBstRightOffset = elementBstLeftOffset + 8;
-    const elementStride = roundUp(elementBstRightOffset + 8, align);
+    const elementBstParentIndexOffset = elementPovIndexOffset + 8;
+    const elementBstLeftIndexOffset = elementBstParentIndexOffset + 8;
+    const elementBstRightIndexOffset = elementBstLeftIndexOffset + 8;
+    const elementStride = roundUp(elementBstRightIndexOffset + 8, align);
     const populationOffset = layoutSize(elementsOffset + capacity * elementStride);
+    const markRemovalCounterOffset = populationOffset + 8;
     return {
         povsOffset: 0,
         povStride,
         povValueOffset,
         povPopulationOffset,
-        povHeadOffset,
-        povTailOffset,
-        povBstRootOffset,
+        povHeadIndexOffset,
+        povTailIndexOffset,
+        povBstRootIndexOffset,
         flagsOffset,
         flagsBytes,
         elementsOffset,
@@ -104,50 +121,55 @@ export function collectionGeometry(value: Layout, capacity: number) {
         elementValueOffset,
         elementPriorityOffset,
         elementPovIndexOffset,
-        elementBstParentOffset,
-        elementBstLeftOffset,
-        elementBstRightOffset,
+        elementBstParentIndexOffset,
+        elementBstLeftIndexOffset,
+        elementBstRightIndexOffset,
         populationOffset,
-        size: layoutSize(roundUp(populationOffset + 16, align)),
+        markRemovalCounterOffset,
+        size: layoutSize(roundUp(markRemovalCounterOffset + 8, align)),
         align,
     };
 }
 
+// core: struct Node { T value; sint64 nextIndex; sint64 prevIndex; } _nodes[L]; uint64 _occupiedFlags[(L + 63) / 64];
+//       sint64 _headIndex; sint64 _tailIndex; sint64 _freeHeadIndex; uint64 _nextUnusedIndex; uint64 _population;
 export function linkedListGeometry(value: Layout, capacity: number) {
     const align = Math.max(value.align, 8);
-    const nextOffset = roundUp(value.size, 8);
-    const prevOffset = nextOffset + 8;
-    const nodeStride = roundUp(prevOffset + 8, align);
+    const nextIndexOffset = roundUp(value.size, 8);
+    const prevIndexOffset = nextIndexOffset + 8;
+    const nodeStride = roundUp(prevIndexOffset + 8, align);
     const flagsOffset = layoutSize(capacity * nodeStride);
     const flagsBytes = linkedListFlagWordCount(capacity) * 8;
-    const headOffset = flagsOffset + flagsBytes;
-    const tailOffset = headOffset + 8;
-    const freeHeadOffset = tailOffset + 8;
-    const nextUnusedOffset = freeHeadOffset + 8;
-    const populationOffset = nextUnusedOffset + 8;
+    const headIndexOffset = flagsOffset + flagsBytes;
+    const tailIndexOffset = headIndexOffset + 8;
+    const freeHeadIndexOffset = tailIndexOffset + 8;
+    const nextUnusedIndexOffset = freeHeadIndexOffset + 8;
+    const populationOffset = nextUnusedIndexOffset + 8;
     return {
-        nextOffset,
-        prevOffset,
+        nextIndexOffset,
+        prevIndexOffset,
         nodeStride,
         flagsOffset,
         flagsBytes,
-        headOffset,
-        tailOffset,
-        freeHeadOffset,
-        nextUnusedOffset,
+        headIndexOffset,
+        tailIndexOffset,
+        freeHeadIndexOffset,
+        nextUnusedIndexOffset,
         populationOffset,
         size: layoutSize(roundUp(populationOffset + 8, align)),
         align,
     };
 }
 
-// Container members: geometry above says where a container's bytes are, these tables what each run is called in qpi_containers.h — pinned by a drift test.
+// Container regions: geometry above says where a container's bytes are, these tables what each run is called in qpi_containers.h — pinned by a drift test.
 
+// payload is what an entry holds (.key, .value, .priority), count is _population, internal the rest; the diff hides internal rows by default
 export type MemberRole = "payload" | "count" | "internal";
 // Container bookkeeping is not in the IDL, so a member names either one of the container's own IDL types or the fixed word it is stored as.
 export type WordType = "sint64" | "uint64" | "id";
 export type MemberType = WordType | "key" | "value";
 
+// one member inside a slot, e.g. a HashMap value: { off: 8, size: 8, path: ".value", short: ".value", source: "value", type: "value", role: "payload" }
 export interface ContainerMember {
     off: number;
     size: number;
@@ -158,40 +180,49 @@ export interface ContainerMember {
     role: MemberRole;
 }
 
-export type ContainerRegion =
-    | {
-          kind: "records";
-          off: number;
-          end: number;
-          stride: number;
-          path: string;
-          short: string;
-          source: string;
-          members: ContainerMember[];
-      }
-    | {
-          kind: "flags";
-          off: number;
-          end: number;
-          path: string;
-          source: string;
-          bitsPer: number;
-          count: number;
-      }
-    | {
-          kind: "word";
-          off: number;
-          end: number;
-          path: string;
-          short: string;
-          source: string;
-          type: WordType;
-          role: MemberRole;
-      };
+// A strided run of L slots — core's _elements, _keys, _povs or _nodes — each holding the same members.
+export type SlotsRegion = {
+    kind: "slots";
+    off: number;
+    end: number;
+    stride: number;
+    capacity: number;
+    path: string;
+    short: string;
+    source: string;
+    members: ContainerMember[];
+};
 
-// A displayed name is core's own with a dot in front, so the member a path pins is the path without that dot; only record arrays pass their own name.
+// A packed run of `bitsPerSlot` bits per slot, over the same L as the slots it flags; core sizes the two together.
+export type FlagsRegion = {
+    kind: "flags";
+    off: number;
+    end: number;
+    path: string;
+    source: string;
+    bitsPerSlot: number;
+    capacity: number;
+};
+
+// One 8-byte bookkeeping word, or the 32-byte id a word-typed member is stored as.
+export type WordRegion = {
+    kind: "word";
+    off: number;
+    end: number;
+    path: string;
+    short: string;
+    source: string;
+    type: WordType;
+    role: MemberRole;
+};
+
+export type ContainerRegion = SlotsRegion | FlagsRegion | WordRegion;
+
+// `source` is core's own spelling, pinned against the bundled header by the drift test; the display `path` may diverge from it, `source` may not.
+// A displayed name is core's own with a dot in front, so the member a path pins is the path without that dot; only slot arrays pass their own name.
 const sourceOf = (path: string) => path.replace(/^\./, "");
 
+// the region constructors: end and source are derived, callers spell only offsets and names
 const member = (off: number, size: number, path: string, type: MemberType, role: MemberRole, short = path): ContainerMember => ({
     off,
     size,
@@ -202,28 +233,29 @@ const member = (off: number, size: number, path: string, type: MemberType, role:
     role,
 });
 
-const records = (off: number, stride: number, count: number, path: string, short: string, source: string, members: ContainerMember[]): ContainerRegion => ({
-    kind: "records",
+const slots = (off: number, stride: number, capacity: number, path: string, short: string, source: string, members: ContainerMember[]): SlotsRegion => ({
+    kind: "slots",
     off,
-    end: off + stride * count,
+    end: off + stride * capacity,
     stride,
+    capacity,
     path,
     short,
     source,
     members,
 });
 
-const flags = (off: number, size: number, bitsPer: number, count: number, path: string): ContainerRegion => ({
+const flags = (off: number, size: number, bitsPerSlot: number, capacity: number, path: string): FlagsRegion => ({
     kind: "flags",
     off,
     end: off + size,
     path,
     source: sourceOf(path),
-    bitsPer,
-    count,
+    bitsPerSlot,
+    capacity,
 });
 
-const word = (off: number, path: string, type: WordType, role: MemberRole, short = path): ContainerRegion => ({
+const word = (off: number, path: string, type: WordType, role: MemberRole, short = path): WordRegion => ({
     kind: "word",
     off,
     end: off + 8,
@@ -234,71 +266,122 @@ const word = (off: number, path: string, type: WordType, role: MemberRole, short
     role,
 });
 
-export function hashMapMembers(key: Layout, value: Layout, capacity: number): ContainerRegion[] {
+// core: struct Element { KeyT key; ValueT value; } _elements[L];
+//       uint64 _occupationFlags[(L * 2 + 63) / 64];   // 0b00 not occupied, 0b01 occupied, 0b10 occupied but marked for removal
+//       uint64 _population; uint64 _markRemovalCounter;
+export type HashMapRegions = {
+    elements: SlotsRegion;
+    occupationFlags: FlagsRegion;
+    population: WordRegion;
+    markRemovalCounter: WordRegion;
+};
+
+// e.g. HashMap<uint64, uint64, 4> -> elements 0..64 (stride 16), occupationFlags 64..72, population 72..80, markRemovalCounter 80..88
+export function hashMapRegions(key: Layout, value: Layout, capacity: number): HashMapRegions {
     const geometry = hashMapGeometry(key, value, capacity);
-    return [
-        records(0, geometry.recordStride, capacity, ".slot", ".slot", "_elements", [
+    return {
+        elements: slots(0, geometry.elementStride, capacity, "._elements", ".slot", "_elements", [
             member(0, key.size, ".key", "key", "payload"),
-            member(geometry.valueOffset, value.size, ".value", "value", "payload"),
+            member(geometry.elementValueOffset, value.size, ".value", "value", "payload"),
         ]),
-        flags(geometry.flagsOffset, geometry.flagsBytes, 2, capacity, "._occupationFlags"),
-        word(geometry.populationOffset, "._population", "uint64", "count", ""),
-        word(geometry.populationOffset + 8, "._markRemovalCounter", "uint64", "internal"),
-    ];
+        occupationFlags: flags(geometry.flagsOffset, geometry.flagsBytes, 2, capacity, "._occupationFlags"),
+        population: word(geometry.populationOffset, "._population", "uint64", "count", ""),
+        markRemovalCounter: word(geometry.markRemovalCounterOffset, "._markRemovalCounter", "uint64", "internal"),
+    };
 }
 
-export function hashSetMembers(key: Layout, capacity: number): ContainerRegion[] {
+// core: KeyT _keys[L];
+//       uint64 _occupationFlags[(L * 2 + 63) / 64];   // same encoding as HashMap
+//       uint64 _population; uint64 _markRemovalCounter;
+export type HashSetRegions = {
+    keys: SlotsRegion;
+    occupationFlags: FlagsRegion;
+    population: WordRegion;
+    markRemovalCounter: WordRegion;
+};
+
+// e.g. HashSet<uint64, 4> -> keys 0..32 (stride 8), occupationFlags 32..40, population 40..48, markRemovalCounter 48..56
+export function hashSetRegions(key: Layout, capacity: number): HashSetRegions {
     const geometry = hashSetGeometry(key, capacity);
-    return [
-        // A slot is the key, with no member below it to name.
-        records(0, geometry.recordStride, capacity, ".slot", ".slot", "_keys", [member(0, key.size, "", "key", "payload")]),
-        flags(geometry.flagsOffset, geometry.flagsBytes, 2, capacity, "._occupationFlags"),
-        word(geometry.populationOffset, "._population", "uint64", "count", ""),
-        word(geometry.populationOffset + 8, "._markRemovalCounter", "uint64", "internal"),
-    ];
+    return {
+        // a slot is the key itself, so the member has an empty path with nothing below it to name
+        keys: slots(0, geometry.keyStride, capacity, "._keys", ".slot", "_keys", [member(0, key.size, "", "key", "payload")]),
+        occupationFlags: flags(geometry.flagsOffset, geometry.flagsBytes, 2, capacity, "._occupationFlags"),
+        population: word(geometry.populationOffset, "._population", "uint64", "count", ""),
+        markRemovalCounter: word(geometry.markRemovalCounterOffset, "._markRemovalCounter", "uint64", "internal"),
+    };
 }
 
-export function collectionMembers(value: Layout, capacity: number): ContainerRegion[] {
+// core: struct PoV { id value; uint64 population; sint64 headIndex, tailIndex; sint64 bstRootIndex; } _povs[L];
+//       uint64 _povOccupationFlags[(L * 2 + 63) / 64];   // same encoding as HashMap, over _povs
+//       struct Element { T value; sint64 priority; sint64 povIndex; sint64 bstParentIndex; sint64 bstLeftIndex; sint64 bstRightIndex; } _elements[L];
+//       uint64 _population; uint64 _markRemovalCounter;
+// two slot arrays with opposite rules: _povs is a hash map with its own flags, _elements is filled sequentially, has no flags, and remove moves the last element into the gap.
+export type CollectionRegions = {
+    povs: SlotsRegion;
+    povOccupationFlags: FlagsRegion;
+    elements: SlotsRegion;
+    population: WordRegion;
+    markRemovalCounter: WordRegion;
+};
+
+// e.g. Collection<uint64, 4> -> povs 0..256 (stride 64), povOccupationFlags 256..264, elements 264..456 (stride 48), population 456, markRemovalCounter 464
+export function collectionRegions(value: Layout, capacity: number): CollectionRegions {
     const geometry = collectionGeometry(value, capacity);
-    return [
-        // The PoV id is the key the contract grouped by; the rest of the record is the priority queue's own.
-        records(0, geometry.povStride, capacity, "._povs", ".pov", "_povs", [
+    return {
+        // the pov id is what the contract grouped by; it is typed "id", not "key", so it names no entry today
+        povs: slots(0, geometry.povStride, capacity, "._povs", ".pov", "_povs", [
             member(geometry.povValueOffset, 32, ".value", "id", "payload", ""),
             member(geometry.povPopulationOffset, 8, ".population", "uint64", "internal"),
-            member(geometry.povHeadOffset, 8, ".headIndex", "sint64", "internal"),
-            member(geometry.povTailOffset, 8, ".tailIndex", "sint64", "internal"),
-            member(geometry.povBstRootOffset, 8, ".bstRootIndex", "sint64", "internal"),
+            member(geometry.povHeadIndexOffset, 8, ".headIndex", "sint64", "internal"),
+            member(geometry.povTailIndexOffset, 8, ".tailIndex", "sint64", "internal"),
+            member(geometry.povBstRootIndexOffset, 8, ".bstRootIndex", "sint64", "internal"),
         ]),
-        flags(geometry.flagsOffset, geometry.flagsBytes, 2, capacity, "._povOccupationFlags"),
-        // Priority is passed in by the contract; the BST links and the PoV index are not.
-        records(geometry.elementsOffset, geometry.elementStride, capacity, "._elements", "", "_elements", [
+        povOccupationFlags: flags(geometry.flagsOffset, geometry.flagsBytes, 2, capacity, "._povOccupationFlags"),
+        // priority is passed in by the contract; the bst links and the pov index are core's own
+        elements: slots(geometry.elementsOffset, geometry.elementStride, capacity, "._elements", "", "_elements", [
             member(geometry.elementValueOffset, value.size, ".value", "value", "payload", ""),
             member(geometry.elementPriorityOffset, 8, ".priority", "sint64", "payload"),
             member(geometry.elementPovIndexOffset, 8, ".povIndex", "sint64", "internal"),
-            member(geometry.elementBstParentOffset, 8, ".bstParentIndex", "sint64", "internal"),
-            member(geometry.elementBstLeftOffset, 8, ".bstLeftIndex", "sint64", "internal"),
-            member(geometry.elementBstRightOffset, 8, ".bstRightIndex", "sint64", "internal"),
+            member(geometry.elementBstParentIndexOffset, 8, ".bstParentIndex", "sint64", "internal"),
+            member(geometry.elementBstLeftIndexOffset, 8, ".bstLeftIndex", "sint64", "internal"),
+            member(geometry.elementBstRightIndexOffset, 8, ".bstRightIndex", "sint64", "internal"),
         ]),
-        word(geometry.populationOffset, "._population", "uint64", "count", ""),
-        word(geometry.populationOffset + 8, "._markRemovalCounter", "uint64", "internal"),
-    ];
+        population: word(geometry.populationOffset, "._population", "uint64", "count", ""),
+        markRemovalCounter: word(geometry.markRemovalCounterOffset, "._markRemovalCounter", "uint64", "internal"),
+    };
 }
 
-export function linkedListMembers(value: Layout, capacity: number): ContainerRegion[] {
+// core: struct Node { T value; sint64 nextIndex; sint64 prevIndex; } _nodes[L];
+//       uint64 _occupiedFlags[(L + 63) / 64];   // 1 bit per node: 1 occupied, 0 free
+//       sint64 _headIndex; sint64 _tailIndex; sint64 _freeHeadIndex; uint64 _nextUnusedIndex; uint64 _population;
+// freed nodes are recycled through _freeHeadIndex, never-used ones handed out through _nextUnusedIndex; no cleanup step exists.
+export type LinkedListRegions = {
+    nodes: SlotsRegion;
+    occupiedFlags: FlagsRegion;
+    headIndex: WordRegion;
+    tailIndex: WordRegion;
+    freeHeadIndex: WordRegion;
+    nextUnusedIndex: WordRegion;
+    population: WordRegion;
+};
+
+// e.g. LinkedList<uint64, 4> -> nodes 0..96 (stride 24), occupiedFlags 96..104, head 104, tail 112, freeHead 120, nextUnused 128, population 136
+export function linkedListRegions(value: Layout, capacity: number): LinkedListRegions {
     const geometry = linkedListGeometry(value, capacity);
-    return [
-        records(0, geometry.nodeStride, capacity, "._nodes", "", "_nodes", [
+    return {
+        nodes: slots(0, geometry.nodeStride, capacity, "._nodes", "", "_nodes", [
             member(0, value.size, ".value", "value", "payload", ""),
-            member(geometry.nextOffset, 8, ".nextIndex", "sint64", "internal"),
-            member(geometry.prevOffset, 8, ".prevIndex", "sint64", "internal"),
+            member(geometry.nextIndexOffset, 8, ".nextIndex", "sint64", "internal"),
+            member(geometry.prevIndexOffset, 8, ".prevIndex", "sint64", "internal"),
         ]),
-        flags(geometry.flagsOffset, geometry.flagsBytes, 1, capacity, "._occupiedFlags"),
-        word(geometry.headOffset, "._headIndex", "sint64", "internal"),
-        word(geometry.tailOffset, "._tailIndex", "sint64", "internal"),
-        word(geometry.freeHeadOffset, "._freeHeadIndex", "sint64", "internal"),
-        word(geometry.nextUnusedOffset, "._nextUnusedIndex", "uint64", "internal"),
-        word(geometry.populationOffset, "._population", "uint64", "count", ""),
-    ];
+        occupiedFlags: flags(geometry.flagsOffset, geometry.flagsBytes, 1, capacity, "._occupiedFlags"),
+        headIndex: word(geometry.headIndexOffset, "._headIndex", "sint64", "internal"),
+        tailIndex: word(geometry.tailIndexOffset, "._tailIndex", "sint64", "internal"),
+        freeHeadIndex: word(geometry.freeHeadIndexOffset, "._freeHeadIndex", "sint64", "internal"),
+        nextUnusedIndex: word(geometry.nextUnusedIndexOffset, "._nextUnusedIndex", "uint64", "internal"),
+        population: word(geometry.populationOffset, "._population", "uint64", "count", ""),
+    };
 }
 
 // Sub-record field-token shapes (type-format fragments; alignment handled by parseTypeFormat), e.g. PoV{ id value; uint64 population; sint64 head, tail, bstRoot }.
@@ -312,6 +395,7 @@ export const collectionElemFmt = (valFmt: string) => `${valFmt}, ${COLLECTION_EL
 export const linkedListElemFmt = (valFmt: string) => `${valFmt}, sint64, sint64`;
 
 // Full struct formats consumed by IDL formatting and ABI layout parsing.
+// e.g. hashMapFmt("id", "uint64", 2) -> "{ [2;{ id, uint64 }], [1;uint64], uint64, uint64 }"
 export const hashMapFmt = (keyFmt: string, valFmt: string, capacity: number) =>
     `{ [${capacity};{ ${hashMapElemFmt(keyFmt, valFmt)} }], [${hashMapFlagWordCount(capacity)};uint64], uint64, uint64 }`;
 export const hashSetFmt = (keyFmt: string, capacity: number) => `{ [${capacity};${keyFmt}], [${hashSetFlagWordCount(capacity)};uint64], uint64, uint64 }`;

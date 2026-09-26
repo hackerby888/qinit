@@ -447,6 +447,7 @@ export enum UnsupportedFeature {
     NATIVE_C_SCALAR = "native_c_scalar",
     DESTRUCTOR = "destructor",
     CLASS_TO_SCALAR_CONVERSION = "class_to_scalar_conversion",
+    AUTO_DEDUCTION = "auto_deduction",
 }
 
 export enum QpiHeaderSignaturePart {

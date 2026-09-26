@@ -30,7 +30,7 @@ function stateBytes(): Uint8Array {
     const view = new DataView(bytes.buffer);
     view.setBigUint64(0, 42n, true);
     view.setBigUint64(MAP.off, 5n, true);
-    view.setBigUint64(MAP.off + MAP_GEOMETRY.valueOffset, 6n, true);
+    view.setBigUint64(MAP.off + MAP_GEOMETRY.elementValueOffset, 6n, true);
     view.setBigUint64(MAP.off + MAP_GEOMETRY.flagsOffset, 1n, true);
     view.setBigUint64(MAP.off + MAP_GEOMETRY.populationOffset, 1n, true);
     return bytes;
@@ -75,6 +75,15 @@ test("a node that answers nothing is a short read, not an endless loop", async (
 
     expect(state.fields[0].value).toBe("(read failed: short state read at 0: expected 8 bytes, got 0)");
     expect(state.containers[1].error).toMatch(/short state read at \d+: expected 8 bytes, got 0/);
+    expect(state.complete).toBe(false);
+});
+
+// a simulator answers a slot it never loaded with an empty state, which is not a short read of a real one.
+test("a slot that holds no state names the missing contract instead of failing every field", async () => {
+    const empty: StateReader = { stateRead: async () => ({ hex: "", stateSize: 0 }) };
+    const state = await readLayout(empty);
+
+    expect(state.fields[0].value).toBe("(read failed: slot 7 holds no state — the contract is not loaded)");
     expect(state.complete).toBe(false);
 });
 

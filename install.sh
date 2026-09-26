@@ -42,12 +42,17 @@ case "$arch" in
 esac
 
 asset="qinit-$o-$a"
-task 1 "Resolving latest qinit release"
-pointer="https://github.com/$REPO/releases/download/qinit-cli-latest/latest.txt"
-TAG=$(curl -fsSL "$pointer" 2>/dev/null) || {
-  echo "qinit: could not download the qinit CLI release pointer ($pointer)"
-  exit 1
-}
+task 1 "Resolving qinit release"
+# QINIT_TAG pins a release (CI installs a tag before it becomes latest); otherwise follow the latest pointer.
+if [ -n "${QINIT_TAG:-}" ]; then
+  TAG="$QINIT_TAG"
+else
+  pointer="https://github.com/$REPO/releases/download/qinit-cli-latest/latest.txt"
+  TAG=$(curl -fsSL "$pointer" 2>/dev/null) || {
+    echo "qinit: could not download the qinit CLI release pointer ($pointer)"
+    exit 1
+  }
+fi
 case "$TAG" in
   qinit-cli-?*)
     case "$TAG" in

@@ -503,8 +503,8 @@ export const NAMESPACE_RESOLUTION_ARCHETYPES: Archetype[] = [
             "a file-scope enum constant and a member of the contract sharing one name — C++ searches class scope first, so the unqualified name is the member and the enum is unreachable",
         caveat: "The Solidity original shadows a state variable with a local; QPI's equivalent asymmetry is between class scope and file scope. Class scope wins, so the bare name is the member function and assigning it is ill-formed — which both backends now report.",
         axes: ["placement"],
-        // Pinned divergence: clang resolves `Helper` to the private entry and refuses the assignment, the TypeScript backend resolves it to the enum constant
-        // and compiles. Scored as a match while it diverges this way, and as a failure the moment it stops.
+        // both resolve `Helper` to the private entry and refuse the assignment; TS used to pick the enum constant and compile
+        expectReject: true,
         build(axis) {
             const source = emitContract({
                 axis,

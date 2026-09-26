@@ -2,7 +2,8 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseContractDef } from "@qinit/build/contracts/intercontract";
 import { analyzeCheatcodes, analyzeContract, stripCheatcodes } from "@qinit/compiler/analyzer";
-import { buildGateViolations } from "@qinit/build";
+import { buildGateViolations, buildGateWarnings, verifyContract, verifyRejection, type VerifyResult } from "@qinit/build";
+import { autoUpdateVerifyTool } from "@qinit/core";
 import {
     coreFilePaths,
     descriptions,
@@ -41,6 +42,13 @@ export interface CoreIntegrationOptions {
     // false skips the user-scope build rules (`--no-build-rules`).
     buildRules?: boolean;
     onProgress?: (event: CoreIntegrationProgress) => void;
+    // tests stub the verifier; the default fetches it first, as build and deploy do.
+    verify?: (contractPath: string, contractName: string, allowedPrefixes: string[]) => Promise<VerifyResult>;
+}
+
+async function verifyWithLatestTool(contractPath: string, contractName: string, allowedPrefixes: string[]): Promise<VerifyResult> {
+    await autoUpdateVerifyTool();
+    return verifyContract(contractPath, contractName, { allowedPrefixes });
 }
 
 export interface CoreIntegrationResult {
@@ -175,6 +183,42 @@ export function inspectCoreIntegration(corePath: string, contractName: string): 
     };
 }
 
+// contracts compile inside qubic.cpp under `using namespace QPI`, so a core declaration of the name can break the MSVC build.
+// braces opened by a struct, class or function hide their contents; a namespace or extern "C" block does not.
+function coreNameCollisions(corePath: string, names: readonly string[], ownHeader: string | undefined): string[] {
+    const alternatives = names.join("|");
+    const declaration = new RegExp(`^[ \\t]*(?:template\\s*<[^>\\n]*>\\s*)?(?:(?:constexpr|static|inline)\\s+)*(?:struct|class|union|enum(?:\\s+class)?|using|#\\s*define)\\s+(${alternatives})\\b`);
+    const typedef = new RegExp(`^[ \\t]*typedef\\b[^;\\n]*\\b(${alternatives})\\s*;`);
+    const collisions: string[] = [];
+    const sourceRoot = join(corePath, "src");
+    for (const entry of readdirSync(sourceRoot, { recursive: true, encoding: "utf8" })) {
+        const path = join(sourceRoot, entry);
+        if (extname(entry) !== ".h" || path === ownHeader) {
+            continue;
+        }
+        // one entry per open brace: true for a namespace, whose contents are still global.
+        const scopes: boolean[] = [];
+        let opensNamespace = false;
+        readFileSync(path, "utf8").split("\n").forEach((line, index) => {
+            const code = line.replace(/\/\/.*/, "");
+            const name = scopes.includes(false) ? undefined : (declaration.exec(code) ?? typedef.exec(code))?.[1];
+            if (name) {
+                collisions.push(`Core already declares ${name} at src/${entry.split(sep).join("/")}:${index + 1}; the Windows build may fail on the clash`);
+            }
+            opensNamespace ||= /^\s*(?:namespace\b|extern\s+"C")/.test(code);
+            for (const char of code) {
+                if (char === "{") {
+                    scopes.push(opensNamespace);
+                    opensNamespace = false;
+                } else if (char === "}") {
+                    scopes.pop();
+                }
+            }
+        });
+    }
+    return collisions;
+}
+
 function validateContractName(contractName: string): void {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(contractName)) {
         throw new Error(`invalid contract name '${contractName}'`);
@@ -286,7 +330,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
     const corePath = resolveFromProject(projectRoot, options.outputPath);
     const contractName = options.contractName;
     const sourceFileName = basename(contractPath);
-    const contract = await runProgressStep(options, "contract", sourceFileName, () => {
+    const contract = await runProgressStep(options, "contract", sourceFileName, async () => {
         validateContractName(contractName);
         if (!existsSync(contractPath) || !statSync(contractPath).isFile() || extname(contractPath).toLowerCase() !== ".h") {
             throw new Error(`contract header not found: ${contractPath}`);
@@ -317,18 +361,29 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
         }
 
         // Core's Windows build is the hand-off this gate exists for; refuse before any checkout is created.
-        const rules = buildGateViolations(analyzeContract({ source: contractSource, contractName }).diagnostics, {
-            contractKind: "user",
-            buildRules: options.buildRules,
-        });
+        const analysis = analyzeContract({ source: contractSource, contractName });
+        const gateContext = { contractKind: "user" as const, buildRules: options.buildRules };
+        const rules = buildGateViolations(analysis.diagnostics, gateContext);
         if (rules.length) {
             throw new Error(`build rule violations in ${sourceFileName}:\n${rules.map((item) => `  ${item}`).join("\n")}`);
         }
+
+        // upstream CI runs contractverify on every contract, so a missing tool refuses rather than passing.
+        const calleeNames = [...new Set(analysis.calls.map((call) => call.callee))];
+        const verify = await (options.verify ?? verifyWithLatestTool)(contractPath, contractName, calleeNames);
+        if (!verify.available) {
+            throw new Error("contractverify is not installed; run `qinit setup`");
+        }
+        const rejection = verifyRejection(verify);
+        if (rejection) {
+            throw new Error(`${sourceFileName}: ${rejection.stderr}`);
+        }
+
         const localTestPath = join(projectRoot, "tests", `${contractName}.test.cpp`);
         const testSource = existsSync(localTestPath) ? readFileSync(localTestPath, "utf8") : undefined;
 
         return {
-            value: { contractSource, testSource },
+            value: { contractSource, testSource, warnings: buildGateWarnings(analysis.diagnostics, gateContext) },
             detail: sourceFileName,
         };
     });
@@ -389,6 +444,11 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
             localHeaders: localHeaderNames(projectRoot, contractPath),
             fileExists: existsSync,
         });
+        const ownHeader = existing ? join(corePath, "src", ...existing.include.split("/")) : undefined;
+        const warnings = [...contract.warnings, ...plan.warnings, ...coreNameCollisions(corePath, [contractName, `${contractName}2`], ownHeader)];
+        if (!plan.testPath) {
+            warnings.push(`no tests/${contractName}.test.cpp: Core gets ${contractName} without a GTest`);
+        }
 
         let branch = checkout.branch;
         if (branch === "main") {
@@ -415,7 +475,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
                 contractIndex: plan.contractIndex,
                 mode,
                 testPath: plan.testPath,
-                warnings: plan.warnings,
+                warnings,
             },
             detail: `${mode} index ${plan.contractIndex}`,
         };

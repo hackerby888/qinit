@@ -120,6 +120,25 @@ async function runStep(step: SetupStepKey, operation: (onProgress: Progress) => 
     }
 }
 
+// the same four assets an online run installs; any one missing keeps the network error.
+function setupFromCacheOffline(deps: SetupDeps, emit: (event: SetupEvent) => void, cause: unknown): boolean {
+    const current = deps.readCurrent();
+    const headers = current?.coreHeaders && deps.existsSync(current.coreHeaders) ? (current.headersVersion ?? "cached") : undefined;
+    const node = current?.node && deps.existsSync(current.node) ? (current.nodeVersion ?? "cached") : undefined;
+    const sdk = deps.configuredWasiSdk() ?? deps.wasiSdkPaths()?.root;
+    const verifier = deps.configuredVerifyTool() ?? (current?.verify && deps.existsSync(current.verify) ? current.verify : undefined);
+    if (!headers || !node || !sdk || !verifier) {
+        return false;
+    }
+
+    const why = `offline, update check skipped (${cause instanceof Error ? cause.message : String(cause)})`;
+    emit({ step: "headers", state: "ok", detail: `cached ${headers} · ${why}` });
+    emit({ step: "node", state: "ok", detail: `cached ${node}` });
+    emit({ step: "wasi", state: "ok", detail: `cached ${sdk}` });
+    emit({ step: "verifier", state: "ok", detail: `cached ${verifier}` });
+    return true;
+}
+
 export async function runSetup(emit: (event: SetupEvent) => void = () => {}, injected: Partial<SetupDeps> = {}, options: SetupRunOptions = {}): Promise<void> {
     const deps = { ...defaultDeps, ...injected };
     const manifestStartedAt = Date.now();
@@ -129,6 +148,10 @@ export async function runSetup(emit: (event: SetupEvent) => void = () => {}, inj
         manifest = await deps.loadManifest("latest");
         emit({ step: "headers", state: "pending" });
     } catch (error) {
+        // every asset already installed: an unreachable release only means no update check, which is not a setup failure.
+        if (setupFromCacheOffline(deps, emit, error)) {
+            return;
+        }
         emit({
             step: "headers",
             state: "fail",

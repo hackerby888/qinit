@@ -22,7 +22,7 @@ function runState(wasm: Uint8Array, inputs: bigint[][]): string {
         sim.procedure(27, 1, encodeInput(row), { invocator: user });
     }
     const st = sim.contracts.get(27)!.state();
-    return bytesToHex(st.slice(0, 64));
+    return bytesToHex(st);
 }
 
 for (const seed of process.argv.slice(2).map(Number)) {

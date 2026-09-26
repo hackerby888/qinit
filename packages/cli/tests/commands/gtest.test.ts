@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseCommandInvocation } from "../../src/args";
-import { resolveGtestSlot } from "../../src/commands/deploy-interact/gtest";
+import { gtestCallees, resolveGtestSlot } from "../../src/commands/deploy-interact/gtest";
 
 const core = mkdtempSync(join(tmpdir(), "qinit-gtest-slot-"));
 const contractCore = join(core, "src", "contract_core");
@@ -49,4 +49,23 @@ test("gtest accepts repeated callee declarations", () => {
     ]);
 
     expect(invocation.commandArgs.getAll("callee")).toEqual(["Counter=contracts/Counter.h", "Oracle=contracts/Oracle.h@42"]);
+});
+
+// a system dependency is a callee like any other: its header is what gives a state field typed by it a layout.
+test("gtest hands every planned dependency to the build, system contracts included", () => {
+    const header = join(core, "Qx.h");
+    writeFileSync(header, "struct QX : public ContractBase {};\n");
+
+    const { dynCallees, calleeSources } = gtestCallees([
+        { stateType: "QX", sourcePath: header, slot: 1 },
+        { stateType: "Counter", sourcePath: header, slot: 41 },
+    ]);
+
+    expect(Object.keys(dynCallees)).toEqual(["QX", "Counter"]);
+    expect(dynCallees.QX).toEqual({ header, slot: 1 });
+    expect(calleeSources.map((callee) => [callee.name, callee.slot])).toEqual([
+        ["QX", 1],
+        ["Counter", 41],
+    ]);
+    expect(calleeSources[0]?.source).toContain("struct QX");
 });

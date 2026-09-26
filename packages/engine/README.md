@@ -3,7 +3,7 @@
 The Qinit contract simulation engine. It runs compiled QPI Wasm contracts
 in-process in browsers, Node, and Bun. The package models ticks and epochs,
 contract calls, balances, assets, oracles, consensus digests, logging, and the
-dynamic-contract deployment protocol.
+smart contract deployment protocol.
 
 This workspace package is private while its standalone distribution contract is
 being stabilized.

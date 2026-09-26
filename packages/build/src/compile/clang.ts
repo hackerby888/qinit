@@ -1,15 +1,15 @@
 import { CheatMode } from "@qinit/compiler";
 /// <reference path="../text-assets.d.ts" />
 // Compile a qpi.h-constrained contract .h into a wasm contract module (run by the node's WAMR engine).
-import { mkdir, writeFile, copyFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { wasiSdkPaths } from "@qinit/core/project";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
-import { instrumentStateJournal, remapCodeOffset } from "@qinit/core/wasm/instrument";
-import { writeLineMap } from "./line-map";
+import { CORE_BUILD_PROFILE, type BuildProfile } from "@qinit/core/wasm/slot-layout-source";
+import { instrumentStateJournal } from "@qinit/core/wasm/instrument";
 import type { ContractKind } from "./build-rules";
 import WASM_GTEST_H from "../assets/wasm_gtest.h" with { type: "text" };
 import WASM_CONTRACT_TESTING_H_TEMPLATE from "../assets/wasm_contract_testing.h" with { type: "text" };
@@ -18,20 +18,11 @@ import QINIT_CHEATS_H from "../assets/qinit_cheats.h" with { type: "text" };
 
 const WASM_CONTRACT_TESTING_H = WASM_CONTRACT_TESTING_H_TEMPLATE.replace("__QINIT_CORE_WASM_ABI_METADATA__", CORE_WASM_HEADERS.shared.abiMetadata);
 
-/** Bakes the state-write journal in and shifts the line map. A failure still deploys the pristine artifact but is reported — the fallback costs a copy. */
-function bakeStateJournal(wasmPath: string, lineMapPath: string | undefined, journalCapBytes: number | undefined): string | undefined {
+/** Bakes the state-write journal in. A failure still deploys the pristine artifact but is reported — the fallback costs a copy. */
+function bakeStateJournal(wasmPath: string, journalCapBytes: number | undefined): string | undefined {
     try {
         const result = instrumentStateJournal(new Uint8Array(readFileSync(wasmPath)), journalCapBytes === undefined ? {} : { journalCapBytes });
         writeFileSync(wasmPath, result.wasm);
-
-        if (!lineMapPath) {
-            return undefined;
-        }
-        const lineMap = JSON.parse(readFileSync(lineMapPath, "utf8")) as { base: number; entries: { off: number }[] };
-        for (const entry of lineMap.entries) {
-            entry.off = remapCodeOffset(result.offsetMap, entry.off);
-        }
-        writeFileSync(lineMapPath, JSON.stringify(lineMap));
         return undefined;
     } catch (error) {
         return `warning: state-write journal not baked, diffs fall back to state snapshots: ${error instanceof Error ? error.message : String(error)}\n`;
@@ -62,7 +53,14 @@ export function generateWasmContractTestingHeader(descriptions: readonly WasmCon
 export const WASM_CONTRACT_TESTING_HEADER = generateWasmContractTestingHeader();
 export const WASM_TEST_UTIL_HEADER = TEST_UTIL_H;
 
-export const WASM_CONTRACT_CLANG_FLAGS = ["--target=wasm32-wasi", "-std=c++20", "-fno-rtti", "-fno-exceptions", "-DLITEDYN_CONTRACT_TU"] as const;
+export const WASM_CONTRACT_CLANG_FLAGS = [
+    "--target=wasm32-wasi",
+    "-std=c++20",
+    "-fno-rtti",
+    "-fno-exceptions",
+    "-DLITEDYN_CONTRACT_TU",
+    ...[...CORE_BUILD_PROFILE].map(([name, value]) => `-D${name}=${value}`),
+] as const;
 
 export interface ClangBuildOptions {
     contractPath?: string; // absolute path to the contract .h; supply this or `source`
@@ -75,6 +73,7 @@ export interface ClangBuildOptions {
     calleePrelude?: string; // inter-contract: callee type headers + inputType consts (from intercontract.ts)
     cheats?: CheatMode; // development cheatcodes; OFF is what Core sees
     dynCallees?: Record<string, { header: string; slot: number }>; // dynamic (Qinit-deployed) callees
+    profile?: BuildProfile; // node profile unless a system contract's own corpus asks for core's default constants
     wasmClang?: string; // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
     wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
     skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some Wasm macros)
@@ -175,8 +174,6 @@ export interface WasmCompileResult {
     wrapper: string;
     stderr: string;
     exitCode: number | null;
-    debugWasmPath?: string; // -g DWARF sidecar; the deployed wasm is stripped
-    lineMapPath?: string; // build-time {fileOffset -> file:line:func} map for trap backtraces (100% at -O0)
 }
 
 // precompiled header (PCH) of the stable preamble
@@ -239,22 +236,33 @@ async function ensureWasmPch(clang: string, pchFlags: string[]): Promise<string 
     return pchInflight;
 }
 
-// clang must target wasm32-wasi (the bundled clang.wasm multitool or a native wasi-sdk clang++); wasmSysroot is the wasi-sysroot with libc++ headers.
+// clang must target wasm32-wasi (a wasi-sdk clang++); wasmSysroot is the wasi-sysroot with libc++ headers.
 export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: string; wasmSysroot?: string }): Promise<WasmCompileResult> {
     const src = join(o.corePath, "src");
-    await mkdir(o.outDir, { recursive: true });
     const wrapper = join(o.outDir, `${o.contractName}.wasm.wrapper.cpp`);
-    await writeFile(wrapper, generateWasmWrapperSource(o));
     const wasm = join(o.outDir, `${o.contractName}.wasm`);
     const sdk = wasiSdkPaths();
-    const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang ?? "clang++";
+    const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang;
     const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT ?? sdk?.sysroot;
+    // a host clang++ has no wasm32-wasi sysroot, so trying it only trades this message for a cryptic compiler error.
+    if (!clang) {
+        return {
+            ok: false,
+            wasm,
+            wrapper,
+            exitCode: null,
+            stderr: "no WASI SDK: run `qinit setup` to fetch it, or set WASM_CLANG and WASI_SYSROOT",
+        };
+    }
+    await mkdir(o.outDir, { recursive: true });
+    await writeFile(wrapper, generateWasmWrapperSource(o));
     const shim = join(src, CORE_WASM_HEADERS.sdk.platformIntrinsics);
     // Build a reactor library and leave lhost imports unresolved for the runtime.
     const compileFlags = [
         ...WASM_CONTRACT_CLANG_FLAGS,
+        // core compiles its own contract gtests without the node profile, so their corpus builds undefine it again.
+        ...(o.profile === "core-gtest" ? [...CORE_BUILD_PROFILE.keys()].map((name) => `-U${name}`) : []),
         "-O0",
-        "-g",
         "-DNDEBUG",
         // Explicit undefined check, not truthiness: the TypeScript backend rejects a 0 arena, so this must not swap it for the header's 1 GiB default.
         ...(o.arenaSizeBytes !== undefined ? [`-DWASM_ARENA_SIZE=${o.arenaSizeBytes}`] : []),
@@ -265,7 +273,8 @@ export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: s
         `-I${src}`,
     ];
     const shimFlag = ["-include", shim];
-    const linkFlags = ["-Wl,--no-entry", "-Wl,--allow-undefined", "-mexec-model=reactor"];
+    // the sdk's prebuilt libc and compiler-rt carry dwarf, which a deployed module has no use for.
+    const linkFlags = ["-Wl,--no-entry", "-Wl,--allow-undefined", "-Wl,--strip-debug", "-mexec-model=reactor"];
     if (o.sharedMemoryBaseOffsetBytes !== undefined) {
         // Relocate the module above the shared-memory base and import memory from the runner.
         linkFlags.push("-Wl,--import-memory", `-Wl,--global-base=${o.sharedMemoryBaseOffsetBytes >>> 0}`, "-Wl,-z,stack-size=8388608");
@@ -290,36 +299,9 @@ export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: s
         ({ exitCode, stderr } = await runClang([], true));
     }
 
-    // -g leaves DWARF in `wasm`: copy it as the debug sidecar, then strip DWARF in place so code stays byte-identical and offsets still match the sidecar.
-    let debugWasmPath: string | undefined;
-    let lineMapPath: string | undefined;
-    if (exitCode === 0) {
-        try {
-            // Handle both path separators when resolving LLVM tools beside clang.
-            const cut = Math.max(clang.lastIndexOf("/"), clang.lastIndexOf("\\"));
-            const dir = cut >= 0 ? clang.slice(0, cut + 1) : "";
-            const exe = process.platform === "win32" ? ".exe" : "";
-            const tool = (name: string) => dir + name + exe;
-            const dbg = join(o.outDir, `${o.contractName}.debug.wasm`);
-            await copyFile(wasm, dbg);
-            const lj = join(o.outDir, `${o.contractName}.lines.json`);
-            if (
-                writeLineMap(dbg, lj, {
-                    objdump: tool("llvm-objdump"),
-                    dwarfdump: tool("llvm-dwarfdump"),
-                })
-            ) {
-                lineMapPath = lj;
-            }
-            if (Bun.spawnSync([tool("llvm-strip"), "--strip-debug", wasm]).exitCode === 0) {
-                debugWasmPath = dbg;
-            }
-        } catch {}
-
-        // After stripping, so DWARF is never rewritten and the line map matches the deployed code. Shared memory reserves no journal room, so it is skipped.
-        if (o.sharedMemoryBaseOffsetBytes === undefined && process.env.QINIT_NO_STATE_JOURNAL !== "1") {
-            stderr += bakeStateJournal(wasm, lineMapPath, o.journalCapBytes) ?? "";
-        }
+    // Shared memory reserves no journal room, so it is skipped.
+    if (exitCode === 0 && o.sharedMemoryBaseOffsetBytes === undefined && process.env.QINIT_NO_STATE_JOURNAL !== "1") {
+        stderr += bakeStateJournal(wasm, o.journalCapBytes) ?? "";
     }
     return {
         ok: exitCode === 0,
@@ -327,7 +309,5 @@ export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: s
         wrapper,
         stderr,
         exitCode,
-        debugWasmPath,
-        lineMapPath,
     };
 }

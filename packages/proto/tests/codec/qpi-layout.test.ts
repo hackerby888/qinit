@@ -11,13 +11,13 @@ import {
     hashMapElemFmt,
     collectionElemFmt,
     collectionGeometry,
-    collectionMembers,
+    collectionRegions,
     hashMapGeometry,
-    hashMapMembers,
+    hashMapRegions,
     hashSetGeometry,
-    hashSetMembers,
+    hashSetRegions,
     linkedListGeometry,
-    linkedListMembers,
+    linkedListRegions,
     COLLECTION_POV_FMT,
     type ContainerRegion,
 } from "../../src/qpi-layout";
@@ -38,19 +38,21 @@ test("array and BitArray geometry includes physical size and alignment", () => {
 
 test("container geometry aligns flags and Collection elements", () => {
     expect(hashMapGeometry({ size: 1, align: 1 }, { size: 1, align: 1 }, 1)).toEqual({
-        recordStride: 2,
-        valueOffset: 1,
+        elementStride: 2,
+        elementValueOffset: 1,
         flagsOffset: 8,
         flagsBytes: 8,
         populationOffset: 16,
+        markRemovalCounterOffset: 24,
         size: 32,
         align: 8,
     });
     expect(hashSetGeometry({ size: 1, align: 1 }, 4)).toEqual({
-        recordStride: 1,
+        keyStride: 1,
         flagsOffset: 8,
         flagsBytes: 8,
         populationOffset: 16,
+        markRemovalCounterOffset: 24,
         size: 32,
         align: 8,
     });
@@ -59,9 +61,9 @@ test("container geometry aligns flags and Collection elements", () => {
         povStride: 64,
         povValueOffset: 0,
         povPopulationOffset: 32,
-        povHeadOffset: 40,
-        povTailOffset: 48,
-        povBstRootOffset: 56,
+        povHeadIndexOffset: 40,
+        povTailIndexOffset: 48,
+        povBstRootIndexOffset: 56,
         flagsOffset: 64,
         flagsBytes: 8,
         elementsOffset: 80,
@@ -69,10 +71,11 @@ test("container geometry aligns flags and Collection elements", () => {
         elementValueOffset: 0,
         elementPriorityOffset: 16,
         elementPovIndexOffset: 24,
-        elementBstParentOffset: 32,
-        elementBstLeftOffset: 40,
-        elementBstRightOffset: 48,
+        elementBstParentIndexOffset: 32,
+        elementBstLeftIndexOffset: 40,
+        elementBstRightIndexOffset: 48,
         populationOffset: 144,
+        markRemovalCounterOffset: 152,
         size: 160,
         align: 16,
     });
@@ -80,29 +83,29 @@ test("container geometry aligns flags and Collection elements", () => {
 
 test("LinkedList geometry matches QPI node and header layout", () => {
     expect(linkedListGeometry({ size: 8, align: 8 }, 8)).toEqual({
-        nextOffset: 8,
-        prevOffset: 16,
+        nextIndexOffset: 8,
+        prevIndexOffset: 16,
         nodeStride: 24,
         flagsOffset: 192,
         flagsBytes: 8,
-        headOffset: 200,
-        tailOffset: 208,
-        freeHeadOffset: 216,
-        nextUnusedOffset: 224,
+        headIndexOffset: 200,
+        tailIndexOffset: 208,
+        freeHeadIndexOffset: 216,
+        nextUnusedIndexOffset: 224,
         populationOffset: 232,
         size: 240,
         align: 8,
     });
     expect(linkedListGeometry({ size: 24, align: 16 }, 2)).toEqual({
-        nextOffset: 24,
-        prevOffset: 32,
+        nextIndexOffset: 24,
+        prevIndexOffset: 32,
         nodeStride: 48,
         flagsOffset: 96,
         flagsBytes: 8,
-        headOffset: 104,
-        tailOffset: 112,
-        freeHeadOffset: 120,
-        nextUnusedOffset: 128,
+        headIndexOffset: 104,
+        tailIndexOffset: 112,
+        freeHeadIndexOffset: 120,
+        nextUnusedIndexOffset: 128,
         populationOffset: 136,
         size: 144,
         align: 16,
@@ -148,17 +151,17 @@ function privateBlock(declaration: string): string {
 const sourcesOf = (regions: ContainerRegion[]) =>
     [
         ...new Set(
-            regions.flatMap((region) => (region.kind === "records" ? [region.source, ...region.members.map((member) => member.source)] : [region.source])),
+            regions.flatMap((region) => (region.kind === "slots" ? [region.source, ...region.members.map((member) => member.source)] : [region.source])),
         ),
     ].filter((source) => source.length > 0);
 
 test("container member names still match the ones core declares", () => {
     const word = { size: 8, align: 8 };
     const containers: [string, string[]][] = [
-        ["class HashMap", sourcesOf(hashMapMembers(word, word, 4))],
-        ["class HashSet", sourcesOf(hashSetMembers(word, 4))],
-        ["struct Collection", sourcesOf(collectionMembers(word, 4))],
-        ["class LinkedList", sourcesOf(linkedListMembers(word, 4))],
+        ["class HashMap", sourcesOf(Object.values(hashMapRegions(word, word, 4)))],
+        ["class HashSet", sourcesOf(Object.values(hashSetRegions(word, 4)))],
+        ["struct Collection", sourcesOf(Object.values(collectionRegions(word, 4)))],
+        ["class LinkedList", sourcesOf(Object.values(linkedListRegions(word, 4)))],
     ];
     const drifted: Record<string, string[]> = {};
 

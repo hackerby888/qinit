@@ -2,7 +2,7 @@
 import { test, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { AbiTypeKind, type AbiStruct, type AbiType } from "@qinit/proto/contract-idl";
-import { valueText, formatStateValue, jsonText } from "../../src/trace/state-format";
+import { valueText, abiValueText, jsonText } from "../../src/trace/state-format";
 
 const MAX_ITEMS = 32;
 const SRC = `using namespace QPI;
@@ -22,9 +22,9 @@ const typeOf = (name: string): AbiType => STATE.fields.find((field) => field.nam
 const distinct = (count: number) => Array.from({ length: count }, (_, index) => index);
 
 test("the item cap keeps a full block at exactly 32 and truncates at 33", () => {
-    expect(formatStateValue(distinct(MAX_ITEMS), typeOf("exact"), false)).toBe(`[${distinct(MAX_ITEMS).join(", ")}]`);
-    expect(formatStateValue(distinct(MAX_ITEMS + 1), typeOf("over"), false)).toBe(`[${distinct(MAX_ITEMS).join(", ")}, … +1 more (--all)]`);
-    expect(formatStateValue(distinct(MAX_ITEMS + 1), typeOf("over"), true)).toBe(`[${distinct(MAX_ITEMS + 1).join(", ")}]`);
+    expect(abiValueText(distinct(MAX_ITEMS), typeOf("exact"))).toBe(`[${distinct(MAX_ITEMS).join(", ")}]`);
+    expect(abiValueText(distinct(MAX_ITEMS + 1), typeOf("over"))).toBe(`[${distinct(MAX_ITEMS).join(", ")}, … +1 more (--all)]`);
+    expect(abiValueText(distinct(MAX_ITEMS + 1), typeOf("over"), { showAll: true })).toBe(`[${distinct(MAX_ITEMS + 1).join(", ")}]`);
 });
 
 test("an untyped array reports how many items the cap hid, counting from the same 32", () => {
@@ -36,9 +36,9 @@ test("an untyped array reports how many items the cap hid, counting from the sam
 test("one skipped bit reads as a single index, a run reads as a range with its count", () => {
     const bits = typeOf("bits");
 
-    expect(formatStateValue([0, 1, 0, 0, 0, 0, 0, 0], bits, false)).toBe("[0]=0 (skipped), [1]=1, [2..7]=0 ×6 (skipped)");
-    expect(formatStateValue([1, 1, 1, 1, 1, 1, 1, 1], bits, false)).toBe("[0]=1, [1]=1, [2]=1, [3]=1, [4]=1, [5]=1, [6]=1, [7]=1");
-    expect(formatStateValue([], bits, false)).toBe("[0..7]=0 ×8 (skipped)");
+    expect(abiValueText([0, 1, 0, 0, 0, 0, 0, 0], bits)).toBe("[0]=0 (skipped), [1]=1, [2..7]=0 ×6 (skipped)");
+    expect(abiValueText([1, 1, 1, 1, 1, 1, 1, 1], bits)).toBe("[0]=1, [1]=1, [2]=1, [3]=1, [4]=1, [5]=1, [6]=1, [7]=1");
+    expect(abiValueText([], bits)).toBe("[0..7]=0 ×8 (skipped)");
 });
 
 test("a struct with no fields is {} and an unnamed field falls back to its position", () => {
@@ -53,8 +53,8 @@ test("a struct with no fields is {} and an unnamed field falls back to its posit
         ],
     };
 
-    expect(formatStateValue([], typeOf("empty"), false)).toBe("{}");
-    expect(formatStateValue([1n, 2], anonymous, false)).toBe("{0: 1, named: 2}");
+    expect(abiValueText([], typeOf("empty"))).toBe("{}");
+    expect(abiValueText([1n, 2], anonymous)).toBe("{0: 1, named: 2}");
 });
 
 test("a bigint survives the JSON rendering that would otherwise throw on it", () => {

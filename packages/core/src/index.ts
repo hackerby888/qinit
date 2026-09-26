@@ -21,7 +21,8 @@ export type { WasmAbiSource, WasmAbiValueType } from "./wasm/abi-source";
 export { DEFAULT_WASM_SLOT_LAYOUT } from "./wasm/slot-layout";
 export type { WasmSlotLayout } from "./wasm/slot-layout";
 export { loadCoreWasmSlotLayout } from "./wasm/slot-layout-node";
-export { parseWasmSlotLayoutSource } from "./wasm/slot-layout-source";
+export { CORE_BUILD_PROFILE, parseWasmSlotLayoutSource } from "./wasm/slot-layout-source";
+export type { BuildProfile } from "./wasm/slot-layout-source";
 export {
     deriveIdentity,
     cryptoSmoke,
@@ -48,6 +49,8 @@ export type {
     DynamicContractRegistryEntry,
     DynamicContractEntry,
     DynamicContractUploadStatus,
+    DeployOutcome,
+    DeployOutcomeCode,
     DebugTrace,
     DebugCheat,
     DebugEntry,
@@ -89,5 +92,3 @@ export type { ManagedWasiSdkStatus } from "./cache/wasi-sdk";
 export { loadConfig, loadConfigSafe, resolveCoreDir, QinitConfigError } from "./project";
 export type { QinitConfig } from "./project";
 export { debug } from "./debug/log";
-export { resolveTrapBacktrace, formatTrapBacktrace, decodeTrapCause } from "./debug/backtrace";
-export type { TrapFrame, TrapBacktrace } from "./debug/backtrace";

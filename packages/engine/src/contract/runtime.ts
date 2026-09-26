@@ -1,7 +1,7 @@
 import { ASSET_ENUMERATION_RECORD, CHEAT_ERR, CHEAT_OP, LHOST_ABI, type DebugStateRegion, type LhostImportName } from "@qinit/core";
 import { k12Bytes, toHex } from "../support/k12";
 import { bytesEqual, rangesEqual, type Id } from "../support/bytes";
-import { noteHostWrite, readJournalHeader, resetJournal, type JournalHeader } from "@qinit/core/wasm/journal";
+import { JOURNAL_BLOCK_BYTES, noteHostWrite, readJournalHeader, resetJournal, type JournalHeader } from "@qinit/core/wasm/journal";
 // Layout shared with core-lite's module_storage.h; sizing.ts is the one definition both backends use.
 import { INPUT_BUFFER_BYTES, LOCALS_BUFFER_BYTES, OUTPUT_BUFFER_BYTES } from "@qinit/core/wasm/sizing";
 import { diffRegions, journalRegions, type TraceRecorder } from "../logging/trace";
@@ -80,8 +80,14 @@ export const CONTRACT_ENTRY_KIND = {
 // Block size for catching the shadow up to a changed state: one memcmp per block, copy only what moved.
 const SHADOW_BLOCK = 64 * 1024;
 
-const BASE_CALL_COST = 10n;
-const DIGEST_BYTE_COST = 1n;
+// Execution time in microseconds, the unit core charges. Measured against a core-lite TESTNET node (2026-09-20):
+// a trivial 8-byte-state procedure cost 79 us/call, the same procedure on a 64 MiB state 157 us/call — so entering a
+// contract dominates and state size barely registers, because core never hashes the state for the fee.
+const BASE_EXECUTION_TIME = 80n;
+// 1 us per megabyte, the slope between those two measurements. Not K12 throughput (1300 bytes/us here): core's digest
+// charge is still parked (qubic.cpp, "enable this after adding proper tracking of contract state writes").
+const STATE_BYTES_PER_MICROSECOND = 1000000n;
+// Core has no per-host-call price; these stand in for the work an entry does inside its span, in the same microseconds.
 const HOST_WEIGHT: Record<string, bigint> = {
     k12: 5n,
     getEntity: 1n,
@@ -180,12 +186,14 @@ export interface HostServices {
     cheatPrint(slot: number, id: number, part: number, value: bigint, bytes: Uint8Array): void;
     cheatDeal(id: Id, amount: bigint): bigint;
     cheatWarp(ticks: number, epochs: number): bigint;
-    // core zeroes the warp offsets in createCallContext (dispatch.h:82 -> qpi_services.h:459), so a
-    // CC_WARP_* lasts exactly one dispatch frame. optional: a host with no cheats need not implement it.
-    clearCheatWarp?(): void;
+    // bracket every dispatch frame, so a CC_WARP_* lasts one root dispatch and its nested frames share it, as in core.
+    // optional: a host with no cheats need not implement them.
+    enterFrame?(): void;
+    exitFrame?(): void;
     pauseLog(): void;
     resumeLog(): void;
-    transfer(slot: number, dest: Id, amount: bigint, transferType: number): bigint;
+    // originator is the calling frame's, which a contract's incoming-transfer callback observes; absent for a transfer no contract made.
+    transfer(slot: number, dest: Id, amount: bigint, transferType: number, originator?: Id): bigint;
     burn(slot: number, amount: bigint, burnedFor: number): bigint;
     getEntity(id: Id): Entity | null;
     isContractId(id: Id): number;
@@ -246,6 +254,7 @@ export interface HostServices {
         notificationProcId: number,
         timeoutMillisec: number,
         fee: bigint,
+        callerFrame?: ContractCallContext,
     ): bigint;
     subscribeOracle(
         slot: number,
@@ -257,10 +266,11 @@ export interface HostServices {
         periodMillisec: number,
         notifyPrev: boolean,
         fee: bigint,
+        callerFrame?: ContractCallContext,
     ): number;
     getOracleQuery(queryId: bigint): Uint8Array | null;
     getOracleReply(queryId: bigint): Uint8Array | null;
-    distributeDividends(slot: number, amountPerShare: bigint): number;
+    distributeDividends(slot: number, amountPerShare: bigint, originator?: Id): number;
     callFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Id): { error: number; output: Uint8Array };
     invokeProcedure(
         callerSlot: number,
@@ -356,11 +366,11 @@ export class Contract {
     // The contract's own write journal, when the artifact carries one: it reports what changed without a state copy, so no shadow is allocated for it.
     private journalBase = 0;
     private journal: JournalHeader | null = null;
-    // Set once the journal overflows: from the next call this contract falls back to the shadow. The overflowing call itself can only report truncation.
+    // Set when the journal overflows: this contract falls back to the shadow until a call fits the journal again. The overflowing call itself can only report truncation.
     private journalOverflowed = false;
     private dispatchDepth = 0;
     private executionKinds: number[] = [];
-    // What CC_PRANK displaced, so CC_UNPRANK restores the real caller rather than guessing.
+    // what CC_PRANK displaced in the running frame, so CC_UNPRANK restores that frame's real caller; each frame starts with none.
     private prankSaved: { originator: Id; invocator: Id; invocationReward: bigint } | null = null;
     cost = 0n;
     lastCost = 0n;
@@ -445,6 +455,11 @@ export class Contract {
 
         this.attachJournal();
         this.readRegistry();
+    }
+
+    /** what `io_size()` reports: the three dispatch buffers and the scratch arena behind them. */
+    get ioBytes(): number {
+        return this.arenaEnd - this.ioBase;
     }
 
     static load(bytes: Uint8Array, slot: number, host: HostServices, externalMemory?: WebAssembly.Memory, extraImports?: WebAssembly.Imports): Contract {
@@ -618,19 +633,32 @@ export class Contract {
         return this.shadow;
     }
 
-    // Catches the shadow up to the state a dispatch left behind, copying only the blocks that moved.
-    private syncShadow(live: Uint8Array): void {
+    // Catches the shadow up to the state a dispatch left behind, copying only the blocks that moved, and reports how many journal blocks that was.
+    private syncShadow(live: Uint8Array): number {
         const shadow = this.shadow;
         if (!shadow) {
-            return;
+            return 0;
         }
+
+        // only a contract waiting to hand back to its journal needs the count, and only until it no longer fits.
+        const countLimit = this.journalOverflowed && this.journal ? this.journal.capacityBlocks : -1;
+        let changedJournalBlocks = 0;
 
         for (let block = 0; block < live.length; block += SHADOW_BLOCK) {
             const end = Math.min(block + SHADOW_BLOCK, live.length);
-            if (!rangesEqual(shadow, block, live, block, end - block)) {
-                shadow.set(live.subarray(block, end), block);
+            if (rangesEqual(shadow, block, live, block, end - block)) {
+                continue;
             }
+
+            for (let at = block; at < end && changedJournalBlocks <= countLimit; at += JOURNAL_BLOCK_BYTES) {
+                if (!rangesEqual(shadow, at, live, at, Math.min(JOURNAL_BLOCK_BYTES, end - at))) {
+                    changedJournalBlocks++;
+                }
+            }
+            shadow.set(live.subarray(block, end), block);
         }
+
+        return changedJournalBlocks;
     }
 
     private writeCtx(context: ContractCallContext) {
@@ -652,9 +680,6 @@ export class Contract {
     }
 
     invoke(kind: number, inputType: number, input: Uint8Array = new Uint8Array(0), context: ContractCallContext = {}): Uint8Array {
-        // every dispatch frame begins here — registry.fire, read-only queries and inter-contract FUNCTION
-        // calls alike — so the per-frame warp reset belongs here rather than in fire().
-        this.host.clearCheatWarp?.();
         // Any non-function may write; conservative, a no-op procedure still bumps.
         if (kind !== CONTRACT_ENTRY_KIND.FUNCTION) {
             this.host.bumpStateVersion(this.slot);
@@ -738,6 +763,10 @@ export class Contract {
             : null;
         const startedAt = recorder ? performance.now() : 0;
 
+        // every dispatch frame passes here: registry.fire, read-only queries and inter-contract calls alike.
+        const outerPrank = this.prankSaved;
+        this.prankSaved = null;
+        this.host.enterFrame?.();
         this.dispatchDepth++;
         this.executionKinds.push(kind);
         try {
@@ -771,6 +800,8 @@ export class Contract {
         } finally {
             this.executionKinds.pop();
             this.dispatchDepth--;
+            this.host.exitFrame?.();
+            this.prankSaved = outerPrank;
 
             if (nested) {
                 const currentMemory = this.u8();
@@ -804,8 +835,11 @@ export class Contract {
             this.verifyJournal(verifyBefore, outcome, kind, inputType);
         }
         // After the recorder has read the before-image, not before.
-        if (useShadow && stateChanged) {
-            this.syncShadow(stateAfter);
+        const changedJournalBlocks = useShadow && stateChanged ? this.syncShadow(stateAfter) : 0;
+        // a call that fits the journal hands back to it; alternating wide and narrow calls re-allocate the shadow each flip, a streak counter would damp that.
+        if (useShadow && this.journalOverflowed && changedJournalBlocks <= this.journal!.capacityBlocks) {
+            this.journalOverflowed = false;
+            this.shadow = null;
         }
         // Journal mode leaves the shadow untouched, so marking it stale keeps the fallback correct if the journal later overflows and hands back over.
         if (useJournal && stateChanged) {
@@ -846,6 +880,14 @@ export class Contract {
             : null;
         const startedAt = recorder ? performance.now() : 0;
 
+        // core measures MIGRATE like any other charged entry (contract_exec.h), and it always rewrites the whole state.
+        const metering = this.metering;
+        const savedCost = this.cost;
+        this.cost = 0n;
+
+        const outerPrank = this.prankSaved;
+        this.prankSaved = null;
+        this.host.enterFrame?.();
         this.executionKinds.push(CONTRACT_ENTRY_KIND.MIGRATE);
         try {
             this.ex.dispatch(CONTRACT_ENTRY_KIND.MIGRATE >>> 0, 0, oldStateOffset >>> 0, 0, localsOffset >>> 0);
@@ -864,6 +906,9 @@ export class Contract {
             throw error instanceof ContractExecutionError ? error : new ContractExecutionError(this.slot, CONTRACT_ENTRY_KIND.MIGRATE, 0, error);
         } finally {
             this.executionKinds.pop();
+            this.host.exitFrame?.();
+            this.prankSaved = outerPrank;
+            this.finishMeter(metering, savedCost, true);
         }
 
         if (recorder) {
@@ -881,9 +926,9 @@ export class Contract {
 
     private finishMeter(metering: boolean, savedCost: bigint, stateChanged: boolean): void {
         if (metering) {
-            let cost = BASE_CALL_COST + this.cost;
+            let cost = BASE_EXECUTION_TIME + this.cost;
             if (stateChanged) {
-                cost += DIGEST_BYTE_COST * BigInt(this.stateSize);
+                cost += BigInt(this.stateSize) / STATE_BYTES_PER_MICROSECOND;
             }
             this.lastCost = cost;
         } else {
@@ -937,7 +982,7 @@ export class Contract {
     }
 
     // lhost: frame markers, dirty tracking, logging control, and the scratch arena.
-    private coreImports(u8: () => Uint8Array): Record<string, Function> {
+    private coreImports(u8: () => Uint8Array) {
         return {
             beginFn: (_id: number) => {},
             endFn: (_id: number) => {},
@@ -1008,7 +1053,7 @@ export class Contract {
         }
     }
 
-    // Rewrites the guest's context view only: the engine's caller attribution is untouched, so a prank changes what the contract reads, not the accounting.
+    // nested calls, callbacks and issueAsset read the caller from this context, so a prank reaches them; the reward moved stays the real one.
     private cheatPrank(caller: Id | null, invocationReward: bigint, len: number): bigint {
         if (caller && len !== 32) {
             return CHEAT_ERR.unknownOp;
@@ -1033,7 +1078,7 @@ export class Contract {
     }
 
     // lhost: tick, epoch, and calendar reads, plus the previous tick's committed digests.
-    private timeImports(): Record<string, Function> {
+    private timeImports() {
         return {
             // time / tick (read-only)
             epoch: () => this.host.epoch() & 0xffff,
@@ -1060,7 +1105,7 @@ export class Contract {
     }
 
     // lhost: identity derivation and spectrum lookups.
-    private identityImports(u8: () => Uint8Array): Record<string, Function> {
+    private identityImports(u8: () => Uint8Array) {
         return {
             // identity / spectrum
             getEntity: (idOff: number, entityOff: number) => {
@@ -1090,19 +1135,19 @@ export class Contract {
         };
     }
 
-    // lhost: value transfer and balance reads, delegated to Layer 2.
-    private ledgerImports(u8: () => Uint8Array): Record<string, Function> {
+    // lhost: value transfer and balance reads, delegated to Layer 2. the originator is a copy, since a self-transfer re-enters and rewrites the context.
+    private ledgerImports(u8: () => Uint8Array, contextView: () => QpiContext) {
         return {
             // value / ledger (delegated to Layer 2; return the contract's new balance per qpi_spectrum_impl.h)
             transfer: (destOff: number, amount: bigint) => {
                 const dest = u8().slice(destOff, destOff + 32);
-                const r = this.host.transfer(this.slot, dest, amount, 2 /*qpiTransfer*/);
+                const r = this.host.transfer(this.slot, dest, amount, 2 /*qpiTransfer*/, contextView().originator.slice() as Id);
                 this.recHost("transfer", () => `→ ${shortId(dest)} ${amount}${r < 0n ? " ✗" : ""}`);
                 return r;
             },
             transferTyped: (destOff: number, amount: bigint, type: number) => {
                 const dest = u8().slice(destOff, destOff + 32);
-                const r = this.host.transfer(this.slot, dest, amount, type & 0xff);
+                const r = this.host.transfer(this.slot, dest, amount, type & 0xff, contextView().originator.slice() as Id);
                 this.recHost("transfer", () => `→ ${shortId(dest)} ${amount} (type ${type & 0xff})${r < 0n ? " ✗" : ""}`);
                 return r;
             },
@@ -1115,7 +1160,7 @@ export class Contract {
     }
 
     // lhost: asset issuance, ownership, possession, and record enumeration.
-    private assetImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
+    private assetImports(u8: () => Uint8Array, contextView: () => QpiContext) {
         return {
             // assets / shares
             isAssetIssued: (issOff: number, name: bigint) => this.host.isAssetIssued(u8().slice(issOff, issOff + 32), name),
@@ -1196,7 +1241,7 @@ export class Contract {
     }
 
     // lhost: share management rights — qpi acquireShares / releaseShares.
-    private shareRightsImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
+    private shareRightsImports(u8: () => Uint8Array, contextView: () => QpiContext) {
         return {
             // Share management rights — qpi acquireShares / releaseShares. The lhost imports are provided here; a wasm contract reaches them via the binding.
             acquireShares: (
@@ -1253,7 +1298,7 @@ export class Contract {
     }
 
     // lhost: date, signature, IPO, mining, and oracle status.
-    private platformImports(u8: () => Uint8Array): Record<string, Function> {
+    private platformImports(u8: () => Uint8Array) {
         return {
             // date / signature / IPO / mining / oracle-status — see HostServices (the dev engine stubs IPO/mining/oracle)
             dayOfWeek: (year: number, month: number, day: number) => this.host.dayOfWeek(year & 0xff, month & 0xff, day & 0xff),
@@ -1278,11 +1323,31 @@ export class Contract {
     }
 
     // lhost: oracle query, subscribe, and reply reads over opaque sized buffers.
-    private oracleImports(u8: () => Uint8Array): Record<string, Function> {
+    private oracleImports(u8: () => Uint8Array, contextView: () => QpiContext) {
+        // core runs a notification raised inside the call under the caller's own context; copied, since a nested frame rewrites the context bytes.
+        const callerFrame = (): ContractCallContext => {
+            const view = contextView();
+            return {
+                invocator: view.invocator.slice() as Id,
+                originator: view.originator.slice() as Id,
+                invocationReward: view.invocationReward,
+                entryPoint: view.entryPoint,
+            };
+        };
+
         return {
             // oracle query/subscribe/read — the query/reply are opaque sized buffers (the contract owns the typing)
             queryOracle: (ifaceIdx: number, queryOff: number, querySize: number, replySize: number, procId: number, timeout: number, fee: bigint) =>
-                this.host.queryOracle(this.slot, ifaceIdx >>> 0, u8().slice(queryOff, queryOff + querySize), replySize >>> 0, procId >>> 0, timeout >>> 0, fee),
+                this.host.queryOracle(
+                    this.slot,
+                    ifaceIdx >>> 0,
+                    u8().slice(queryOff, queryOff + querySize),
+                    replySize >>> 0,
+                    procId >>> 0,
+                    timeout >>> 0,
+                    fee,
+                    callerFrame(),
+                ),
             subscribeOracle: (
                 ifaceIdx: number,
                 queryOff: number,
@@ -1304,6 +1369,7 @@ export class Contract {
                     period >>> 0,
                     notifyPrev !== 0,
                     fee,
+                    callerFrame(),
                 ),
             getOracleQuery: (queryId: bigint, outOff: number, size: number) => {
                 const q = this.host.getOracleQuery(queryId);
@@ -1322,7 +1388,7 @@ export class Contract {
                 return 1;
             },
             distributeDividends: (amountPerShare: bigint) => {
-                const r = this.host.distributeDividends(this.slot, amountPerShare);
+                const r = this.host.distributeDividends(this.slot, amountPerShare, contextView().originator.slice() as Id);
                 this.recHost("distributeDividends", () => `${amountPerShare}/share`);
                 return r;
             },
@@ -1330,7 +1396,7 @@ export class Contract {
     }
 
     // lhost: nested contract calls, which keep the original originator.
-    private nestedCallImports(u8: () => Uint8Array, contextView: () => QpiContext): Record<string, Function> {
+    private nestedCallImports(u8: () => Uint8Array, contextView: () => QpiContext) {
         return {
             // Nested calls keep the original originator.
             liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number) => {
@@ -1369,20 +1435,38 @@ export class Contract {
         };
     }
 
-    private imports(wasmModule?: WebAssembly.Module): WebAssembly.Imports {
-        const u8 = () => this.u8();
-        const contextView = () => QpiContext.wrap(u8(), this.ctxAddr);
-        const lhost: Record<string, Function> = {
+    // a missing import fails the return type and an extra one the guard, so table drift is a typecheck error before it is a load error.
+    private buildLhost(u8: () => Uint8Array, contextView: () => QpiContext): Record<LhostImportName, Function> {
+        const built = {
             ...this.coreImports(u8),
             ...this.timeImports(),
             ...this.identityImports(u8),
-            ...this.ledgerImports(u8),
+            ...this.ledgerImports(u8, contextView),
             ...this.assetImports(u8, contextView),
             ...this.shareRightsImports(u8, contextView),
             ...this.platformImports(u8),
-            ...this.oracleImports(u8),
+            ...this.oracleImports(u8, contextView),
             ...this.nestedCallImports(u8, contextView),
         };
+        const withoutExtras: Exclude<keyof typeof built, LhostImportName> extends never ? typeof built : never = built;
+
+        return withoutExtras;
+    }
+
+    private imports(wasmModule?: WebAssembly.Module): WebAssembly.Imports {
+        const u8 = () => this.u8();
+        const contextView = () => QpiContext.wrap(u8(), this.ctxAddr);
+        const lhost: Record<string, Function> = this.buildLhost(u8, contextView);
+        const missingLhost = Object.keys(LHOST_ABI).filter((name) => !(name in lhost));
+        const extraLhost = Object.keys(lhost).filter((name) => !(name in LHOST_ABI));
+        if (missingLhost.length || extraLhost.length) {
+            throw new Error(`simulator lhost table drift (missing: ${missingLhost.join(", ") || "none"}; extra: ${extraLhost.join(", ") || "none"})`);
+        }
+        // checked ahead of the wrappers below, which are variadic and hide each function's declared arity.
+        const wrongArity = Object.entries(LHOST_ABI).filter(([name, signature]) => lhost[name].length !== signature.params.length);
+        if (wrongArity.length) {
+            throw new Error(`simulator lhost arity drift (${wrongArity.map(([name]) => name).join(", ")})`);
+        }
 
         for (const name of MUTATING_LHOST_IMPORTS) {
             const hostFunction = lhost[name];
@@ -1393,11 +1477,6 @@ export class Contract {
 
                 return hostFunction(...args);
             };
-        }
-        const missingLhost = Object.keys(LHOST_ABI).filter((name) => !(name in lhost));
-        const extraLhost = Object.keys(lhost).filter((name) => !(name in LHOST_ABI));
-        if (missingLhost.length || extraLhost.length) {
-            throw new Error(`simulator lhost table drift (missing: ${missingLhost.join(", ") || "none"}; extra: ${extraLhost.join(", ") || "none"})`);
         }
         this.meterLhost(lhost);
         // Wasm i32 parameters arrive signed in JS; coerce offsets to unsigned above 2 GiB.

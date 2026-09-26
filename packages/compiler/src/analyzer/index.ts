@@ -179,6 +179,7 @@ function analyzeCompiler(
             calleeStructs: calleeContext.contractStructs,
             calleeTranslationUnits: calleeContext.calleeTranslationUnits,
             gtestMode: false,
+            toleratesUnresolvedCalleeTypes: true,
         });
         const idl = buildContractIdl(prepared, {
             contractName: compileOptions.contractName,

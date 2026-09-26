@@ -1,7 +1,7 @@
 import { AstKind, BinaryOp, UnaryOp, CAST_TEMPLATE_NAMES, VALUE_CONVERTING_CAST } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { EMPTY_TEMPLATE_BINDINGS, NamespaceLookupContext, TemplateBindings } from "./types";
-import type { TypeSpec, Expression } from "../ast";
+import type { TypeSpec, Expression, Span } from "../ast";
 import { parseIntLiteral } from "../frontend/lexer";
 import type { ProgramAnalysis } from "./program-analysis";
 import { scopedLookupKeys, unqualifiedLookupKeys } from "./declaration-index";
@@ -96,18 +96,17 @@ export function evalConst(programAnalysis: ProgramAnalysis, expression: Expressi
     return Number(programAnalysis.evalConstBig(expression, templateBindings));
 }
 
-export function tryParseIntLiteral(value: string): bigint {
-    try {
-        return parseIntLiteral(value);
-    } catch {
-        return 0n;
-    }
+// a constant that cannot be evaluated has no value: answering 0 turns it into a zero-length array or a wrong index.
+export function unevaluable(node: { span?: Span }, what: string): never {
+    const failure = new Error(`cannot evaluate ${what} as a constant`);
+    if (node.span) (failure as Error & { span?: Span }).span = node.span;
+    throw failure;
 }
 
 export function evalConstBig(programAnalysis: ProgramAnalysis, expression: Expression, templateBindings: TemplateBindings): bigint {
     switch (expression.kind) {
         case AstKind.INT_LITERAL:
-            return programAnalysis.tryParseIntLiteral(expression.value);
+            return parseIntLiteral(expression.value);
         case AstKind.BOOL_LITERAL:
             return expression.value ? 1n : 0n;
         case AstKind.CHAR_LITERAL:
@@ -125,7 +124,7 @@ export function evalConstBig(programAnalysis: ProgramAnalysis, expression: Expre
                   })
                 : programAnalysis.resolveConst(expression.name, templateBindings);
             if (resolvedConstant !== null) return resolvedConstant;
-            return 0n;
+            return unevaluable(expression, `'${expression.name}'`);
         }
         case AstKind.UNARY_OP: {
             const constantValue = programAnalysis.evalConstBig(expression.argument, templateBindings);
@@ -175,7 +174,7 @@ export function evalConstBig(programAnalysis: ProgramAnalysis, expression: Expre
                 case BinaryOp.LOGICAL_OR:
                     return constantValue !== 0n || constantValueCandidate !== 0n ? 1n : 0n;
                 default:
-                    return 0n;
+                    return unevaluable(expression, `operator '${expression.operator}'`);
             }
         }
         case AstKind.TERNARY:
@@ -186,7 +185,7 @@ export function evalConstBig(programAnalysis: ProgramAnalysis, expression: Expre
             return BigInt(programAnalysis.sizeOfType(expression.type, templateBindings));
         case AstKind.SIZEOF_EXPR: {
             // A struct or typedef name parses as an expression, so size it the way the backend does.
-            if (expression.expression.kind !== AstKind.IDENTIFIER) return 0n;
+            if (expression.expression.kind !== AstKind.IDENTIFIER) return unevaluable(expression, "sizeof of an expression");
             const byteSize = programAnalysis.sizeOfType({ kind: AstKind.NAME, name: expression.expression.name }, templateBindings);
             return BigInt(byteSize);
         }
@@ -219,10 +218,10 @@ export function evalConstBig(programAnalysis: ProgramAnalysis, expression: Expre
                         return numericValue[0] < 0n ? -numericValue[0] : numericValue[0];
                 }
             }
-            return 0n;
+            return unevaluable(expression, fn ? `a call to '${fn}'` : "this call");
         }
         default:
-            return 0n;
+            return unevaluable(expression, "this expression");
     }
 }
 

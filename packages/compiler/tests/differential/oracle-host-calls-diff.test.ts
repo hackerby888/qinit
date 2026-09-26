@@ -6,6 +6,7 @@ import { describe, expect, beforeAll } from "bun:test";
 import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
+import { TXS_PER_TICK } from "@qinit/proto";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
@@ -134,16 +135,19 @@ describe.skipIf(!HAS_CORE)("differential — oracle read / mining / shareholder 
                 sim.fund(user, 1_000_000n);
                 sim.fund(sim.contractId(27), 1_000n);
 
+                const queryTick = sim.currentTick;
                 sim.procedure(27, 1, askInput, { invocator: user });
                 sim.procedure(27, 2, undefined, { invocator: user });
                 const pendingState = sim.contracts.get(27)!.state().slice();
 
-                sim.resolveOracle(1n, reply);
+                // a query id is handed out by the node, so resolve by the one the contract recorded
+                const queryId = new DataView(pendingState.buffer, pendingState.byteOffset).getBigInt64(0, true);
+                sim.resolveOracle(queryId, reply);
                 sim.advance();
                 sim.procedure(27, 2, undefined, { invocator: user });
                 const resolvedState = sim.contracts.get(27)!.state().slice();
 
-                return { pendingState, resolvedState };
+                return { pendingState, resolvedState, queryTick };
             };
 
             const nat = run(nativeWasm);
@@ -161,7 +165,8 @@ describe.skipIf(!HAS_CORE)("differential — oracle read / mining / shareholder 
 
             // Anchor the resolved phase to known query/reply host behavior.
             const dv = new DataView(nat.resolvedState.buffer, nat.resolvedState.byteOffset);
-            expect(dv.getBigInt64(0, true)).toBe(1n); // queryId
+            // core packs the tick into a query id and numbers a tick's contract queries past its transaction slots
+            expect(dv.getBigInt64(0, true)).toBe((BigInt(nat.queryTick) << 31n) | BigInt(TXS_PER_TICK)); // queryId
             expect(dv.getBigUint64(8, true)).toBe(1n); // notified
             expect(dv.getBigUint64(16, true)).toBe(1n); // qFound
             expect(dv.getBigUint64(24, true)).toBe(42n); // qValue

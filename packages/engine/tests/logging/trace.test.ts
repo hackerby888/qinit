@@ -163,6 +163,8 @@ test("nested traces use completion order for sequence, since, and limit", () => 
         [1, 28],
         [2, 29],
     ]);
+    // the caller learns its callee's seq at the callee's completion; the callee called nothing.
+    expect(recorder.trace().entries.map((entry) => entry.children)).toEqual([[], [1]]);
     expect(recorder.trace(1).entries.map((entry) => entry.index)).toEqual([29]);
     expect(recorder.trace(0, 1).entries.map((entry) => entry.index)).toEqual([29]);
 });

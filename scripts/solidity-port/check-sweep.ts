@@ -5,8 +5,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { KNOWN_DIVERGENCES } from "./known-divergences";
 import type { CellResult, Verdict } from "./types";
 
-/** Verdicts where the two backends agree — including agreeing to refuse the contract. */
-const AGREEING: ReadonlySet<Verdict> = new Set<Verdict>(["match", "both-rejected"]);
+// expectReject rows reach here as "match", so a both-rejected row is a contract the build gates stopped building.
+const AGREEING: ReadonlySet<Verdict> = new Set<Verdict>(["match"]);
 
 function rowsFrom(path: string): CellResult[] {
     if (!existsSync(path)) throw new Error(`no sweep results at ${path}`);

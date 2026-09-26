@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, deriveIdentity } from "@qinit/core";
-import { savedSeed, setSavedSeed, clearSavedSeed, seedStorePath, loadConfig } from "../../config";
+import { LiteRpc, deriveIdentity } from "@qinit/core";
+import { savedSeed, setSavedSeed, clearSavedSeed, seedStorePath, loadConfig, resolveRpc } from "../../config";
 import { Header, Spinner, GradLine, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
@@ -32,7 +32,7 @@ export function seedJsonResult(facts: SeedFacts | null, error: string | null) {
 }
 
 export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
-    const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), loadConfig());
     const { exit } = useApp();
     const [items, setItems] = useState<Item[]>([]);
     const [i, setI] = useState(0);

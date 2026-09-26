@@ -5,7 +5,7 @@ import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader } from "../config";
 import { contractIdlForSlot, loadContractIdlFile } from "./idl-file";
 import { loadContracts, mergeContracts, siblingCalleeSources } from "./registry";
-import { formatStateValue } from "../trace/state-format";
+import { abiValueText } from "../trace/state-format";
 
 export type ContractIdls = Map<number, ContractIdl>;
 
@@ -93,7 +93,7 @@ export async function decodeTxInput(entry: ContractEntry, bytes: Uint8Array): Pr
 
     const decoded = await decodeAbi(padded, type);
     const values = type.fields.length === 1 ? [decoded] : decoded;
-    const fields = type.fields.map((field, index): [string, string] => [field.name, formatStateValue(values[index], field.type, false)]);
+    const fields = type.fields.map((field, index): [string, string] => [field.name, abiValueText(values[index], field.type)]);
 
     // The value grammar is a bonus on top of the named fields — linked_list and overlapping inputs have no representation in it and must not cost those fields.
     try {

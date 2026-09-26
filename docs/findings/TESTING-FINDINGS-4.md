@@ -17,7 +17,7 @@ decoder of the raw dump, a Python-packed byte image, the other cell). Report onl
 | # | severity | one line | cells |
 |---|---|---|---|
 | **F48** | critical (silent wrong state report) | the diff drops every field after a struct's first padding hole — **8 of 20 procedure frames** in a production-shaped session lose rows (`Pool.assetName/features/phase`, `PositionLog.debt`, `VoteLog.tally`, `Ledger.buckets[i]`), while the same frame's decoded log shows the values | all four (renderer) |
-| **F46** | high (silent no-op with `ok`) | on the simulator a ≥ 500 MB contract is single-shot: INITIALIZE + one procedure exhaust the 1e9 reserve; every later `call --proc` returns `ok` + tx, is silently skipped/refunded, `--trace` blames the debug toggle, no surface says dormant; core is unaffected | sim only, both compilers |
+| **F46** | high (silent no-op with `ok`) — **resolved 2026-09-20**, see the note under the finding | on the simulator a ≥ 500 MB contract is single-shot: INITIALIZE + one procedure exhaust the 1e9 reserve; every later `call --proc` returns `ok` + tx, is silently skipped/refunded, `--trace` blames the debug toggle, no surface says dormant; core is unaffected | sim only, both compilers |
 | **F47** | high (machine consumers) | `--json` carries the rendered text as `out` and every state field `value` (unquoted keys, `×256`, `… +4 more (--all)` inside the string) | all |
 | **F52** | medium (wrong diagnostic — accepts an illegal spelling) | `--in` places tokens by their spelling and checks only the total length against the IDL it holds: `1uint64` for a `uint8` field, or a reordered spelling, is accepted with `ok` and writes wrong values | clang×core (encoder; runtime-independent) |
 | **F53** | medium (silent loss of readability) | two log structs of equal logged size make both undecodable; `_type` is never used to disambiguate | all |
@@ -93,6 +93,20 @@ toggle available"*. So the budget is ≈ 1 procedure per 551 M qu of reserve, i.
 the only refill, and Qx has none.
 **Not a finding**: dormancy itself is Qubic's spec (`fees.ts:62`, core `contract_exec.h:409`); the finding is the
 per-byte cost making a production-size contract single-shot on the dev node, and the CLI's silence about it.
+
+**Resolved (2026-09-20)** — the fee model was rebuilt around core's, so both halves of this finding are gone:
+- **Cadence.** `FeeManager` now mirrors `contract_core/execution_time_accumulator.h`: a mutating entry calls
+  `addTime`, which only accumulates, and `processReports` charges the total once at the end of a phase of
+  `NUMBER_OF_COMPUTORS` ticks, emitting one `ContractReserveDeduction` per contract. A contract that outspends its
+  reserve inside a phase keeps running to the boundary, as on core.
+- **Magnitude.** The per-byte digest charge is gone. Measured against a core-lite TESTNET node, a trivial procedure
+  costs 79 us on an 8-byte state and 157 us on a 64 MiB one, so `runtime.ts` charges
+  `BASE_EXECUTION_TIME (80) + host weights + stateSize / 1e6` microseconds. A 550 MB contract now costs ~630 per
+  procedure against a 1e11 reserve instead of ~551 M, so the single-shot ceiling above no longer exists.
+- The arithmetic quoted under **Cause** (621 806 130 per XCHG entry) and under **Quantified on NEXUS** described the
+  old per-call `DIGEST_BYTE_COST x stateSize` charge. `DEFAULT_FEE_RESERVE` is `1e11`, not the `1e9` quoted there —
+  it moved in `a609ab02`, after this finding was written — and the reserve is on `/live/v1/dyn-registry` as
+  `feeReserve`, beside the new `executionFee` (what the open phase has run up), which `qinit call --proc` reports.
 
 ### F47 — `--json` carries the *rendered display text* as `out` and as every state field `value`, not structured data: unquoted keys, run markers and elision inside a JSON string
 

@@ -25,6 +25,14 @@ export const QUBIC_LOG_TYPE = {
     CUSTOM_MESSAGE: 255,
 } as const;
 
+// logging.h CUSTOM_MESSAGE_OP_*: eight ASCII bytes read as a little-endian uint64, the whole payload of a marker record.
+export const CUSTOM_MESSAGE_OP = {
+    START_DISTRIBUTE_DIVIDENDS: 6217575821008262227n,
+    END_DISTRIBUTE_DIVIDENDS: 6217575821008457285n,
+    START_EPOCH: 4850183582582395987n,
+    END_EPOCH: 4850183582582591045n,
+} as const;
+
 export const LOG_SEVERITY: Record<number, string> = {
     [QUBIC_LOG_TYPE.CONTRACT_ERROR_MESSAGE]: "ERROR",
     [QUBIC_LOG_TYPE.CONTRACT_WARNING_MESSAGE]: "WARN",
@@ -37,6 +45,22 @@ export const MAX_INPUT_SIZE = 1024;
 export const MAX_NUMBER_OF_CONTRACTS = 1024;
 export const TXS_PER_TICK = 4096;
 export const MAINNET_COMPUTOR_COUNT = 676;
+// what a host reports when an inter-contract call never ran (core's CallError values); 0 is NO_CALL_ERROR.
+export const INTER_CONTRACT_CALL_ERROR: Record<number, string> = {
+    2: "insufficient fees — the callee has no execution fee reserve",
+    3: "allocation failed — no room for the callee's context",
+    4: "contract inactive — not deployed, or its slot is not below the caller's",
+};
+
+// the host row of a failed nested call ends in `✗ err N`; the number reads better with core's name for it.
+export function hostCallError(detail: string): { code: number; reason: string } | undefined {
+    const match = /✗ err (\d+)$/.exec(detail);
+    if (!match) {
+        return undefined;
+    }
+    const code = Number(match[1]);
+    return { code, reason: INTER_CONTRACT_CALL_ERROR[code] ?? `error ${code}` };
+}
 export const SPECTRUM_DEPTH = 24;
 export const ASSETS_DEPTH = 24;
 export const MAX_ORACLE_QUERY_SIZE = MAX_INPUT_SIZE - 16;
@@ -49,6 +73,24 @@ export const ORACLE_STATUS = {
     TIMEOUT: 4,
     UNRESOLVABLE: 5,
 } as const;
+
+// an OC invocation has no reply: the status only tracks whether the computors authorized the bundle.
+export const OC_INVOCATION_STATUS = {
+    UNKNOWN: 0,
+    PENDING_AUTH: 1,
+    AUTHORIZED: 2,
+    TIMEOUT: 3,
+} as const;
+
+// src/oc_core/oc_engine.h
+export const MIN_OC_INVOCATION_FEE = 10n;
+export const MAX_OC_REQUEST_SIZE = MAX_INPUT_SIZE - 16;
+export const OC_INVOCATION_TIMEOUT_DEFAULT_TICKS = 12;
+export const MAX_OC_IN_FLIGHT_INVOCATIONS = 1024;
+export const MAX_OC_INVOCATIONS_PER_EPOCH = 1 << 21;
+export const OC_REQUEST_STORAGE_SIZE = 256 * MAX_OC_INVOCATIONS_PER_EPOCH;
+// src/qubic.cpp: the tick offset the authorization signatures are scheduled at, so AUTHORIZED lands this many ticks after the call.
+export const OC_AUTH_SIGNATURE_PUBLICATION_OFFSET = 3;
 
 export const CHUNK_HEADER_SIZE = 14; // UploadChunk: sessionId(8) + seq(4) + len(2)
 // Upload chunks keep their proven size; this is independent of the oracle payload limit.

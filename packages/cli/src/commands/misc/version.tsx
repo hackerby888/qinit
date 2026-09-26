@@ -11,5 +11,5 @@ export function Version() {
         exit();
     }, [exit]);
     if (output.json) return null;
-    return <Banner version={VERSION} tagline="Framework for Qubic dynamic contracts" />;
+    return <Banner version={VERSION} tagline="Build, test and deploy Qubic smart contracts" />;
 }

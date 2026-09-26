@@ -1,10 +1,10 @@
 import { AstKind, UnsupportedFeature, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { SCALAR_SIZE, C_SCALAR_NAMES } from "../abi/tables";
-import { isAutoType, resolveAliasType } from "../expressions/conversions";
-import { adviseUnsupported } from "../../../semantics/unsupported";
+import { contextLeaves, isAutoType, memberCallReturnType, resolveAliasType, valueTypeName } from "../expressions/conversions";
+import { adviseUnsupported, reportUnsupported } from "../../../semantics/unsupported";
 import { castInfo } from "../memory/address-resolution";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
-import type { TypeSpec, Statement, StructDecl, FunctionDecl, VariableDecl } from "../../../ast";
+import type { Expression, TypeSpec, Statement, StructDecl, FunctionDecl, VariableDecl } from "../../../ast";
 import { isProxyAliasLocal } from "../qpi-names";
 export function collectFunctionLocals(statement: Statement, context: FunctionEmissionContext): void {
     switch (statement.kind) {
@@ -86,8 +86,15 @@ export function collectFunctionLocals(statement: Statement, context: FunctionEmi
                             dType = operator.pointee;
                         }
                     }
+                    if (dType.kind === AstKind.NAME && dType.name === "auto") {
+                        dType = initializerType(context, variableDeclaration.initializer) ?? dType;
+                        // left as `auto` the local is a plain 64-bit slot that never wraps at its C++ width.
+                        if (isAutoType(dType)) {
+                            reportUnsupported(context.programAnalysis, UnsupportedFeature.AUTO_DEDUCTION, statement.span.line, variableDeclaration.name);
+                        }
+                    }
                 }
-                // Reject unresolved local types before a zero-size scalar fallback.
+                // Reported here, on the declaration's own line, ahead of the sizer's refusal of the same name.
                 if (
                     dType.kind === AstKind.NAME &&
                     !isAutoType(dType) &&
@@ -122,4 +129,21 @@ export function collectFunctionLocals(statement: Statement, context: FunctionEmi
             break;
         }
     }
+}
+
+// `auto` decays: an lvalue initializer gives its declared type without const or reference, an rvalue its un-promoted C++ type.
+function initializerType(context: FunctionEmissionContext, initializer: Expression): TypeSpec | null {
+    let addressed = context.lowering.resolveExpressionAddress(context, initializer)?.type;
+
+    while (addressed?.kind === AstKind.CONST || addressed?.kind === AstKind.REFERENCE) {
+        addressed = addressed.kind === AstKind.CONST ? addressed.valueType : addressed.referentType;
+    }
+
+    if (addressed) {
+        return addressed;
+    }
+
+    const scalarName = valueTypeName(initializer, contextLeaves(context));
+
+    return scalarName ? ({ kind: AstKind.NAME, name: scalarName } as TypeSpec) : memberCallReturnType(context, initializer);
 }

@@ -80,6 +80,9 @@ class Generator {
             () => `HashSet<uint64, ${capacity}>`,
             () => `Collection<${this.plain(depth)}, ${capacity}>`,
             () => `LinkedList<${this.plain(depth)}, ${capacity}>`,
+            // a keyed container as a keyed container's value: still one block, the inner one stays empty like every keyed container here
+            () => `HashMap<uint64, HashSet<uint64, 4>, ${capacity}>`,
+            () => `HashMap<uint64, HashMap<uint64, uint64, 4>, ${capacity}>`,
         ])();
 
         return { type, rows: [], containers: [""] };

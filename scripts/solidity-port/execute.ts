@@ -40,7 +40,7 @@ export function executeScript(backend: BackendRun["backend"], wasm: Uint8Array, 
         mempool: false,
         fees: "off",
         liteTicking: true,
-        // DEFAULT_EPOCH_LENGTH is 3000, so a script would never reach END_EPOCH without shortening it.
+        // the default epoch is thousands of ticks long, so a script would never reach END_EPOCH without shortening it.
         epochLength: script.epochLength,
     });
     sim.currentTick = script.tick;

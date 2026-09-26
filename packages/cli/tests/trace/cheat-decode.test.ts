@@ -73,8 +73,8 @@ function mapBytes(key: number, value: number): Uint8Array {
     const slot = 2;
 
     view.setBigUint64(0, BigInt(key), true);
-    view.setBigUint64(8 + slot * MAP_GEOMETRY.recordStride, BigInt(key), true);
-    view.setBigUint64(8 + slot * MAP_GEOMETRY.recordStride + MAP_GEOMETRY.valueOffset, BigInt(value), true);
+    view.setBigUint64(8 + slot * MAP_GEOMETRY.elementStride, BigInt(key), true);
+    view.setBigUint64(8 + slot * MAP_GEOMETRY.elementStride + MAP_GEOMETRY.elementValueOffset, BigInt(value), true);
     view.setBigUint64(8 + MAP_GEOMETRY.flagsOffset, 1n << BigInt(slot * 2), true);
     view.setBigUint64(8 + MAP_GEOMETRY.populationOffset, 1n, true);
 
@@ -545,9 +545,9 @@ test("a Collection prints its PoV rows highest priority first, and a LinkedList 
     const view = new DataView(bytes.buffer);
     // One PoV (the zero id) in slot 0 holding elements 0 (priority 10) and 1 (priority -3), 1 to the right of 0.
     view.setBigUint64(collection.povPopulationOffset, 2n, true);
-    view.setBigInt64(collection.povHeadOffset, 0n, true);
-    view.setBigInt64(collection.povTailOffset, 1n, true);
-    view.setBigInt64(collection.povBstRootOffset, 0n, true);
+    view.setBigInt64(collection.povHeadIndexOffset, 0n, true);
+    view.setBigInt64(collection.povTailIndexOffset, 1n, true);
+    view.setBigInt64(collection.povBstRootIndexOffset, 0n, true);
     view.setBigUint64(collection.flagsOffset, 1n, true);
     for (const [index, value, priority, parent, right] of [
         [0, 5n, 10n, -1n, 1n],
@@ -557,9 +557,9 @@ test("a Collection prints its PoV rows highest priority first, and a LinkedList 
         view.setBigUint64(at, value, true);
         view.setBigInt64(at + collection.elementPriorityOffset, priority, true);
         view.setBigInt64(at + collection.elementPovIndexOffset, 0n, true);
-        view.setBigInt64(at + collection.elementBstParentOffset, parent, true);
-        view.setBigInt64(at + collection.elementBstLeftOffset, -1n, true);
-        view.setBigInt64(at + collection.elementBstRightOffset, right, true);
+        view.setBigInt64(at + collection.elementBstParentIndexOffset, parent, true);
+        view.setBigInt64(at + collection.elementBstLeftIndexOffset, -1n, true);
+        view.setBigInt64(at + collection.elementBstRightIndexOffset, right, true);
     }
     view.setBigUint64(collection.populationOffset, 2n, true);
 
@@ -573,14 +573,14 @@ test("a Collection prints its PoV rows highest priority first, and a LinkedList 
         [2, 9n, 0n, -1n],
     ] as const) {
         listView.setBigUint64(slot * list.nodeStride, value, true);
-        listView.setBigInt64(slot * list.nodeStride + list.nextOffset, next, true);
-        listView.setBigInt64(slot * list.nodeStride + list.prevOffset, previous, true);
+        listView.setBigInt64(slot * list.nodeStride + list.nextIndexOffset, next, true);
+        listView.setBigInt64(slot * list.nodeStride + list.prevIndexOffset, previous, true);
     }
     listView.setBigUint64(list.flagsOffset, 0b101n, true);
-    listView.setBigInt64(list.headOffset, 2n, true);
-    listView.setBigInt64(list.tailOffset, 0n, true);
-    listView.setBigInt64(list.freeHeadOffset, -1n, true);
-    listView.setBigUint64(list.nextUnusedOffset, 3n, true);
+    listView.setBigInt64(list.headIndexOffset, 2n, true);
+    listView.setBigInt64(list.tailIndexOffset, 0n, true);
+    listView.setBigInt64(list.freeHeadIndexOffset, -1n, true);
+    listView.setBigUint64(list.nextUnusedIndexOffset, 3n, true);
     listView.setBigUint64(list.populationOffset, 2n, true);
 
     const site: ContractIdl = {
@@ -620,7 +620,7 @@ test("a HashSet prints its keys by slot", async () => {
     const SET: AbiHashSet = { kind: AbiTypeKind.HASH_SET, key: UINT64, capacity: 4, size: set.size, align: 8, format: "" };
     const bytes = new Uint8Array(set.size);
     const view = new DataView(bytes.buffer);
-    view.setBigUint64(3 * set.recordStride, 42n, true);
+    view.setBigUint64(3 * set.keyStride, 42n, true);
     view.setBigUint64(set.flagsOffset, 1n << 6n, true);
     view.setBigUint64(set.populationOffset, 1n, true);
     const site = siteOf([{ type: SET, expr: "state.get().set" }]);

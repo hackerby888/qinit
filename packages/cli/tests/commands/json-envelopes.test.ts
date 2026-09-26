@@ -40,6 +40,17 @@ test("doctor fails the document only on a required check", () => {
     const headersMissing = doctorJsonResult([{ name: "qubic-core-lite headers", ok: false, detail: "headers not found", fix: "qinit setup" }]);
     expect(headersMissing.ok).toBe(false);
     expect(headersMissing.error).toBe("qubic-core-lite headers not ready");
+
+    const abiMismatch = doctorJsonResult([
+        {
+            name: "wasm ABI (cli vs headers)",
+            ok: false,
+            detail: "cli speaks wasm ABI 7, core headers ABI 6 — the headers are behind",
+            fix: "qinit setup --force",
+        },
+    ]);
+    expect(abiMismatch.ok).toBe(false);
+    expect(abiMismatch.checks[0].fix).toBe("qinit setup --force");
 });
 
 test("clean carries byte counts, the dry-run flag and the cache root", () => {
@@ -55,7 +66,16 @@ test("integrate reports the wired contract or the refusal", () => {
         contractName: "PCheat",
         result: { mode: "created", contractIndex: 29, corePath: "/core", branch: "qinit/pcheat", warnings: ["x"] } as any,
     });
-    expect(done).toEqual({ ok: true, mode: "created", contractIndex: 29, corePath: "/core", branch: "qinit/pcheat", testPath: null, warnings: ["x"], error: null });
+    expect(done).toEqual({
+        ok: true,
+        mode: "created",
+        contractIndex: 29,
+        corePath: "/core",
+        branch: "qinit/pcheat",
+        testPath: null,
+        warnings: ["x"],
+        error: null,
+    });
     expect(integrateJsonResult({ phase: "error", message: "checkout is dirty" })).toEqual({ ok: false, error: "checkout is dirty" });
 });
 

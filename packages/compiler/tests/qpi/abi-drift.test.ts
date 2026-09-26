@@ -13,9 +13,12 @@ test.skipIf(!HAS_CORE)("live qpi.h context layout matches the engine ABI", () =>
     const O = (QpiContext as unknown as { OFFSETS: Record<string, number> }).OFFSETS;
     expect(layout.size).toBe((QpiContext as unknown as { SIZE: number }).SIZE);
     expect(layout.contractIndex).toBe(O.currentContractIndex);
+    expect(layout.stackIndex).toBe(O.stackIndex);
+    expect(layout.currentContractId).toBe(O.currentContractId);
     expect(layout.originator).toBe(O.originator);
     expect(layout.invocator).toBe(O.invocator);
     expect(layout.invocationReward).toBe(O.invocationReward);
+    expect(layout.entryPoint).toBe(O.entryPoint);
 });
 
 // The last-resort mapping for an unresolvable named type in a public struct — an unexpected width silently becomes UINT32, so the fallback is pinned too.

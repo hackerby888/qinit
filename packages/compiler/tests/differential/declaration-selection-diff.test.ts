@@ -5,12 +5,12 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithClang } from "@qinit/build";
-import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { wasiToolchain } from "../support/container-toolchains";
+import { runState } from "../support/parity-runner";
 
 const CORE = CORE_PATH;
 const HEADERS = () => loadQpiHeader(CORE);
@@ -49,16 +49,6 @@ const CASES: Record<string, { body: string; expect: bigint }> = {
     },
 };
 
-const runState = (wasm: Uint8Array): bigint => {
-    const simulator = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    simulator.fund(user, 1_000_000n);
-    simulator.deploy(27, wasm);
-    simulator.procedure(27, 1, undefined, { invocator: user });
-    const state = simulator.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset).getBigUint64(0, true);
-};
-
 const wasiOk = wasiToolchain().available;
 
 describe.skipIf(!HAS_CORE)("differential — overload selection and sizeof operands", () => {
@@ -79,7 +69,8 @@ describe.skipIf(!HAS_CORE)("differential — overload selection and sizeof opera
                     arenaSizeBytes: 1 << 20,
                 });
                 expect(ours.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-                expect(runState(ours.wasm)).toBe(testCase.expect);
+                const oursState = runState(ours.wasm);
+                expect(oursState.resultWord).toBe(testCase.expect);
 
                 if (wasiOk) {
                     const directory = mkdtempSync(join(tmpdir(), "select-probe-"));
@@ -93,7 +84,10 @@ describe.skipIf(!HAS_CORE)("differential — overload selection and sizeof opera
                         skipVerify: true,
                     });
                     expect(built.ok).toBe(true);
-                    expect(runState(new Uint8Array(readFileSync(built.wasmPath!)))).toBe(testCase.expect);
+
+                    const clangState = runState(new Uint8Array(readFileSync(built.wasmPath!)));
+                    expect(clangState.stateHex).toBe(oursState.stateHex);
+                    expect(clangState.resultWord).toBe(testCase.expect);
                 }
             },
             180000,

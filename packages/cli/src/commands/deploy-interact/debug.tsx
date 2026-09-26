@@ -1,16 +1,13 @@
 import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { DEFAULT_RPC_BASE, LiteRpc, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry, type DynamicContractRegistryEntry } from "@qinit/core";
+import { LiteRpc, type DebugEntry, type DynamicContractRegistryEntry } from "@qinit/core";
 import { describeTrace, type DecodedTrace } from "../../trace/format";
 import { entryLabel } from "../../trace/entry-label";
 import { TraceView, shownStateLines } from "../../trace/views";
-import { activeNodeScratchDir } from "../../ops/node";
-import { loadConfig, loadConfiguredQpiHeader } from "../../config";
-import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
+import { loadConfig, loadConfiguredQpiHeader, resolveRpc } from "../../config";
 import { loadContractIdls, type ContractIdls } from "../../contracts/idl-lookup";
 import { siblingCalleeSources } from "../../contracts/registry";
+import { traceDescendants } from "@qinit/proto";
 import type { CalleeSource } from "@qinit/build";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 import { Header, Table, Spinner, theme, useFrame, useTerminalSize, type Column } from "../../ui";
@@ -66,6 +63,13 @@ export function mergeTraceEntries<T extends { seq: number }>(previous: readonly 
     return [...bySequence.values()].sort((left, right) => right.seq - left.seq).slice(0, TRACE_LIST_LIMIT);
 }
 
+// the target's own frames and every frame that ran inside one of them: a callee belongs to the call that made it.
+export function visibleForTarget(entries: readonly DebugEntry[], matches: (entry: DebugEntry) => boolean): DebugEntry[] {
+    const own = entries.filter(matches);
+    const nested = new Set(own.flatMap((frame) => traceDescendants(frame, entries, 0).map((descendant) => descendant.entry.seq)));
+    return entries.filter((entry) => matches(entry) || nested.has(entry.seq));
+}
+
 export function traceSelectionIndex<T extends { seq: number }>(entries: readonly T[], selectedSeq: number | null): number {
     if (!entries.length) {
         return 0;
@@ -98,7 +102,7 @@ export function formatTraceAge(tickMs?: number, chainNowMs?: number): string {
 
 export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     const target = commandArgs.get("contract") ?? commandArgs.positionals[0];
-    const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
+    const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), loadConfig());
     const { exit } = useApp();
     const rpc = useRef(new LiteRpc(rpcBaseUrl)).current;
     const [qpiHeader] = useState(() => {
@@ -166,20 +170,8 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
         };
     }, []);
 
-    // a frame from another contract that ran inside one of the target's frames (same tick, before its
-    // completion) is a callee of this call, so it is kept alongside the target's own frames.
     const matchesTarget = (entry: DebugEntry) => nameOf(entry.index).toLowerCase() === target!.toLowerCase() || String(entry.index) === target;
-    const list = target
-        ? (() => {
-              const own = entries.filter(matchesTarget);
-              const spans = own.map((frame) => ({ tick: frame.tick, seq: frame.seq }));
-              return entries.filter(
-                  (entry) =>
-                      matchesTarget(entry) ||
-                      spans.some((span) => entry.tick === span.tick && entry.seq < span.seq && !own.some((frame) => frame.seq === entry.seq)),
-              );
-          })()
-        : entries;
+    const list = target ? visibleForTarget(entries, matchesTarget) : entries;
     visibleEntriesRef.current = list;
 
     // The frame is pinned to the terminal, so both panes size from what is left under the chrome. Ink cannot erase a frame taller than the screen.
@@ -342,7 +334,6 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                                 name={nameOf(cur.index)}
                                 entry={entryLabel(cur.kind, cur.entry, idls.get(cur.index))}
                                 source={reg.current.find((c) => c.index === cur.index)?.source}
-                                codeHash={reg.current.find((c) => c.index === cur.index)?.codeHash}
                                 contractIdl={idls.get(cur.index)}
                                 calleeSources={siblingCalleeSources(reg.current, cur.index)}
                                 qpiHeader={qpiHeader}
@@ -365,7 +356,6 @@ function Detail({
     name,
     entry,
     source,
-    codeHash,
     contractIdl,
     calleeSources,
     qpiHeader,
@@ -377,7 +367,6 @@ function Detail({
     name: string;
     entry: string;
     source?: string;
-    codeHash?: string;
     contractIdl?: ContractIdl;
     calleeSources?: readonly CalleeSource[];
     qpiHeader?: string;
@@ -386,7 +375,6 @@ function Detail({
     bodyRows: number;
 }) {
     const [v, setV] = useState<DecodedTrace | null>(null);
-    const [bt, setBt] = useState<string>("");
     const [stateOffset, setStateOffset] = useState(0);
     useEffect(() => {
         let alive = true;
@@ -395,27 +383,10 @@ function Detail({
                 if (alive) setV(view);
             })
             .catch(() => {});
-        setBt("");
-        if (!e.ok) {
-            // trapped call: source-mapped backtrace from node.log + the slot's line map
-            try {
-                const idl = loadContractIdlFile();
-                const slotArtifact = contractIdlForSlot(idl, e.index, codeHash);
-                const log = join(activeNodeScratchDir(), "node.log");
-                if (existsSync(log)) {
-                    const b = resolveTrapBacktrace(readFileSync(log, "utf8"), {
-                        lineMapPath: slotArtifact?.linesJson,
-                    });
-                    if (b?.frames.length && alive) setBt(formatTrapBacktrace(b));
-                }
-            } catch (error: any) {
-                if (alive) setBt(String(error?.message ?? error));
-            }
-        }
         return () => {
             alive = false;
         };
-    }, [e.seq, codeHash, contractIdl]);
+    }, [e.seq, contractIdl]);
 
     useEffect(() => setStateOffset(0), [e.seq, showInternals]);
 
@@ -428,9 +399,7 @@ function Detail({
         (v?.logs.length ?? 0) +
         e.hostCalls.length +
         (e.trap ? 1 : 0);
-    // A trap backtrace takes at most half of what is left, so it can never crowd out the state diff.
-    const btLines = bt ? bt.split("\n").slice(0, Math.max(0, Math.floor((bodyRows - fixedRows) / 2))) : [];
-    const stateRows = Math.max(1, bodyRows - fixedRows - btLines.length - (btLines.length ? 1 : 0));
+    const stateRows = Math.max(1, bodyRows - fixedRows);
     const changed = v ? shownStateLines(v.stateDiff, showInternals).length : 0;
 
     useInput(
@@ -461,15 +430,6 @@ function Detail({
             ) : (
                 <Text dimColor>decoding…</Text>
             )}
-            {btLines.length ? (
-                <Box marginTop={1} flexDirection="column">
-                    {btLines.map((l, i) => (
-                        <Text key={i} color={theme.err} wrap="truncate-end">
-                            {l}
-                        </Text>
-                    ))}
-                </Box>
-            ) : null}
         </Box>
     );
 }

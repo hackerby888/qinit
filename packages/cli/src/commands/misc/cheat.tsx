@@ -154,14 +154,14 @@ export function Cheat() {
                 <Text>
                     <C>qinit call</C> <D>interactive picker (Tab-completes types; auto-fills known in/out)</D>
                 </Text>
-                <D>non-interactive (--in "&lt;format&gt;", the standard):</D>
+                <D>non-interactive, --in takes the values:</D>
                 <Text>
                     {"  "}
-                    <C>{`qinit call --proc Mytoken 1 --in "<ID>id, 100uint64"`}</C>
+                    <C>{`qinit call --proc Mytoken 1 --in "0id, 100uint64"`}</C>
                 </Text>
                 <Text>
                     {"  "}
-                    <C>{`qinit call --fn   Mytoken 1 --in "<ID>id" --out uint64`}</C>
+                    <C>{`qinit call --fn   Mytoken 1 --in "0id" --out uint64`}</C>
                 </Text>
                 <D>
                     {"  "}(JSON also works: --args {`'{"to":"<ID>","amount":100}'`})
@@ -171,11 +171,12 @@ export function Cheat() {
             <Panel title="4 · input / output formats" color={theme.accent}>
                 <Text bold>input</Text>
                 <D> value+type per field, comma-separated:</D>
-                <Fmt k="scalar" ex="5uint64, -7sint32, 1bit" />
-                <Fmt k="id" ex="<60 chars A-Z>id" note="a wallet id" />
-                <Fmt k="m256i" ex="<64 hex>m256i" note="a digest" />
+                <Fmt k="scalar" ex="5uint64, -7sint32, 1bit, 0uint128" />
+                <Fmt k="id" ex="0id" note="0 = NULL_ID, else 60 A-Z chars or 64 hex, then id" />
+                <Fmt k="m256i" ex="0m256i" note="0 or 64 hex, then m256i" />
                 <Fmt k="struct" ex="{ 5uint64, 1bit }" />
-                <Fmt k="array" ex="[3; 1uint64, 2uint64, 3uint64]" />
+                <Fmt k="array" ex="[4; 1uint64, 2uint64, 3uint64, 4uint64]" />
+                <Fmt k="" ex="[4; 0uint64 ×4]" note="×N repeats a value" />
                 <Fmt k="json" ex={`--args '{"to":"<ID>","amount":100}'`} note="optional alt, keyed by field name" />
                 <Box marginTop={1}>
                     <Text bold>output</Text>

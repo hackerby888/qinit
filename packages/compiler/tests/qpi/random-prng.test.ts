@@ -87,6 +87,7 @@ function run(wasm: Uint8Array, tick: number, nonce: bigint, initialSeed?: bigint
     sim.currentTick = tick;
     sim.deploy(SLOT, wasm);
     if (initialSeed !== undefined) sim.procedure(SLOT, 1, u64(initialSeed), { invocator: USER, originator: USER });
+    sim.fund(USER, 17n);
     sim.procedure(SLOT, 2, u64(nonce), { invocator: USER, originator: USER, reward: 17n });
     return sim.contracts.get(SLOT)!.state();
 }

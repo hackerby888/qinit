@@ -48,7 +48,7 @@ export function Help({ unknown, command, suggestion }: { unknown?: boolean; comm
                     )}
                 </Box>
             )}
-            <Banner version={VERSION} tagline="Framework for Qubic dynamic contracts" />
+            <Banner version={VERSION} tagline="Build, test and deploy Qubic smart contracts" />
             <Text dimColor>
                 usage: <Text color={theme.info}>qinit</Text> &lt;command&gt; [args] · <Text color={theme.info}>qinit &lt;command&gt; --help</Text> for a
                 command's flags

@@ -500,6 +500,7 @@ export const CONTROLFLOW_DISPATCH_ARCHETYPES: Archetype[] = [
             "a public function whose body calls a private *procedure* — a mutating callee reached from a read-only frame, which both build gates must treat the same way",
         caveat: "Solidity rejects a view function calling a non-view one at compile time, and so does clang: the CALL macro hands the function's context to a procedure and there is no conversion. The TypeScript backend used to accept it and perform the write; it now refuses it too.",
         axes: ["placement"],
+        expectReject: true,
         build(axis) {
             const source = emitContract({
                 axis,

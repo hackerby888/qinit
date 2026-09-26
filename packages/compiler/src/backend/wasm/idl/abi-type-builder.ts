@@ -124,7 +124,7 @@ export class AbiTypeBuilder {
             return this.struct(unqualifiedName, layout, false, bindings, this.programAnalysis.structOf(type, bindings) ?? undefined);
         }
 
-        // QPI iterators are opaque handles of known size; anything else unresolved would be laid out as a 4-byte scalar and read back as garbage.
+        // QPI iterators are opaque handles of known size; anything else unresolved has no layout to describe.
         if (!/Iterator$/.test(type.name)) {
             // Carry the offending type's own span: the analyzer's catch-all otherwise pins the diagnostic
             // to line 1, so a mistyped type deep in a file squiggles the top of the file instead of itself.

@@ -6,6 +6,42 @@ import { QubicSimulator } from "../../src/qubic-simulator";
 import { Committee, merkleRoot, quorumOf, tickVoteMessage, tickVoteSignature, buildTickVote, voteIsAligned } from "../../src/chain/consensus";
 import { readUint64LE } from "../support/helpers";
 
+// the dev committee is a table: the same 676 identities in every process, and no key derivation on construction.
+test("the default committee is the generated dev committee, keys included", async () => {
+    await initK12();
+    const first = new Committee();
+    const second = new Committee({ numberOfComputors: 3 });
+
+    expect(first.size).toBe(676);
+    expect(second.computors.map((c) => toHex(c.publicKey))).toEqual(first.computors.slice(0, 3).map((c) => toHex(c.publicKey)));
+    const derived = deriveKeysSync(first.computors[41].seed);
+    expect(toHex(first.computors[41].publicKey)).toBe(toHex(derived.publicKey));
+    expect(toHex(first.computors[41].privateKey)).toBe(toHex(derived.privateKey));
+    expect(new Set(first.computors.map((c) => c.seed)).size).toBe(676);
+});
+
+// qubic-cli recomputes K12(publicKey ‖ word) for the resource-testing and transaction-body salts once a tick has a full quorum.
+test("a vote carries the four-byte salts qubic-cli recomputes", async () => {
+    await initK12();
+    const committee = new Committee({ computorSeeds: SEEDS4 });
+    const digests = {
+        spectrum: new Uint8Array(32).fill(1),
+        universe: new Uint8Array(32).fill(2),
+        computer: new Uint8Array(32).fill(3),
+        transaction: new Uint8Array(32),
+        expectedNextTransaction: new Uint8Array(32),
+    };
+    const vote = buildTickVote(committee.computors[2], 1, 10, digests, 0);
+
+    const salted = new Uint8Array(36);
+    salted.set(committee.computors[2].publicKey, 0);
+    const expected = new DataView(k12Bytes(salted).buffer).getUint32(0, true);
+    expect(vote.prevResourceTestingDigest).toBe(0);
+    expect(vote.saltedResourceTestingDigest).toBe(expected);
+    expect(vote.saltedTransactionBodyDigest).toBe(expected);
+    expect(vote.saltedResourceTestingDigest).not.toBe(0);
+});
+
 const GET = 1; // Counter Get function
 const INC = 1; // Counter Inc procedure
 const SEEDS4 = ["b".repeat(55), "c".repeat(55), "d".repeat(55), "e".repeat(55)];

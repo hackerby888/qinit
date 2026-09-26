@@ -7,6 +7,8 @@ import type {
     DynamicContractRegistryEntry,
     DynamicContractEntry,
     DynamicContractUploadStatus,
+    DeployOutcome,
+    DeployOutcomeCode,
     DebugTrace,
     EngineFaultInfo,
     BroadcastResult,
@@ -22,6 +24,7 @@ import {
     WASM_ABI_VERSION,
     hexToBytes,
 } from "@qinit/core";
+import { CORE_IO_CAPACITY_BYTES } from "@qinit/core/wasm/sizing";
 import { LITE_TX, CHUNK_DATA_MAX, MAX_INPUT_SIZE, UploadBegin, UploadChunkHeader, DeployMessage } from "@qinit/proto";
 import { QubicSimulator, EngineFaultedError, type AssetSnapshot, type FeeMode, type ProcedureCallOptions } from "./qubic-simulator";
 import type { LogSink } from "./logging/log";
@@ -59,6 +62,15 @@ interface StoredRawTransaction {
 
 const MAX_WASM_MODULE_SIZE = 4 * 1024 * 1024;
 const DEPLOY_HEADER_SIZE = DeployMessage.SIZE - 32;
+// core's MAX_CONTRACT_STATE_SIZE; the staging route is unauthenticated, so the allocation is capped
+const MAX_STAGED_STATE_BYTES = 1024 * 1024 * 1024;
+
+interface StagedState {
+    bytes: Uint8Array;
+    receivedBytes: number;
+}
+
+export type StageStateResult = { ok: true; received: number; total: number } | { ok: false; message: string };
 
 export interface VirtualNodeOptions {
     slotBase?: number;
@@ -72,6 +84,8 @@ export interface VirtualNodeOptions {
     historyTicks?: number;
     maxLogBytes?: number;
     epochLength?: number;
+    // the smallest io region a deployed module may report. It defaults to core's capacity, so a node refuses what core refuses; 0 accepts any.
+    minIoBytes?: number;
 }
 
 export class VirtualNode implements NodeTransport {
@@ -79,10 +93,15 @@ export class VirtualNode implements NodeTransport {
     readonly logger: QubicLogStore;
     readonly slotBase: number;
     readonly slotCount: number;
+    private readonly minIoBytes: number;
+    // what a node holds when its options name no minimum. The test suite lowers it, since its fixtures carry a small arena.
+    static defaultMinIoBytes = CORE_IO_CAPACITY_BYTES;
     private slotMeta = new Map<number, DeployedContractMetadata>();
     private slotsByName = new Map<string, number>();
     private upload: UploadSession | null = null;
+    private lastDeploy: DeployOutcome | null = null;
     private contractSources = new Map<number, string>();
+    private stagedStates = new Map<number, StagedState>();
     private rawTransactions = new Map<string, StoredRawTransaction>();
     private rawAliasesByTxId = new Map<string, string[]>();
     private fundedSeedPool: string[] | null = null;
@@ -106,7 +125,10 @@ export class VirtualNode implements NodeTransport {
 
     constructor(options: VirtualNodeOptions = {}) {
         this.logger = new QubicLogStore(options.maxLogBytes);
+        this.slotBase = options.slotBase ?? DEFAULT_WASM_SLOT_LAYOUT.slotBase;
+        this.slotCount = options.slotCount ?? DEFAULT_WASM_SLOT_LAYOUT.slotCount;
         this.sim = new QubicSimulator({
+            contractCount: this.slotBase + this.slotCount,
             consensus: options.consensus,
             mempool: options.mempool ?? true,
             fees: options.fees ?? "metered",
@@ -119,9 +141,8 @@ export class VirtualNode implements NodeTransport {
         // Align the live simulator node with core's wall clock; gtest and fuzz build their own QubicSimulator and keep the deterministic 2024 base.
         this.sim.timeBaseMs = Date.now();
         this.sim.clockMode = "real";
-        this.slotBase = options.slotBase ?? DEFAULT_WASM_SLOT_LAYOUT.slotBase;
-        this.slotCount = options.slotCount ?? DEFAULT_WASM_SLOT_LAYOUT.slotCount;
         this.verifySignatures = options.verifySigs ?? true;
+        this.minIoBytes = options.minIoBytes ?? VirtualNode.defaultMinIoBytes;
     }
 
     feeReserve(slot: number): bigint {
@@ -136,11 +157,11 @@ export class VirtualNode implements NodeTransport {
         this.sim.ipo(slot, finalPrice);
     }
 
-    deploy(wasm: Uint8Array, options?: { name?: string; slot?: number; deployer?: Uint8Array }): Contract;
+    deploy(wasm: Uint8Array, options?: { name?: string; slot?: number; deployer?: Uint8Array; deferActivation?: boolean }): Contract;
     deploy(slot: number, wasm: Uint8Array, name?: string, deployer?: Uint8Array): Contract;
     deploy(
         slotOrWasm: number | Uint8Array,
-        wasmOrOptions?: Uint8Array | { name?: string; slot?: number; deployer?: Uint8Array },
+        wasmOrOptions?: Uint8Array | { name?: string; slot?: number; deployer?: Uint8Array; deferActivation?: boolean },
         contractName?: string,
         contractDeployer?: Uint8Array,
     ): Contract {
@@ -148,6 +169,8 @@ export class VirtualNode implements NodeTransport {
         let name: string | undefined;
         let explicitSlot: number | undefined;
         let deployer: Uint8Array | undefined;
+        // only a deploy that arrives over the network waits for the next tick, as a core node makes it; an embedder's own call constructs at once.
+        let deferActivation = false;
 
         if (typeof slotOrWasm === "number") {
             explicitSlot = slotOrWasm;
@@ -161,14 +184,20 @@ export class VirtualNode implements NodeTransport {
                     name?: string;
                     slot?: number;
                     deployer?: Uint8Array;
+                    deferActivation?: boolean;
                 }) ?? {};
             name = options.name;
             explicitSlot = options.slot;
             deployer = options.deployer;
+            deferActivation = options.deferActivation ?? false;
         }
 
         const slot = this.resolveDeploymentSlot(explicitSlot, name);
-        const contract = this.sim.deploy(slot, wasm);
+        const contract = this.sim.deploy(slot, wasm, undefined, {
+            initialState: this.takeStagedState(slot),
+            minIoBytes: this.minIoBytes,
+            deferActivation,
+        });
         if (name !== undefined) {
             this.slotsByName.set(name, slot);
         }
@@ -186,6 +215,46 @@ export class VirtualNode implements NodeTransport {
         this.sim.mintDeployShares(slot, ticker, deployer ?? this.sim.getCommittee().arbitrator.publicKey);
 
         return contract;
+    }
+
+    // stage an initial state in ordered chunks; the next deploy of the slot takes it. a zero total clears the entry.
+    stageState(slot: number, offset: number, total: number, chunk: Uint8Array): StageStateResult {
+        const validSlot = Number.isInteger(slot) && slot >= 1 && slot < this.slotBase + this.slotCount;
+        if (!validSlot) {
+            return { ok: false, message: `slot ${slot} is outside 1..${this.slotBase + this.slotCount - 1}` };
+        }
+        if (!Number.isInteger(total) || total < 0 || total > MAX_STAGED_STATE_BYTES) {
+            return { ok: false, message: `total ${total} is outside 0..${MAX_STAGED_STATE_BYTES}` };
+        }
+        if (total === 0) {
+            this.stagedStates.delete(slot);
+            return { ok: true, received: 0, total: 0 };
+        }
+
+        if (offset === 0) {
+            this.stagedStates.set(slot, { bytes: new Uint8Array(total), receivedBytes: 0 });
+        }
+
+        const staged = this.stagedStates.get(slot);
+        if (!staged || staged.bytes.length !== total || offset !== staged.receivedBytes) {
+            return { ok: false, message: `chunk at ${offset} is out of order; expected ${staged?.receivedBytes ?? 0}` };
+        }
+        if (offset + chunk.length > total) {
+            return { ok: false, message: `chunk at ${offset} overruns the ${total} B total` };
+        }
+
+        staged.bytes.set(chunk, offset);
+        staged.receivedBytes += chunk.length;
+
+        return { ok: true, received: staged.receivedBytes, total };
+    }
+
+    // a deploy always consumes the entry, so a half-staged state never reaches a later deploy.
+    private takeStagedState(slot: number): Uint8Array | undefined {
+        const staged = this.stagedStates.get(slot);
+        this.stagedStates.delete(slot);
+
+        return staged && staged.receivedBytes === staged.bytes.length ? staged.bytes : undefined;
     }
 
     private resolveDeploymentSlot(explicitSlot: number | undefined, name: string | undefined): number {
@@ -237,8 +306,8 @@ export class VirtualNode implements NodeTransport {
         const fault = this.sim.faultInfo();
         const tick = fault?.lastFinalizedTick ?? this.sim.currentTick;
         const epoch = fault?.lastFinalizedEpoch ?? this.sim.currentEpoch;
-        const initialTick = epochLength > 0 ? epoch * epochLength : 0;
-        const epochLastTick = epochLength > 0 ? (epoch + 1) * epochLength - 1 : tick;
+        const initialTick = this.sim.initialTick;
+        const epochLastTick = epochLength > 0 ? initialTick + epochLength - 1 : tick;
 
         return {
             epoch,
@@ -309,8 +378,8 @@ export class VirtualNode implements NodeTransport {
         const epochLength = this.sim.epochLength;
 
         if (epochLength > 0) {
-            const boundaryTick = (Math.floor(fromTick / epochLength) + 1) * epochLength;
-            this.advanceTick(boundaryTick - fromTick);
+            // a length shortened mid-epoch can leave the tick already past the switch point, where the very next tick switches.
+            this.advanceTick(Math.max(1, this.sim.initialTick + epochLength + 1 - fromTick));
         }
 
         const toEpoch = this.sim.currentEpoch;
@@ -320,7 +389,7 @@ export class VirtualNode implements NodeTransport {
             toEpoch,
             fromTick,
             tick: this.sim.currentTick,
-            initialTick: epochLength > 0 ? toEpoch * epochLength : 0,
+            initialTick: this.sim.initialTick,
             switched: toEpoch > fromEpoch,
         };
     }
@@ -354,7 +423,7 @@ export class VirtualNode implements NodeTransport {
             return {
                 index: slot,
                 armed: true,
-                constructed: true,
+                constructed: !this.sim.isActivationPending(slot),
                 version: metadata.version,
                 name: metadata.name,
                 codeHash: metadata.codeHash,
@@ -362,6 +431,8 @@ export class VirtualNode implements NodeTransport {
                 procedures: entries(CONTRACT_ENTRY_KIND.PROCEDURE),
                 source: this.contractSources.get(slot),
                 feeReserve: this.sim.getContractFeeReserve(slot).toString(),
+                // what this phase has run up but not charged yet; feeReserve only moves at the boundary.
+                executionFee: this.sim.executionFee(slot).toString(),
             };
         };
 
@@ -445,6 +516,7 @@ export class VirtualNode implements NodeTransport {
                 idleTicks: 0,
                 staleAfterTicks: UPLOAD_STALE_TICKS,
                 lastProgressTick: 0,
+                lastDeploy: this.lastDeploy,
             };
         }
 
@@ -470,6 +542,7 @@ export class VirtualNode implements NodeTransport {
             idleTicks: this.uploadIdleTicks(),
             staleAfterTicks: UPLOAD_STALE_TICKS,
             lastProgressTick: upload.lastProgressTick,
+            lastDeploy: this.lastDeploy,
         };
     }
 
@@ -672,8 +745,9 @@ export class VirtualNode implements NodeTransport {
             if (message.seq >= upload.chunkCount) {
                 throw new Error(`upload chunk ${message.seq} is outside 0..${upload.chunkCount - 1}`);
             }
-            if (message.seq !== upload.received.size) {
-                throw new Error(`upload chunk ${message.seq} is out of order; expected ${upload.received.size}`);
+            // a chunk names its own offset, so arrival order is free; a repeat must not rewrite bytes already taken.
+            if (upload.received.has(message.seq)) {
+                throw new Error(`upload chunk ${message.seq} was already received`);
             }
 
             const offset = message.seq * CHUNK_DATA_MAX;
@@ -690,47 +764,72 @@ export class VirtualNode implements NodeTransport {
         }
 
         if (inputType === LITE_TX.DEPLOY) {
-            const upload = this.upload;
-            if (!upload) {
-                throw new Error("deploy without an active session");
-            }
             if (payload.length < DEPLOY_HEADER_SIZE) {
                 throw new Error("deploy payload is too short");
             }
 
+            // the checks run in core's order and carry core's wording, so a client reads one reason whichever node refused.
             const message = DeployMessage.wrap(payload);
-            if (message.sessionId !== upload.sessionId) {
-                throw new Error("deploy references a different upload session");
+            const refuse = (code: DeployOutcomeCode, reason: string): never => {
+                this.recordDeployOutcome(message.sessionId, message.targetSlot, code, reason);
+                throw new Error(reason);
+            };
+            const upload = this.upload;
+
+            if (message.targetSlot < this.slotBase || message.targetSlot >= this.slotBase + this.slotCount) {
+                return refuse("bad-slot", `slot ${message.targetSlot} is not a deployable smart contract slot`);
             }
             if (message.abiVersion !== WASM_ABI_VERSION) {
-                throw new Error(`unsupported Wasm ABI version ${message.abiVersion}; expected ${WASM_ABI_VERSION}`);
+                return refuse("abi-mismatch", `unsupported Wasm ABI version ${message.abiVersion}; expected ${WASM_ABI_VERSION}`);
             }
-            if (message.targetSlot < this.slotBase || message.targetSlot >= this.slotBase + this.slotCount) {
-                throw new Error(`target slot ${message.targetSlot} is outside ${this.slotBase}..${this.slotBase + this.slotCount - 1}`);
+            if (!upload || message.sessionId !== upload.sessionId) {
+                return refuse("session-mismatch", `session ${message.sessionId} is not the upload session on this node`);
             }
             if (upload.received.size !== upload.chunkCount) {
-                throw new Error(`upload is incomplete (${upload.received.size}/${upload.chunkCount} chunks)`);
+                return refuse("incomplete", `upload incomplete (${upload.received.size}/${upload.chunkCount} chunks)`);
+            }
+            if (!bytesEqual(k12Bytes(upload.buf), hexToBytes(upload.finalHash))) {
+                return refuse("hash-mismatch", "uploaded bytes do not hash to the digest the upload announced");
             }
             if (!bytesEqual(message.finalHash, hexToBytes(upload.finalHash))) {
-                throw new Error("deploy hash does not match the upload session");
+                return refuse("hash-mismatch", "deploy names a different module digest than the upload");
             }
-            if (!bytesEqual(k12Bytes(upload.buf), message.finalHash)) {
-                throw new Error("uploaded module hash verification failed");
-            }
+            // from here core has committed to loading, and it frees the session whichever way that goes, so a refused module never holds the node's one upload slot.
             if (upload.buf.length < 4 || upload.buf[0] !== 0x00 || upload.buf[1] !== 0x61 || upload.buf[2] !== 0x73 || upload.buf[3] !== 0x6d) {
-                throw new Error("uploaded artifact is not a Wasm module");
+                this.upload = null;
+                return refuse("not-wasm", "upload is not a wasm module ('\\0asm' expected)");
             }
 
             const rawName = payload.length >= DeployMessage.SIZE ? new TextDecoder().decode(message.name) : "";
             const name = rawName.replace(/[^\x20-\x7e].*$/, "") || "Contract";
 
-            this.deploy(message.targetSlot, upload.buf, name, source);
-            this.upload = null;
+            try {
+                this.deploy(upload.buf, { slot: message.targetSlot, name, deployer: source, deferActivation: true });
+            } catch (error) {
+                if (!(error instanceof EngineFaultedError)) {
+                    this.recordDeployOutcome(message.sessionId, message.targetSlot, "load-failed", error instanceof Error ? error.message : String(error));
+                }
+                throw error;
+            } finally {
+                this.upload = null;
+            }
+            this.recordDeployOutcome(message.sessionId, message.targetSlot, "ok", "slot armed");
 
             return;
         }
 
         throw new Error("unknown deploy-range inputType " + inputType);
+    }
+
+    // a client resends DEPLOY until the slot arms, so a session's verdict stands once given: only an upload that was still missing chunks can
+    // end differently.
+    private recordDeployOutcome(sessionId: bigint, slot: number, code: DeployOutcomeCode, message: string): void {
+        const stored = this.lastDeploy;
+        if (stored && stored.sessionId === sessionId.toString() && stored.code !== "incomplete") {
+            return;
+        }
+
+        this.lastDeploy = { sessionId: sessionId.toString(), slot, tick: this.sim.currentTick, ok: code === "ok", code, message };
     }
 
     async debugTrace(since = 0, limit = 64): Promise<DebugTrace> {
@@ -762,17 +861,23 @@ export class VirtualNode implements NodeTransport {
     }
 
     async stateRead(slot: number, off: number, len: number): Promise<StateRead> {
-        const contract = this.sim.contracts.get(slot);
-        const stateSize = contract?.stateSize ?? 0;
-        const state = contract?.stateView() ?? new Uint8Array(0);
+        const { bytes, stateSize } = this.stateBytes(slot, off, len);
 
         return {
             off,
             len,
             stateSize,
-            hex: toHex(state.subarray(off, off + len)),
+            hex: toHex(bytes),
             version: this.sim.stateVersion(slot),
         };
+    }
+
+    // a copy, not a view: the response is sent after this returns, and a tick may write the slot in between
+    stateBytes(slot: number, off: number, len: number): { bytes: Uint8Array; stateSize: number } {
+        const contract = this.sim.contracts.get(slot);
+        const state = contract?.stateView() ?? new Uint8Array(0);
+
+        return { bytes: state.slice(off, off + len), stateSize: contract?.stateSize ?? 0 };
     }
 
     fundedPool(): string[] {

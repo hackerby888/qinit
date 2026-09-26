@@ -1,7 +1,8 @@
 // Exercises NodeTransport through real codecs, signed transactions, and deploy wire data.
 import { test, expect } from "bun:test";
 import { buildSignedTx, k12Hex, deriveIdentity, identityToBytes, LITE_DEPLOY_ADDRESS } from "@qinit/core";
-import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
+import { compileContractWithTypeScript } from "@qinit/compiler/browser";
+import { loadWasmFixture as wasm, wasmFixtureManifest } from "../../../../test-utils/wasm-fixtures";
 import { TEST_SLOT_LAYOUT } from "../../../../test-utils/slot-layout";
 import {
     encodeInputFormat,
@@ -14,6 +15,7 @@ import {
     createUploadSessionId,
     LITE_TX,
 } from "@qinit/proto";
+import { CORE_IO_CAPACITY_BYTES } from "@qinit/core/wasm/sizing";
 import { VirtualNode } from "../../src/transport";
 
 const SEED = "a".repeat(55);
@@ -62,7 +64,7 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
     expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
 
     expect(await decodeAbi(await eng.querySmartContract(28, 1, await encodeInputFormat("")), "uint64")).toBe(1n);
-});
+}, 30_000);
 
 test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe -> oracle)", async () => {
     const eng = await VirtualNode.create({
@@ -90,9 +92,10 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
     expect((await eng.dynUpload()).complete).toBe(true);
 
     await eng.broadcastTx(wrapTx(LITE_TX.DEPLOY, encodeDeploy({ sessionId, targetSlot: DYN, finalHashHex, name: "DigestProbe" })));
-    const reg = await eng.dynRegistry();
-    expect(reg.contracts.find((x) => x.index === DYN)?.constructed).toBe(true);
-    expect(reg.contracts.find((x) => x.index === DYN)?.name).toBe("DigestProbe");
+    // a DEPLOY arms the slot in its own tick; INITIALIZE runs at the head of the next one, as on a core node.
+    expect((await eng.dynRegistry()).contracts.find((x) => x.index === DYN)).toMatchObject({ armed: true, constructed: false, name: "DigestProbe" });
+    eng.sim.advance();
+    expect((await eng.dynRegistry()).contracts.find((x) => x.index === DYN)?.constructed).toBe(true);
 
     // Exercise the wire-deployed contract + reproduce the cross-platform digest oracle through the seam.
     expect(await decodeAbi(await eng.querySmartContract(DYN, 1, await encodeInputFormat("")), "uint64")).toBe(0n);
@@ -135,6 +138,63 @@ test("an upload session idle past the stale limit gives way to a new one", async
     expect(replaced.sessionId).toBe("22");
     expect(replaced.receivedCount).toBe(0);
     expect(replaced.idleTicks).toBe(0);
+});
+
+test("a refused deploy frees the upload session, so the next one needs no stale wait", async () => {
+    const eng = await VirtualNode.create({ ...TEST_SLOT_LAYOUT, mempool: false, verifySigs: false });
+    const junk = new Uint8Array(64).fill(0x7f); // no '\0asm' magic -> the load path refuses it
+    const finalHashHex = await k12Hex(junk);
+    const chunks = splitUploadChunks(junk);
+    const begin = (sessionId: bigint) =>
+        eng.broadcastTx(wrapTx(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId, totalSize: junk.length, chunkCount: chunks.length, finalHashHex })));
+
+    expect((await begin(11n)).ok).toBe(true);
+    await eng.broadcastTx(wrapTx(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: 11n, seq: 0, bytes: chunks[0] })));
+    const refused = await eng.broadcastTx(wrapTx(LITE_TX.DEPLOY, encodeDeploy({ sessionId: 11n, targetSlot: DYN, finalHashHex, name: "Junk" })));
+    expect(refused.ok).toBe(false);
+
+    // core drops the session once it has tried to load, so a second upload starts in the same tick — no advanceTick here.
+    const afterRefusal = await eng.dynUpload();
+    expect(afterRefusal.lastDeploy?.code).toBe("not-wasm");
+    expect(afterRefusal.active).toBe(false);
+    expect((await begin(22n)).ok).toBe(true);
+    expect((await eng.dynUpload()).sessionId).toBe("22");
+
+    // the other load-path refusal: a real module compiled for a different slot, which only fails once the loader reads it.
+    const wrongSlot = await wasm("Counter");
+    const wrongSlotHashHex = await k12Hex(wrongSlot);
+    const wrongSlotChunks = splitUploadChunks(wrongSlot);
+    eng.advanceTick(33); // retire session 22 so this one can start
+    await eng.broadcastTx(
+        wrapTx(
+            LITE_TX.UPLOAD_BEGIN,
+            encodeUploadBegin({ sessionId: 33n, totalSize: wrongSlot.length, chunkCount: wrongSlotChunks.length, finalHashHex: wrongSlotHashHex }),
+            LITE_DEPLOY_ADDRESS,
+            eng.sim.currentTick + 1,
+        ),
+    );
+    for (let i = 0; i < wrongSlotChunks.length; i++) {
+        await eng.broadcastTx(
+            wrapTx(
+                LITE_TX.UPLOAD_CHUNK,
+                encodeUploadChunk({ sessionId: 33n, seq: i, bytes: wrongSlotChunks[i] }),
+                LITE_DEPLOY_ADDRESS,
+                eng.sim.currentTick + 1,
+            ),
+        );
+    }
+    const loadFailed = await eng.broadcastTx(
+        wrapTx(
+            LITE_TX.DEPLOY,
+            encodeDeploy({ sessionId: 33n, targetSlot: DYN, finalHashHex: wrongSlotHashHex, name: "Counter" }),
+            LITE_DEPLOY_ADDRESS,
+            eng.sim.currentTick + 1,
+        ),
+    );
+    expect(loadFailed.ok).toBe(false);
+    const afterLoadFailure = await eng.dynUpload();
+    expect(afterLoadFailure.lastDeploy?.code).toBe("load-failed");
+    expect(afterLoadFailure.active).toBe(false);
 });
 
 test("deployment routing requires the exact reserved address", async () => {
@@ -188,17 +248,7 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
                 bytes: new Uint8Array(1008).fill(2),
             }),
         ),
-    ).toThrow("upload chunk 0 is out of order; expected 1");
-    expect(() =>
-        (eng as any).handleDeployTx(
-            LITE_TX.UPLOAD_CHUNK,
-            encodeUploadChunk({
-                sessionId: first,
-                seq: 2,
-                bytes: new Uint8Array(1).fill(3),
-            }),
-        ),
-    ).toThrow("upload chunk 2 is out of order; expected 1");
+    ).toThrow("upload chunk 0 was already received");
 
     expect(() => begin(first, 4, 1, "22".repeat(32))).not.toThrow();
     expect((eng as any).upload).toBe(active);
@@ -215,6 +265,29 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
     expect((eng as any).upload).toBe(active);
     expect([...(eng as any).upload.buf]).toEqual(buffer);
     expect((await eng.dynUpload()).receivedCount).toBe(1);
+});
+
+// every chunk of a module is signed for one tick, and nothing promises the node meets them in the order they were sent.
+test("upload chunks land in any order", async () => {
+    const eng = await VirtualNode.create({ mempool: false });
+    const session = 12n;
+    const chunk = (seq: number, bytes: Uint8Array) => (eng as any).handleDeployTx(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: session, seq, bytes }));
+
+    (eng as any).handleDeployTx(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId: session, totalSize: 2017, chunkCount: 3, finalHashHex: "11".repeat(32) }));
+
+    chunk(2, new Uint8Array(1).fill(3));
+    expect((await eng.dynUpload()).missing).toEqual([0, 1]);
+
+    chunk(0, new Uint8Array(1008).fill(1));
+    expect((await eng.dynUpload()).missing).toEqual([1]);
+
+    chunk(1, new Uint8Array(1008).fill(2));
+    expect(await eng.dynUpload()).toMatchObject({ receivedCount: 3, complete: true, missing: [] });
+
+    const assembled: Uint8Array = (eng as any).upload.buf;
+    expect([assembled[0], assembled[1007], assembled[1008], assembled[2015], assembled[2016]]).toEqual([1, 1, 2, 2, 3]);
+
+    expect(() => chunk(3, new Uint8Array(1))).toThrow("upload chunk 3 is outside 0..2");
 });
 
 test("deployment sessions reject oversized modules, malformed chunks, and mismatched hashes", async () => {
@@ -261,7 +334,116 @@ test("deployment sessions reject oversized modules, malformed chunks, and mismat
                 finalHashHex: "ff".repeat(32),
             }),
         ),
-    ).toThrow("deploy hash does not match");
+    ).toThrow("deploy names a different module digest than the upload");
+});
+
+// every DEPLOY the node processes leaves its outcome on /dyn-upload, so a client reads the reason instead of inferring it from an empty slot.
+test("a processed DEPLOY records what the node did with it", async () => {
+    const engine = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false });
+    const handle = (inputType: number, payload: Uint8Array) => (engine as any).handleDeployTx(inputType, payload);
+    const lastDeploy = async () => (await engine.dynUpload()).lastDeploy;
+    const begin = async (sessionId: bigint, bytes: Uint8Array, finalHashHex?: string) => {
+        const chunks = splitUploadChunks(bytes);
+        handle(
+            LITE_TX.UPLOAD_BEGIN,
+            encodeUploadBegin({ sessionId, totalSize: bytes.length, chunkCount: chunks.length, finalHashHex: finalHashHex ?? (await k12Hex(bytes)) }),
+        );
+        return chunks;
+    };
+    const deploy = (sessionId: bigint, finalHashHex: string, extra: { targetSlot?: number; abiVersion?: number } = {}) =>
+        handle(LITE_TX.DEPLOY, encodeDeploy({ sessionId, targetSlot: DYN, finalHashHex, name: "Counter", ...extra }));
+
+    expect(await lastDeploy()).toBeNull();
+
+    const counter = await wasm("Counter");
+    const counterHash = await k12Hex(counter);
+    const chunks = await begin(21n, counter);
+
+    expect(() => deploy(21n, counterHash, { targetSlot: DYN - 1 })).toThrow("is not a deployable smart contract slot");
+    expect(await lastDeploy()).toMatchObject({ sessionId: "21", slot: DYN - 1, ok: false, code: "bad-slot" });
+
+    // a new session replaces the record; within one, only an incomplete upload may still end differently.
+    expect(() => deploy(22n, counterHash, { abiVersion: 6 })).toThrow("unsupported Wasm ABI version 6; expected 7");
+    expect(await lastDeploy()).toMatchObject({ sessionId: "22", code: "abi-mismatch", message: "unsupported Wasm ABI version 6; expected 7" });
+    expect(() => deploy(22n, counterHash)).toThrow("is not the upload session");
+    expect((await lastDeploy())?.code).toBe("abi-mismatch");
+
+    expect(() => deploy(23n, counterHash)).toThrow("is not the upload session");
+    expect(await lastDeploy()).toMatchObject({ sessionId: "23", code: "session-mismatch" });
+
+    expect(() => deploy(21n, counterHash)).toThrow(`upload incomplete (0/${chunks.length} chunks)`);
+    expect(await lastDeploy()).toMatchObject({ sessionId: "21", code: "incomplete", message: `upload incomplete (0/${chunks.length} chunks)` });
+
+    chunks.forEach((bytes, seq) => handle(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: 21n, seq, bytes })));
+    expect(() => deploy(21n, "ff".repeat(32))).toThrow("deploy names a different module digest");
+    expect((await lastDeploy())?.code).toBe("hash-mismatch");
+});
+
+// a core node refuses a module built with a small arena, and a node holding core's minimum refuses it the same way, on both deploy paths.
+test("a node holding core's io minimum refuses a small-arena module in core's words", async () => {
+    const built = await compileContractWithTypeScript({
+        source: wasmFixtureManifest.DigestProbeDyn0.source,
+        contractName: wasmFixtureManifest.DigestProbeDyn0.contractName,
+        slot: DYN,
+        arenaSizeBytes: 1024 * 1024,
+    });
+    const module = built.wasm;
+    const strict = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false, minIoBytes: CORE_IO_CAPACITY_BYTES });
+    const tooSmall = "contract io region too small for the engine carve (rebuild the contract)";
+
+    expect(() => strict.deploy(DYN, module, "DigestProbe")).toThrow(tooSmall);
+    expect((await strict.dynRegistry()).contracts.find((contract) => contract.index === DYN)?.armed).toBeFalsy();
+
+    const handle = (inputType: number, payload: Uint8Array) => (strict as any).handleDeployTx(inputType, payload);
+    const finalHashHex = await k12Hex(module);
+    const chunks = splitUploadChunks(module);
+    handle(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId: 41n, totalSize: module.length, chunkCount: chunks.length, finalHashHex }));
+    chunks.forEach((bytes, seq) => handle(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: 41n, seq, bytes })));
+    expect(() => handle(LITE_TX.DEPLOY, encodeDeploy({ sessionId: 41n, targetSlot: DYN, finalHashHex }))).toThrow(tooSmall);
+    expect((await strict.dynUpload()).lastDeploy).toMatchObject({ sessionId: "41", ok: false, code: "load-failed", message: tooSmall });
+
+    // a node told to hold no minimum arms the same module.
+    const lenient = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false, minIoBytes: 0 });
+    lenient.deploy(DYN, module, "DigestProbe");
+    expect((await lenient.dynRegistry()).contracts.find((contract) => contract.index === DYN)?.armed).toBe(true);
+});
+
+test("a DEPLOY that arms keeps its verdict against a late resend, and a module that cannot load says why", async () => {
+    const engine = new VirtualNode({ ...TEST_SLOT_LAYOUT, verifySigs: false });
+    const handle = (inputType: number, payload: Uint8Array) => (engine as any).handleDeployTx(inputType, payload);
+    const upload = async (sessionId: bigint, bytes: Uint8Array) => {
+        const finalHashHex = await k12Hex(bytes);
+        const chunks = splitUploadChunks(bytes);
+        handle(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId, totalSize: bytes.length, chunkCount: chunks.length, finalHashHex }));
+        chunks.forEach((chunk, seq) => handle(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId, seq, bytes: chunk })));
+        return finalHashHex;
+    };
+
+    const notWasm = new Uint8Array([1, 2, 3, 4, 5]);
+    const notWasmHash = await upload(31n, notWasm);
+    expect(() => handle(LITE_TX.DEPLOY, encodeDeploy({ sessionId: 31n, targetSlot: DYN, finalHashHex: notWasmHash }))).toThrow("is not a wasm module");
+    expect((await engine.dynUpload()).lastDeploy).toMatchObject({ sessionId: "31", code: "not-wasm" });
+    (engine as any).upload = null;
+
+    // a module built for another slot passes every wire check and is refused by the loader, in core's words.
+    const misplaced = await wasm("Counter");
+    const misplacedHash = await upload(32n, misplaced);
+    expect(() => handle(LITE_TX.DEPLOY, encodeDeploy({ sessionId: 32n, targetSlot: DYN, finalHashHex: misplacedHash }))).toThrow("artifact slot mismatch");
+    expect((await engine.dynUpload()).lastDeploy).toMatchObject({
+        sessionId: "32",
+        ok: false,
+        code: "load-failed",
+        message: `artifact slot mismatch: compiled 28, target ${DYN}`,
+    });
+    (engine as any).upload = null;
+
+    const probe = await wasm("DigestProbeDyn0");
+    const probeHash = await upload(33n, probe);
+    handle(LITE_TX.DEPLOY, encodeDeploy({ sessionId: 33n, targetSlot: DYN, finalHashHex: probeHash, name: "DigestProbe" }));
+    expect((await engine.dynUpload()).lastDeploy).toMatchObject({ sessionId: "33", slot: DYN, ok: true, code: "ok", message: "slot armed" });
+
+    expect(() => handle(LITE_TX.DEPLOY, encodeDeploy({ sessionId: 33n, targetSlot: DYN, finalHashHex: probeHash, name: "DigestProbe" }))).toThrow();
+    expect((await engine.dynUpload()).lastDeploy).toMatchObject({ sessionId: "33", ok: true, code: "ok" });
 });
 
 test("signature verification (opt-in): valid signed tx accepted, tampered one rejected", async () => {

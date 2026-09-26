@@ -33,7 +33,7 @@ test("every printed argument carries its declared type", async () => {
         ["state.get().owner", "id", 32],
         ["qpi.invocator()", "id", 32],
         ["state.get().balances", "{ [4;{ id, uint64 }], [1;uint64], uint64, uint64 }", 184],
-        ["input.neg + 1", "uint64", 8],
+        ["input.neg + 1", "sint32", 4],
     ]);
 });
 
@@ -87,5 +87,50 @@ struct Acc : public ContractBase {
         ["state.get().list.element(input.i)", "{ id, sint64 }", 40],
         ["state.get().orders.population()", "uint64", 8],
         ["state.get().map.get(input.i, output.v)", "uint8", 1],
+    ]);
+});
+
+// an rvalue rides the register sign-extended, so its C++ type decides how many of those bytes are the value and whether they are signed.
+test("an arithmetic temporary prints as its C++ type", async () => {
+    const source = `using namespace QPI;
+constexpr sint32 ARITH_LIMIT = 9;
+struct Arith2 {};
+struct Arith : public ContractBase {
+    struct StateData { uint64 total; };
+    struct Get_input { sint8 a8; sint8 b8; sint32 a32; uint32 u32; sint64 a64; };
+    struct Get_output { uint64 v; };
+    static sint32 twice(sint32 value) { return value * 2; }
+    PUBLIC_FUNCTION(Get) {
+        uint8 ARITH_LIMIT = 3;
+        CC_PRINT(-input.a32, input.a32 + input.u32, input.a32 + input.a64, input.a8 + input.b8, input.a8 << 2);
+        CC_PRINT(input.a32 > 0 ? input.a32 + 1 : input.a64, input.a32 > 0 ? input.a8 : input.b8, (sint16)input.a64, (bool)input.a32);
+        CC_PRINT(input.a32 + 1u, input.a32 + 1ll, input.a32 < input.a64, !input.a32, ARITH_LIMIT + 1, twice(input.a32) + 1);
+    }
+    struct Peek_input {};
+    struct Peek_output {};
+    PUBLIC_FUNCTION(Peek) { CC_PRINT(ARITH_LIMIT + 1); }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); REGISTER_USER_FUNCTION(Peek, 2); }
+};`;
+    const compiled = await compileContractWithTypeScript({ source, contractName: "Arith", slot: 28, arenaSizeBytes: 1024 * 1024 });
+
+    expect(compiled.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(valueParts(compiled.idl!.cheats).map(([, format, size]) => [format, size])).toEqual([
+        ["sint32", 4],
+        ["uint32", 4],
+        ["sint64", 8],
+        ["sint32", 4],
+        ["sint32", 4],
+        ["sint64", 8],
+        ["sint8", 1],
+        ["sint16", 2],
+        ["uint8", 1],
+        ["uint32", 4],
+        ["sint64", 8],
+        ["uint8", 1],
+        ["uint8", 1],
+        // a local named like a namespace-scope constant hides it, and a call this table cannot type leaves the register untyped.
+        ["uint64", 8],
+        ["uint64", 8],
+        ["sint32", 4],
     ]);
 });

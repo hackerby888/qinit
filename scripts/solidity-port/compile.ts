@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithClang, buildContractWithTypeScript } from "@qinit/build";
-import { loadQpiHeader } from "@qinit/compiler";
+import { DEFAULT_COMPILE_ARENA_SIZE_BYTES, loadQpiHeader } from "@qinit/compiler";
 import { readSourceTree } from "../../packages/compiler/tests/support/source-tree";
 
 export type Backend = "typescript" | "clang";
@@ -66,7 +66,8 @@ export function environmentFor(options: { corePath: string; cacheDir: string; ar
         toolchainId: sha256(`${clang}|${sysroot}|${process.version}`),
         typescriptBackendId: sha256(readSourceTree("../../packages/compiler/src", import.meta.url)),
         cacheDir: options.cacheDir,
-        arenaSizeBytes: options.arenaSizeBytes ?? 1 << 20,
+        // core's 1 GiB: a smaller arena traps nested frames, scratch and MIGRATE that a node runs
+        arenaSizeBytes: options.arenaSizeBytes ?? DEFAULT_COMPILE_ARENA_SIZE_BYTES,
     };
 }
 
@@ -183,10 +184,10 @@ async function buildOne(
             corePath: env.corePath,
             outDir,
             skipVerify: true,
+            arenaSizeBytes: env.arenaSizeBytes,
             ...(dynCallees ? { dynCallees } : {}),
         };
-        const built =
-            backend === "clang" ? await buildContractWithClang({ ...shared, arenaSizeBytes: env.arenaSizeBytes }) : await buildContractWithTypeScript(shared);
+        const built = backend === "clang" ? await buildContractWithClang(shared) : await buildContractWithTypeScript(shared);
         // A clang build that wrote a wasm succeeded whatever the IDL says, since buildContractWithClang
         // reports `ok: !idlError` and the sweep never reads the IDL. The path alone is not proof it wrote.
         const wroteWasm = Boolean(built.wasmPath) && existsSync(built.wasmPath!);

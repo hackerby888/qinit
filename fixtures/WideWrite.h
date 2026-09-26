@@ -21,8 +21,18 @@ struct WideWrite : public ContractBase
         state.mut().data.setAll(input.v);
     }
 
+    struct Poke_input { uint64 v; };
+    struct Poke_output {};
+
+    // one element, so it fits the journal that Fill overflows.
+    PUBLIC_PROCEDURE(Poke)
+    {
+        state.mut().data.set(0, input.v);
+    }
+
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
     {
         REGISTER_USER_PROCEDURE(Fill, 1);
+        REGISTER_USER_PROCEDURE(Poke, 2);
     }
 };

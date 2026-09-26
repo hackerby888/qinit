@@ -20,25 +20,48 @@ test("one options object satisfies both backends", () => {
 });
 
 // The clang half really invokes the wasm toolchain, so it needs the SDK as well as a core checkout.
-test.skipIf(!HAS_CORE || !HAS_WASI)("each backend accepts source text with no contractPath", async () => {
-    const corePath = CORE_PATH;
-    const directory = mkdtempSync(join(tmpdir(), "qinit-backend-parity-"));
+test.skipIf(!HAS_CORE || !HAS_WASI)(
+    "each backend accepts source text with no contractPath",
+    async () => {
+        const corePath = CORE_PATH;
+        const directory = mkdtempSync(join(tmpdir(), "qinit-backend-parity-"));
 
-    try {
-        const options = { ...shared, source: SOURCE, corePath, outDir: join(directory, "ts") };
-        const typescriptBuild = await buildContractWithTypeScript(options);
-        expect(typescriptBuild.stderr ?? "").not.toContain("either `contractPath` or `source`");
-        expect(typescriptBuild.ok).toBe(true);
+        try {
+            const options = { ...shared, source: SOURCE, corePath, outDir: join(directory, "ts") };
+            const typescriptBuild = await buildContractWithTypeScript(options);
+            expect(typescriptBuild.stderr ?? "").not.toContain("either `contractPath` or `source`");
+            expect(typescriptBuild.ok).toBe(true);
 
-        // Clang has no in-memory path, so source text is staged as <contractName>.h before it runs.
-        const clangBuild = await buildContractWithClang({ ...options, outDir: join(directory, "clang"), skipVerify: true });
-        expect(clangBuild.ok).toBe(true);
-        expect(readFileSync(join(directory, "clang", "Counter.h"), "utf8")).toBe(SOURCE);
-        expect(clangBuild.idl?.name).toBe(typescriptBuild.idl?.name);
-    } finally {
-        rmSync(directory, { recursive: true, force: true });
-    }
-}, 180_000);
+            // Clang has no in-memory path, so source text is staged as <contractName>.h before it runs.
+            const clangBuild = await buildContractWithClang({ ...options, outDir: join(directory, "clang"), skipVerify: true });
+            expect(clangBuild.ok).toBe(true);
+            expect(readFileSync(join(directory, "clang", "Counter.h"), "utf8")).toBe(SOURCE);
+            expect(clangBuild.idl?.name).toBe(typescriptBuild.idl?.name);
+        } finally {
+            rmSync(directory, { recursive: true, force: true });
+        }
+    },
+    180_000,
+);
+
+// the wrapper once dropped arenaSizeBytes, so a clang-sized arena reached only one backend
+test.skipIf(!HAS_CORE)(
+    "the TypeScript backend honors arenaSizeBytes",
+    async () => {
+        const directory = mkdtempSync(join(tmpdir(), "qinit-backend-arena-"));
+
+        try {
+            const options = { ...shared, source: SOURCE, corePath: CORE_PATH };
+            const small = await buildContractWithTypeScript({ ...options, outDir: join(directory, "small"), arenaSizeBytes: 1 << 20 });
+            const large = await buildContractWithTypeScript({ ...options, outDir: join(directory, "large"), arenaSizeBytes: 1 << 30 });
+            expect(small.ok && large.ok).toBe(true);
+            expect(readFileSync(small.wasmPath!)).not.toEqual(readFileSync(large.wasmPath!));
+        } finally {
+            rmSync(directory, { recursive: true, force: true });
+        }
+    },
+    60_000,
+);
 
 test("a backend given neither source nor contractPath reports it instead of throwing", async () => {
     const result = await buildContractWithClang({ ...shared, corePath: "/core", outDir: "/out", skipVerify: true });

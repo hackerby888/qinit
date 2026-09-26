@@ -131,3 +131,100 @@ struct Sneak : public ContractBase {
 
     expect(() => sim.query(28, 1)).toThrow(abortOf(0xcc1e0003));
 });
+
+test("a mutator in a function a procedure calls aborts too", async () => {
+    const calleeSource = `
+using namespace QPI;
+struct Sneak2 {};
+struct Sneak : public ContractBase {
+    struct StateData { uint64 n; };
+    struct Peek_input {};
+    struct Peek_output { uint64 tick; };
+    PUBLIC_FUNCTION(Peek) {
+        CC_WARP_TICK(1);
+        output.tick = qpi.tick();
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+        REGISTER_USER_FUNCTION(Peek, 1);
+    }
+};`;
+    const callerSource = `
+using namespace QPI;
+struct Outer2 {};
+struct Outer : public ContractBase {
+    struct StateData { uint64 n; };
+    struct SneakPeek_input {};
+    struct SneakPeek_output { uint64 tick; };
+    struct Go_input {};
+    struct Go_output { uint64 tick; };
+    struct Go_locals {
+        SneakPeek_input peekInput;
+        SneakPeek_output peekOutput;
+    };
+    PUBLIC_PROCEDURE_WITH_LOCALS(Go) {
+        CALL_OTHER_CONTRACT_FUNCTION(Sneak, Peek, locals.peekInput, locals.peekOutput);
+        output.tick = locals.peekOutput.tick;
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+        REGISTER_USER_PROCEDURE(Go, 1);
+    }
+};`;
+    const callee = await compileContractWithTypeScript({ source: calleeSource, contractName: "Sneak", slot: 28 });
+    const caller = await compileContractWithTypeScript({
+        source: callerSource,
+        contractName: "Outer",
+        slot: 29,
+        callees: [callee.idl!],
+        calleeSources: [{ name: "Sneak", source: calleeSource }],
+    });
+
+    expect(caller.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.setDebug(true);
+    sim.deploy(28, callee.wasm);
+    sim.deploy(29, caller.wasm);
+
+    expect(() => sim.procedure(29, 1)).toThrow(abortOf(0xcc1e0003));
+});
+
+test("a prank left in place does not reach the next call's CC_UNPRANK", async () => {
+    const source = `
+using namespace QPI;
+struct Leak2 {};
+struct Leak : public ContractBase {
+    struct StateData { uint64 n; };
+    struct Stay_input {};
+    struct Stay_output {};
+    struct Restore_input {};
+    struct Restore_output { id invocator; sint64 reward; };
+    PUBLIC_PROCEDURE(Stay) {
+        CC_PRANK(id(9, 9, 9, 9), 9);
+    }
+    PUBLIC_PROCEDURE(Restore) {
+        CC_UNPRANK();
+        output.invocator = qpi.invocator();
+        output.reward = qpi.invocationReward();
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+        REGISTER_USER_PROCEDURE(Stay, 1);
+        REGISTER_USER_PROCEDURE(Restore, 2);
+    }
+};`;
+    const compiled = await compileContractWithTypeScript({ source, contractName: "Leak", slot: 28 });
+
+    expect(compiled.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.deploy(28, compiled.wasm);
+    sim.fund(BOB, 10n);
+    sim.fund(ALICE, 10n);
+
+    sim.procedure(28, 1, undefined, { invocator: BOB, reward: 3n });
+    const output = sim.procedure(28, 2, undefined, { invocator: ALICE, reward: 5n });
+
+    expect(output.subarray(0, 32)).toEqual(ALICE);
+    expect(new DataView(output.buffer, output.byteOffset).getBigInt64(32, true)).toBe(5n);
+});

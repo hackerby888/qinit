@@ -1,17 +1,18 @@
 import { CheatMode } from "@qinit/compiler";
 import { useEffect, useState } from "react";
-import { resolve, join, basename } from "node:path";
+import { resolve, join } from "node:path";
 import { writeFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { resolveContracts, type ContractBuildResult } from "@qinit/build";
-import { DEFAULT_RPC_BASE, autoUpdateVerifyTool, LiteRpc, loadCoreWasmSlotLayout } from "@qinit/core";
-import { loadConfig, resolveCoreDir, resolveCompilerBackend } from "../../config";
+import { autoUpdateVerifyTool, LiteRpc, loadCoreWasmSlotLayout } from "@qinit/core";
+import { loadConfig, projectContractName, projectContractPath, resolveCoreDir, resolveCompilerBackend, resolveRpc } from "../../config";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
 import { compileContracts } from "../../ops/project-build";
 import { assignSlots } from "@qinit/build/contracts/project-slots";
+import { abiAdviceText, checkHeadersAbi } from "../../ops/abi-advice";
 
 type State = { phase: "run" } | { phase: "done"; r: ContractBuildResult };
 
@@ -25,7 +26,7 @@ export function buildJsonResult(r: ContractBuildResult, compiler: string) {
         idl: r.idl ?? null,
         idlError: r.idlError ?? null,
         // `stderr` stays for the compiler's own output.
-        error: r.ok ? null : (r.stderr || r.idlError || "build failed"),
+        error: r.ok ? null : r.stderr || r.idlError || "build failed",
         // whether the verifier ran at all: a contract it never saw must not read as one that passed.
         protocolRules: r.verify ? (r.verify.available ? "checked" : "skipped") : "skipped",
         warnings: r.warnings ?? [],
@@ -46,12 +47,13 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
             try {
                 const cfg = loadConfig();
                 const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
-                const contractPath = resolve(commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract ?? "fixtures/Counter.h");
-                const name = commandArgs.get("contract-name") ?? cfg.contractName ?? basename(contractPath).replace(/\.[^.]+$/, "");
+                const requested = commandArgs.get("contract") ?? commandArgs.positionals[0];
+                const contractPath = projectContractPath("build", requested, cfg);
+                const name = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
                 const outDir = resolve(commandArgs.get("out") ?? "dist/contracts");
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
                 const slot = requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot);
-                const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+                const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), cfg);
                 const rpc = new LiteRpc(rpcBaseUrl);
                 const registry = await Promise.race([
                     rpc.dynRegistry().catch(() => undefined),
@@ -74,6 +76,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                 if (compiler === "clang" || compiler === "typescript") {
                     await autoUpdateVerifyTool();
                 }
+                const abiMismatch = await checkHeadersAbi(core);
                 const project = await compileContracts({
                     plan,
                     core,
@@ -94,7 +97,8 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                     try {
                         writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));
                     } catch {}
-                setS({ phase: "done", r });
+                // the build still runs: the artifact is valid for a node on the headers' ABI, only not for this CLI's simulator or deploy.
+                setS({ phase: "done", r: abiMismatch ? { ...r, warnings: [abiAdviceText(abiMismatch), ...(r.warnings ?? [])] } : r });
             } catch (e: any) {
                 setS({ phase: "done", r: { ok: false, stderr: String(e?.message ?? e) } });
             }
@@ -164,8 +168,8 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
             {r.strippedCheats?.length ? (
                 <Box marginTop={1}>
                     <Text color={theme.warn} wrap="wrap">
-                        ⚠ --production removed {r.strippedCheats.length} cheat guard{r.strippedCheats.length === 1 ? "" : "s"}: {r.strippedCheats.join(", ")} — what
-                        ships no longer refuses what they refused under test.
+                        ⚠ --production removed {r.strippedCheats.length} cheat guard{r.strippedCheats.length === 1 ? "" : "s"}: {r.strippedCheats.join(", ")} —
+                        what ships no longer refuses what they refused under test.
                     </Text>
                 </Box>
             ) : null}

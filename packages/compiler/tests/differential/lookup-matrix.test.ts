@@ -28,7 +28,10 @@ describe.skipIf(!HAS_CORE)("a lookup answers for every class shape", () => {
                 });
                 expect(mine.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
-                expect(runState(mine.wasm)).toBe(await clangState(name, source, "lookup-matrix"));
+                const ours = runState(mine.wasm);
+                const theirs = await clangState(name, source, "lookup-matrix");
+
+                expect(ours.stateHex).toBe(theirs.stateHex);
             });
         }
     }

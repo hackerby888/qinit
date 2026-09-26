@@ -1,11 +1,21 @@
-import { CHEAT_ERR, CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURES, type DebugTrace, type EngineFaultInfo } from "@qinit/core";
-import { encodeBurningLog, encodeQuTransferLog, MAINNET_COMPUTOR_COUNT, MAX_INPUT_SIZE, QUBIC_LOG_TYPE, TXS_PER_TICK } from "@qinit/proto";
-import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, Entity, HostServices } from "./contract/runtime";
+import { CHEAT_ERR, CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURES, WASM_TRAP_ERROR_CODE, type DebugTrace, type EngineFaultInfo } from "@qinit/core";
+import {
+    CUSTOM_MESSAGE_OP,
+    encodeBurningLog,
+    encodeContractReserveDeductionLog,
+    encodeCustomMessageLog,
+    encodeQuTransferLog,
+    MAX_INPUT_SIZE,
+    QUBIC_LOG_TYPE,
+    TXS_PER_TICK,
+} from "@qinit/proto";
+import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, Entity, HostServices, type ContractCallContext } from "./contract/runtime";
 import { toHex, verifySync } from "./support/k12";
 import { TraceRecorder } from "./logging/trace";
 import { Committee, MAX_NUMBER_OF_CONTRACTS, type CommitteeOpts } from "./chain/consensus";
-import { FeeManager, type FeeMode } from "./contract/fees";
+import { DEFAULT_CONTRACT_COUNT, FeeManager, type FeeMode } from "./contract/fees";
 import { SpectrumLedger } from "./ledger/spectrum";
+import { OcManager } from "./chain/oc";
 import { OracleManager } from "./chain/oracle";
 import {
     AssetLedger,
@@ -35,7 +45,6 @@ export type { TxRecord } from "./chain/txs";
 const EP_USER_PROCEDURE = CONTRACT_ENTRY_POINTS.userProcedure;
 const EP_USER_PROCEDURE_NOTIFICATION = CONTRACT_ENTRY_POINTS.userProcedureNotification;
 const ZERO32 = new Uint8Array(32);
-const IPO_SHARE_COUNT = MAINNET_COMPUTOR_COUNT;
 const IPO_SHARE_PRICE = 1000000n; // default IPO price per share (Qu)
 
 const TRANSFER_TYPE_STANDARD_TRANSACTION = 0;
@@ -54,11 +63,19 @@ const CALL_ERROR_ALLOCATION_FAILED = 3;
 const CALL_ERROR_CONTRACT_INACTIVE = 4;
 
 const INVALID_PROPOSAL_INDEX = 0xffff;
+// core's contractCallbacksRunning bits; a contract calling back into the same family from inside its callback is refused.
+const CALLBACK_MANAGEMENT_RIGHTS_TRANSFER = 1;
+const CALLBACK_SHAREHOLDER_PROPOSAL_AND_VOTING = 4;
+// core's ContractErrorAllocContextOtherProcedureCallFailed, the abort code for a callee outside its epoch window.
+const CONTRACT_ERROR_CALLEE_INACTIVE = 4;
+const CONTRACT_ERROR_IPO_FAILED = 8;
 
 export interface ProcedureCallOptions {
     invocator?: Id;
     originator?: Id;
     reward?: bigint;
+    // false runs only the procedure, as core's QpiContextUserProcedureCall does once its caller moved the reward
+    transferReward?: boolean;
 }
 
 interface PendingOracleNotification {
@@ -84,18 +101,27 @@ export class EngineFaultedError extends Error {
 const MAX_PRUNED_TRANSACTION_IDS = 100_000;
 
 // Ticks per epoch on the live network. A shorter one lets a test or the IDE reach END_EPOCH without ticking three thousand times; 0 turns rollover off.
-export const DEFAULT_EPOCH_LENGTH = 3000;
+// core's testnet epoch duration: the switch follows the tick that is this far past the epoch's first tick.
+export const DEFAULT_EPOCH_LENGTH = 2701;
 
 export class QubicSimulator {
     currentTick = 0;
     currentEpoch = 0;
     epochLength: number;
+    // the current epoch's first tick, set at boot and at every switch as core sets system.initialTick.
+    initialTick = 0;
+    readonly contractCount: number;
     host: HostServices;
     onLog?: LogSink;
     private registry: ContractRegistry;
     private spectrum = new SpectrumLedger({ tick: () => this.currentTick });
     private oracle: OracleManager;
+    private oc: OcManager;
     private pitDepth = 0;
+    private callbacksRunning = 0;
+    // core's contractError: the code a failed procedure, system procedure or migration left behind. A function failure leaves none.
+    private contractErrors = new Map<number, number>();
+    private contractLifetimes = new Map<number, { constructionEpoch: number; destructionEpoch: number }>();
     private assets = new AssetLedger({
         contractId: (slot) => this.contractId(slot),
         logAssetMutation: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
@@ -110,18 +136,26 @@ export class QubicSimulator {
     // "tick": a deterministic clock the gtest corpus needs (it freezes tickDuration and sets the date
     // directly). "real": Date.now(), the wall clock a live node has to serve.
     clockMode: "tick" | "real" = "tick";
+    // the wall clock read once per tick, as core stamps its etalon tick: every time call inside the tick sees one instant.
+    private tickClockMs: number | undefined;
     private mempoolMode: boolean;
     private fees: FeeManager;
     private logStore?: QubicLogStore;
     private computorOverride = new Map<number, Uint8Array>();
     prevSpectrumDigestOverride?: Uint8Array;
+    // a gtest sets system.initialTick itself, as core's harness does, rather than deriving it from the epoch.
+    initialTickOverride?: number;
     private readonly historyTicks: number;
+    // off for a test harness: a contract error comes back to the caller instead of halting the engine, as core's own harness does
+    private readonly haltOnContractFault: boolean;
     // Drained by the transport each tick. A caller that advances the simulator directly never drains it, so the backlog is capped rather than growing.
     private prunedTransactionIds: string[] = [];
     private terminalFault: EngineFaultInfo | null = null;
     private lastFinalizedTick = 0;
     private lastFinalizedEpoch = 0;
     private pendingOracleNotifications: PendingOracleNotification[] = [];
+    // set while a contract's own query or subscribe call is on the stack: core runs a notification raised in there before the call returns.
+    private oracleCallerFrame: ContractCallContext | null = null;
 
     constructor(
         options: {
@@ -133,12 +167,17 @@ export class QubicSimulator {
             logStore?: QubicLogStore;
             historyTicks?: number;
             epochLength?: number;
+            haltOnContractFault?: boolean;
+            // core's contractCount; an index at or past it names the caller in burn, queryFeeReserve and the share calls.
+            contractCount?: number;
         } = {},
     ) {
         this.mempoolMode = options.mempool ?? false;
+        this.haltOnContractFault = options.haltOnContractFault ?? true;
         this.epochLength = Math.max(0, Math.trunc(options.epochLength ?? DEFAULT_EPOCH_LENGTH));
         this.historyTicks = Math.max(1, Math.trunc(options.historyTicks ?? DEFAULT_TICK_HISTORY));
-        this.fees = new FeeManager(options.fees ?? "off", options.defaultReserve);
+        this.contractCount = options.contractCount ?? DEFAULT_CONTRACT_COUNT;
+        this.fees = new FeeManager(options.fees ?? "off", options.defaultReserve, this.contractCount);
         this.logStore = options.logStore;
         this.registry = new ContractRegistry(this.fees, this.recorder);
         this.ticking = new TickConsensus(
@@ -155,26 +194,53 @@ export class QubicSimulator {
             options.liteTicking ?? true,
             this.historyTicks,
         );
+        // a fee phase is one pass over the committee, so it follows whatever computor count this engine ticks with.
+        this.fees.numberOfComputors = this.ticking.committeeSize();
 
-        this.oracle = new OracleManager({
-            energyOf: (slot) => this.balanceOf(slot),
-            decreaseEnergyOf: (slot, amount) => {
+        // an oracle or oc fee is destroyed, and handed back when the engine refuses the request it paid for; both moves are logged as core logs them.
+        const contractEnergy = {
+            energyOf: (slot: number) => this.balanceOf(slot),
+            decreaseEnergyOf: (slot: number, amount: bigint) => {
                 const source = this.contractId(slot);
                 this.decreaseEnergy(this.spectrumIndex(source), amount);
                 this.logQuTransfer(source, ZERO32, amount);
             },
-            notify: (slot, procedureId, input) =>
+            refundEnergyOf: (slot: number, amount: bigint) => {
+                const target = this.contractId(slot);
+                this.increaseEnergy(target, amount);
+                this.logQuTransfer(ZERO32, target, amount);
+            },
+        };
+
+        this.oracle = new OracleManager({
+            ...contractEnergy,
+            log: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
+            notify: (slot, procedureId, input) => {
+                const contract = this.oracleCallerFrame ? this.contracts.get(slot) : undefined;
+                if (contract) {
+                    this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, procedureId, input, this.oracleCallerFrame!);
+                    return;
+                }
+
                 this.pendingOracleNotifications.push({
                     slot,
                     procedureId,
                     input: input.slice(),
-                }),
+                });
+            },
             nowMs: () => this.nowMs(),
+            currentTick: () => this.currentTick,
+        });
+
+        this.oc = new OcManager({
+            ...contractEnergy,
+            currentTick: () => this.currentTick,
+            log: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
         });
         this.host = {
             tick: () => this.currentTick + this.cheatTickOffset,
             // Deliberately unshifted: a warp moves where the contract thinks it is within the epoch, not where the epoch began, so elapsed still reads right.
-            initialTick: () => this.currentEpoch * this.epochLength,
+            initialTick: () => this.initialTickOverride ?? this.initialTick,
             epoch: () => this.currentEpoch + this.cheatEpochOffset,
             nowMs: () => this.nowMs(),
             numberOfTickTransactions: () => this.tickTxCount,
@@ -192,13 +258,20 @@ export class QubicSimulator {
                 this.cheatEpochOffset += epochs;
                 return BigInt(ticks ? this.cheatTickOffset : this.cheatEpochOffset);
             },
-            clearCheatWarp: () => {
-                this.cheatTickOffset = 0;
-                this.cheatEpochOffset = 0;
+            enterFrame: () => {
+                this.openFrames++;
+            },
+            exitFrame: () => {
+                this.openFrames--;
+
+                if (this.openFrames === 0) {
+                    this.cheatTickOffset = 0;
+                    this.cheatEpochOffset = 0;
+                }
             },
             pauseLog: () => this.logStore?.pause(),
             resumeLog: () => this.logStore?.resume(),
-            transfer: (slot, dest, amount, type) => this.transfer(slot, dest, amount, type),
+            transfer: (slot, dest, amount, type, originator) => this.transfer(slot, dest, amount, type, originator),
             burn: (slot, amount, burnedFor) => this.burn(slot, amount, burnedFor),
             getEntity: (id) => this.getEntity(id),
             queryFeeReserve: (callerSlot, contractIndex) => this.fees.queryFeeReserve(callerSlot, contractIndex),
@@ -220,28 +293,51 @@ export class QubicSimulator {
             dayOfWeek: (year, month, day) => (new Date(Date.UTC(2000 + year, month - 1, day)).getUTCDay() + 4) % 7,
             signatureValidity: (entity, digest, signature) => (verifySync(entity, digest, signature) ? 1 : 0),
             bidInIPO: () => -1n,
+            // one ipo share per committee seat, as the node's own computor count sizes it.
             ipoBidId: (_contractIndex, index) =>
-                index >= 0 && index < IPO_SHARE_COUNT ? this.ticking.getCommittee().computors[index % this.ticking.committeeSize()].publicKey : ZERO32,
-            ipoBidPrice: (_contractIndex, index) => (index >= 0 && index < IPO_SHARE_COUNT ? IPO_SHARE_PRICE : -3n),
+                index >= 0 && index < this.ticking.committeeSize() ? this.ticking.getCommittee().computors[index].publicKey : ZERO32,
+            ipoBidPrice: (_contractIndex, index) => (index >= 0 && index < this.ticking.committeeSize() ? IPO_SHARE_PRICE : -3n),
             computeMiningFunction: () => ZERO32,
             initMiningSeed: () => {},
             getOracleQueryStatus: (queryId) => this.oracle.getOracleQueryStatus(queryId),
-            getOcInvocationStatus: () => 0,
-            invokeOc: () => -1n,
+            getOcInvocationStatus: (invocationId) => this.oc.getOcInvocationStatus(invocationId),
+            invokeOc: (slot, interfaceIndex, request) => this.oc.startContractInvocation(slot, interfaceIndex, request),
             unsubscribeOracle: (slot, subscriptionId) => this.oracle.stopContractSubscription(slot, subscriptionId),
-            queryOracle: (slot, interfaceIndex, query, replySize, procedureId, timeout, fee) => {
+            queryOracle: (slot, interfaceIndex, query, replySize, procedureId, timeout, fee, callerFrame) => {
                 if (!this.isValidOracleCallback(slot, procedureId, replySize)) {
                     return -1n;
                 }
 
-                return this.oracle.startContractQuery(slot, interfaceIndex, query, replySize, procedureId, timeout, fee);
+                const outerFrame = this.oracleCallerFrame;
+                this.oracleCallerFrame = callerFrame ?? null;
+                try {
+                    return this.oracle.startContractQuery(slot, interfaceIndex, query, replySize, procedureId, timeout, fee);
+                } finally {
+                    this.oracleCallerFrame = outerFrame;
+                }
             },
-            subscribeOracle: (slot, interfaceIndex, query, replySize, timestampOffset, procedureId, period, notifyPrevious, fee) => {
+            subscribeOracle: (slot, interfaceIndex, query, replySize, timestampOffset, procedureId, period, notifyPrevious, fee, callerFrame) => {
                 if (!this.isValidOracleCallback(slot, procedureId, replySize)) {
                     return -1;
                 }
 
-                return this.oracle.startContractSubscription(slot, interfaceIndex, query, replySize, timestampOffset, procedureId, period, notifyPrevious, fee);
+                const outerFrame = this.oracleCallerFrame;
+                this.oracleCallerFrame = callerFrame ?? null;
+                try {
+                    return this.oracle.startContractSubscription(
+                        slot,
+                        interfaceIndex,
+                        query,
+                        replySize,
+                        timestampOffset,
+                        procedureId,
+                        period,
+                        notifyPrevious,
+                        fee,
+                    );
+                } finally {
+                    this.oracleCallerFrame = outerFrame;
+                }
             },
             getOracleQuery: (queryId) => this.oracle.getOracleQuery(queryId),
             getOracleReply: (queryId) => this.oracle.getOracleReply(queryId),
@@ -252,7 +348,7 @@ export class QubicSimulator {
             getPrevSpectrumDigest: () => this.prevSpectrumDigestOverride ?? this.ticking.getPrevSpectrumDigest(),
             getPrevUniverseDigest: () => this.ticking.getPrevUniverseDigest(),
             getPrevComputerDigest: () => this.ticking.getPrevComputerDigest(),
-            distributeDividends: (slot, amountPerShare) => this.distributeDividends(slot, amountPerShare),
+            distributeDividends: (slot, amountPerShare, originator) => this.distributeDividends(slot, amountPerShare, originator),
             callFunction: (callerSlot, calleeIndex, inputType, input, originator) => this.callFunction(callerSlot, calleeIndex, inputType, input, originator),
             invokeProcedure: (callerSlot, calleeIndex, inputType, input, reward, originator) =>
                 this.invokeProcedure(callerSlot, calleeIndex, inputType, input, reward, originator),
@@ -304,11 +400,16 @@ export class QubicSimulator {
         const initialTick = normalizedEpoch * this.epochLength;
         this.currentEpoch = normalizedEpoch;
         this.currentTick = initialTick;
+        this.initialTick = initialTick;
         this.lastFinalizedEpoch = normalizedEpoch;
         this.lastFinalizedTick = initialTick;
         this.oracle.beginEpoch();
+        this.oc.beginEpoch();
         this.pendingOracleNotifications = [];
         this.logStore?.reset(initialTick);
+        // a node boots on an epoch's first tick, which opens that epoch's log like any other.
+        this.logStartOfEpoch(initialTick);
+        this.logStore?.finalizeTick(initialTick);
     }
 
     assertOperational(): void {
@@ -359,6 +460,10 @@ export class QubicSimulator {
             if (context.contractErrorsOnly && !contractError) {
                 throw error;
             }
+            if (contractError && !this.haltOnContractFault) {
+                this.noteContractError(contractError);
+                throw contractError;
+            }
 
             throw new EngineFaultedError(this.recordFault(error, phase, context.txId), error);
         }
@@ -366,6 +471,11 @@ export class QubicSimulator {
 
     getContractFeeReserve(slot: number): bigint {
         return this.fees.getContractFeeReserve(slot);
+    }
+
+    // What this phase has accumulated for a contract but not yet charged; the reserve only moves at the phase boundary.
+    executionFee(slot: number): bigint {
+        return this.fees.executionFee(slot);
     }
 
     setContractFeeReserve(slot: number, amount: bigint): void {
@@ -417,6 +527,8 @@ export class QubicSimulator {
     // Core has no id-keyed energy read — it resolves a spectrum index first; kept as a convenience. Warp offsets shift only what a contract observes.
     private cheatTickOffset = 0;
     private cheatEpochOffset = 0;
+    // contract frames open across every instance; the warp is dropped when the root one closes, so its trace entry keeps the real tick.
+    private openFrames = 0;
 
     /** Sets a balance outright rather than transferring, which is the point of a deal. */
     private cheatDeal(id: Id, amount: bigint): bigint {
@@ -465,6 +577,10 @@ export class QubicSimulator {
 
     private logQuTransfer(source: Id, destination: Id, amount: bigint): void {
         this.logStore?.logMessage(QUBIC_LOG_TYPE.QU_TRANSFER, encodeQuTransferLog(source, destination, amount), this.currentEpoch);
+    }
+
+    private logCustomMessage(marker: bigint): void {
+        this.logStore?.logMessage(QUBIC_LOG_TYPE.CUSTOM_MESSAGE, encodeCustomMessageLog(marker), this.currentEpoch);
     }
 
     private transferBalance(source: Id, destination: Id, amount: bigint): boolean {
@@ -527,7 +643,7 @@ export class QubicSimulator {
         return contractId.lane1 === 0n && contractId.lane2 === 0n && contractId.lane3 === 0n && contractId.lane0 < BigInt(MAX_NUMBER_OF_CONTRACTS);
     }
 
-    private transfer(slot: number, destination: Id, amount: bigint, type: number): bigint {
+    private transfer(slot: number, destination: Id, amount: bigint, type: number, originator?: Id): bigint {
         if (this.pitDepth > 0 && this.contractSlotOf(destination) >= 0) {
             return INVALID_AMOUNT;
         }
@@ -547,7 +663,7 @@ export class QubicSimulator {
 
         this.decreaseEnergy(sourceIndex, amount);
         this.increaseEnergy(destination, amount);
-        this.notifyContractOfIncomingTransfer(destination, source, amount, type);
+        this.notifyContractOfIncomingTransfer(destination, source, amount, type, originator);
         this.logQuTransfer(source, destination, amount);
 
         return remaining;
@@ -558,25 +674,25 @@ export class QubicSimulator {
             return -(MAX_AMOUNT + 1n);
         }
 
-        const target = burnedFor < 1 || burnedFor >= MAX_NUMBER_OF_CONTRACTS ? slot : burnedFor;
-        if (this.fees.metered && this.fees.isFailed(target)) {
-            return -amount;
-        }
-
         const source = this.contractId(slot);
         const sourceIndex = this.spectrumIndex(source);
         if (sourceIndex < 0) {
             return -amount;
         }
+
+        // a contract whose IPO failed can never be refilled, whatever the fee mode.
+        const target = this.fees.resolveIndex(slot, burnedFor);
+        if (this.fees.isFailed(target)) {
+            return -amount;
+        }
+
         const remaining = this.energy(sourceIndex) - amount;
         if (remaining < 0n) {
             return remaining;
         }
 
         this.decreaseEnergy(sourceIndex, amount);
-        if (this.fees.metered) {
-            this.fees.addToContractFeeReserve(target, amount);
-        }
+        this.fees.addToContractFeeReserve(target, amount);
         this.logStore?.logMessage(QUBIC_LOG_TYPE.BURNING, encodeBurningLog(source, amount, target), this.currentEpoch);
 
         return remaining;
@@ -599,11 +715,6 @@ export class QubicSimulator {
         otherSlot: number,
         originator: Id,
     ): { allow: boolean; fee: bigint } {
-        const contract = this.contracts.get(targetSlot);
-        if (!contract || !contract.hasSysproc(spId)) {
-            return { allow: false, fee: 0n };
-        }
-
         const request = PreManagementRightsTransferInput.alloc();
         request.asset.issuer = issuer;
         request.asset.assetName = name;
@@ -614,12 +725,10 @@ export class QubicSimulator {
         request.otherContractIndex = otherSlot;
 
         // Core runs these callbacks in the caller's context: invocator = the contract moving the rights, originator = the tx signer.
-        const output = this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, spId, request.bytes, {
-            invocator: this.contractId(otherSlot),
-            originator,
-            invocationReward: 0n,
-            entryPoint: spId,
-        });
+        const output = this.runSystemCallback(CALLBACK_MANAGEMENT_RIGHTS_TRANSFER, otherSlot, targetSlot, spId, request.bytes, 0n, originator);
+        if (!output) {
+            return { allow: false, fee: 0n };
+        }
         const reply = PreManagementRightsTransferOutput.wrap(output);
         const allow = output.length >= 1 && reply.allowTransfer !== 0;
         const requestedFee = output.length >= 16 ? reply.requestedFee : 0n;
@@ -648,6 +757,11 @@ export class QubicSimulator {
         const { counterpartyOwnershipManager, counterpartyPossessionManager, heldByCaller } = request;
 
         this.assertOperational();
+        // a PRE or POST callback moving rights itself would nest the transfer it is answering.
+        if ((this.callbacksRunning & CALLBACK_MANAGEMENT_RIGHTS_TRANSFER) !== 0) {
+            return INVALID_AMOUNT;
+        }
+
         if (!first32BytesEqual(owner, possessor) || counterpartyOwnershipManager !== counterpartyPossessionManager) {
             return INVALID_AMOUNT;
         }
@@ -655,9 +769,11 @@ export class QubicSimulator {
         if (
             counterpartyPossessionManager === callerSlot ||
             counterpartyPossessionManager < 1 ||
-            counterpartyPossessionManager >= MAX_NUMBER_OF_CONTRACTS ||
+            counterpartyPossessionManager >= this.contractCount ||
+            !this.isActiveThisEpoch(counterpartyPossessionManager) ||
             shares <= 0n ||
-            offeredFee < 0n
+            offeredFee < 0n ||
+            callerSlot >= this.contractCount
         ) {
             return INVALID_AMOUNT;
         }
@@ -689,11 +805,10 @@ export class QubicSimulator {
             return -callback.fee;
         }
 
-        if (callback.fee > 0n) {
-            const feeResult = this.transfer(callerSlot, this.contractId(counterpartyOwnershipManager), callback.fee, TRANSFER_TYPE_QPI_TRANSFER);
-            if (feeResult < 0n) {
-                return -callback.fee;
-            }
+        // core transfers the fee unconditionally, so a free transfer still leaves a zero-amount record in the log.
+        const feeResult = this.transfer(callerSlot, this.contractId(counterpartyOwnershipManager), callback.fee, TRANSFER_TYPE_QPI_TRANSFER, originator);
+        if (feeResult < 0n) {
+            return callback.fee ? -callback.fee : INVALID_AMOUNT;
         }
 
         const from = heldByCaller ? callerSlot : counterpartyPossessionManager;
@@ -776,7 +891,7 @@ export class QubicSimulator {
         });
     }
 
-    private distributeDividends(slot: number, amountPerShare: bigint): number {
+    private distributeDividends(slot: number, amountPerShare: bigint, originator?: Id): number {
         if (this.pitDepth > 0) {
             return 0;
         }
@@ -785,31 +900,33 @@ export class QubicSimulator {
             return 0;
         }
 
-        const total = amountPerShare * BigInt(IPO_SHARE_COUNT);
+        const total = amountPerShare * BigInt(this.ticking.committeeSize());
         if (total > MAX_AMOUNT) {
             return 0;
         }
 
         const contractId = this.contractId(slot);
-        if (!this.decreaseEnergy(this.spectrumIndex(contractId), total)) {
+        const sourceIndex = this.spectrumIndex(contractId);
+        if (sourceIndex < 0 || this.energy(sourceIndex) < total) {
             return 0;
         }
 
-        const name = this.contractAssetNames.get(slot);
-        if (name === undefined) {
-            return 1;
-        }
+        // the payout is one debit against many credits, so core brackets it with two marker records for whoever reads the log.
+        this.logCustomMessage(CUSTOM_MESSAGE_OP.START_DISTRIBUTE_DIVIDENDS);
+        this.decreaseEnergy(sourceIndex, total);
 
-        for (const possession of this.assets.possessionsOf(ZERO32, name)) {
+        const name = this.contractAssetNames.get(slot);
+        for (const possession of name === undefined ? [] : this.assets.possessionsOf(ZERO32, name)) {
             if (possession.shares === 0n) {
                 continue;
             }
 
             const dividend = amountPerShare * possession.shares;
             this.increaseEnergy(possession.possessor, dividend);
-            this.notifyContractOfIncomingTransfer(possession.possessor, contractId, dividend, TRANSFER_TYPE_QPI_DISTRIBUTE_DIVIDENDS);
+            this.notifyContractOfIncomingTransfer(possession.possessor, contractId, dividend, TRANSFER_TYPE_QPI_DISTRIBUTE_DIVIDENDS, originator);
             this.logQuTransfer(contractId, possession.possessor, dividend);
         }
+        this.logCustomMessage(CUSTOM_MESSAGE_OP.END_DISTRIBUTE_DIVIDENDS);
 
         return 1;
     }
@@ -821,7 +938,8 @@ export class QubicSimulator {
         this.contractAssetNames.set(slot, typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn);
     }
 
-    mintDeployShares(slot: number, name: bigint | string, holder: Id): void {
+    // one share per committee seat, as the node issues them; a caller mirroring another node names its count.
+    mintDeployShares(slot: number, name: bigint | string, holder: Id, shares: bigint = BigInt(this.ticking.committeeSize())): void {
         this.assertOperational();
         const packedName = typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn;
         this.setContractAssetName(slot, packedName);
@@ -830,15 +948,16 @@ export class QubicSimulator {
             return;
         }
 
-        this.assets.mintContractShares(1, packedName, BigInt(IPO_SHARE_COUNT));
-        this.assets.transferShareOwnershipAndPossession(1, packedName, ZERO32, ZERO32, ZERO32, BigInt(IPO_SHARE_COUNT), holder);
+        this.assets.mintContractShares(1, packedName, shares);
+        this.assets.transferShareOwnershipAndPossession(1, packedName, ZERO32, ZERO32, ZERO32, shares, holder);
     }
 
     assetUniverse(): AssetSnapshot[] {
         return this.assets.assetUniverse();
     }
 
-    private notifyContractOfIncomingTransfer(destination: Id, source: Id, amount: bigint, type: number): void {
+    // a contract's transfer passes its frame's originator, and core then shows the callback that originator with the source contract as invocator.
+    notifyContractOfIncomingTransfer(destination: Id, source: Id, amount: bigint, type: number, originator?: Id): void {
         if (amount <= 0n) {
             return;
         }
@@ -862,6 +981,7 @@ export class QubicSimulator {
         this.pitDepth++;
         try {
             this.registry.fire(contract, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER, input, {
+                ...(originator ? { invocator: source, originator } : {}),
                 entryPoint: SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER,
             });
         } finally {
@@ -869,7 +989,12 @@ export class QubicSimulator {
         }
     }
 
-    deploy(slot: number, wasm: Uint8Array, externalMemory?: WebAssembly.Memory, options: { initialize?: boolean } = {}): Contract {
+    deploy(
+        slot: number,
+        wasm: Uint8Array,
+        externalMemory?: WebAssembly.Memory,
+        options: { initialize?: boolean; initialState?: Uint8Array; minIoBytes?: number; deferActivation?: boolean } = {},
+    ): Contract {
         return this.runOperation(
             "deploy",
             () => {
@@ -877,12 +1002,28 @@ export class QubicSimulator {
                 let contract: Contract;
 
                 try {
-                    contract = this.registry.deploy(slot, wasm, this.host, externalMemory, undefined, options.initialize ?? true);
+                    contract = this.registry.deploy(
+                        slot,
+                        wasm,
+                        this.host,
+                        externalMemory,
+                        undefined,
+                        options.initialize ?? true,
+                        options.initialState,
+                        options.minIoBytes,
+                        options.deferActivation,
+                    );
                 } finally {
                     this.logStore?.end();
                 }
 
                 this.emit("info", "deploy", `slot ${slot} deployed · ${(wasm.length / 1024) | 0}KB wasm`);
+                if (options.initialState) {
+                    const seededBytes = options.initialState.length;
+                    const migrated = contract.hasMigrate && contract.migrateOldStateSize === seededBytes;
+                    const outcome = migrated ? "MIGRATE ran" : "INITIALIZE skipped";
+                    this.emit("info", "deploy", `slot ${slot} state seeded · ${seededBytes} B · ${outcome}`);
+                }
                 if (contract.stateSize > K12_MAX_LEAF_BYTES) {
                     this.emit(
                         "warn",
@@ -991,6 +1132,10 @@ export class QubicSimulator {
             if (!contract.hasSysproc(sysproc)) {
                 continue;
             }
+            // core runs no phase for a contract in an error state or outside its construction and destruction epochs.
+            if (this.contractErrorOf(slot) !== 0 || !this.isActiveThisEpoch(slot)) {
+                continue;
+            }
             if (requireFeeReserve && !this.fees.reserveOk(slot)) {
                 continue;
             }
@@ -1003,11 +1148,20 @@ export class QubicSimulator {
         this.runOperation("begin-epoch", () => this.runBeginEpoch());
     }
 
+    // core opens an epoch's log with this marker, in the INITIALIZE range of the epoch's first tick.
+    private logStartOfEpoch(tick: number): void {
+        this.logStore?.begin(tick, LOG_SC_INITIALIZE);
+        this.logCustomMessage(CUSTOM_MESSAGE_OP.START_EPOCH);
+        this.logStore?.end();
+    }
+
     private runBeginEpoch(): void {
         this.oracle.beginEpoch();
+        this.oc.beginEpoch();
         this.pendingOracleNotifications = [];
         const logTick = this.nextLogTick();
         this.logStore?.reset(logTick);
+        this.logStartOfEpoch(logTick);
         this.logStore?.begin(logTick, LOG_SC_BEGIN_EPOCH);
 
         try {
@@ -1026,6 +1180,8 @@ export class QubicSimulator {
 
         try {
             this.contractProcessor(SYSTEM_PROCEDURES.END_EPOCH, false, false);
+            // the last record an epoch writes, as on core.
+            this.logCustomMessage(CUSTOM_MESSAGE_OP.END_EPOCH);
         } finally {
             this.logStore?.end();
         }
@@ -1035,8 +1191,62 @@ export class QubicSimulator {
         this.runOperation("begin-tick", () => this.runBeginTick());
     }
 
-    private runBeginTick(): void {
+    private enterNextTick(): void {
         this.currentTick++;
+        this.tickClockMs = Date.now();
+    }
+
+    // Charge the phase that just ended. Core's deduction belongs to no transaction, so it goes in the tick's BEGIN_TICK range.
+    private processExecutionFeeReports(): void {
+        const settlements = this.fees.processReportsOnNewPhase(this.currentTick);
+        if (!settlements.length) {
+            return;
+        }
+
+        this.logStore?.begin(this.currentTick, LOG_SC_BEGIN_TICK);
+        try {
+            for (const settlement of settlements) {
+                this.logStore?.logMessage(
+                    QUBIC_LOG_TYPE.CONTRACT_RESERVE_DEDUCTION,
+                    encodeContractReserveDeductionLog(settlement.deductedAmount, settlement.remainingAmount, settlement.contractIndex),
+                    this.currentEpoch,
+                );
+            }
+        } finally {
+            this.logStore?.end();
+        }
+    }
+
+    /** true from a deferred deploy until the tick that runs its INITIALIZE or MIGRATE. */
+    isActivationPending(slot: number): boolean {
+        return this.registry.pendingConstructionSlots().includes(slot);
+    }
+
+    // core constructs a deployed slot at the head of the tick after its DEPLOY: past BEGIN_EPOCH, ahead of BEGIN_TICK, in the INITIALIZE log range.
+    private activatePendingContracts(): void {
+        const slots = this.registry.pendingConstructionSlots();
+        if (!slots.length) {
+            return;
+        }
+
+        this.logStore?.begin(this.currentTick, LOG_SC_INITIALIZE);
+        try {
+            for (const slot of slots) {
+                this.registry.constructPending(slot);
+                this.emit("info", "deploy", `slot ${slot} constructed`);
+            }
+        } finally {
+            this.logStore?.end();
+        }
+    }
+
+    private runBeginTick(tickEntered = false): void {
+        if (!tickEntered) {
+            this.enterNextTick();
+        }
+        // ahead of any entry this tick could run, so an INITIALIZE below is measured against the new phase.
+        this.processExecutionFeeReports();
+        this.activatePendingContracts();
         this.tickTxCount = this.txpool.dueCount(this.currentTick);
         this.emit("debug", "tick", `tick ${this.currentTick} begin · ${this.tickTxCount} tx`);
 
@@ -1069,19 +1279,32 @@ export class QubicSimulator {
     }
 
     private runAdvance(): void {
-        const nextTick = this.currentTick + 1;
+        // core measures the epoch on the tick it just finished, so a switch comes once that tick is a full length past the epoch's first. Then
+        // the tick number moves, END_EPOCH runs under it in the old epoch, the epoch and its first tick change, and BEGIN_EPOCH and BEGIN_TICK
+        // run under that same tick number.
+        const switchesEpoch = this.epochLength > 0 && this.currentTick - this.initialTick >= this.epochLength;
 
-        if (this.epochLength > 0 && nextTick % this.epochLength === 0) {
+        if (switchesEpoch) {
+            this.enterNextTick();
             this.endEpoch();
-            this.logStore?.finalizeTick(nextTick);
+            this.logStore?.finalizeTick(this.currentTick);
             this.currentEpoch++;
+            this.initialTick = this.currentTick;
             this.beginEpoch();
             this.emit("info", "epoch", `epoch ${this.currentEpoch - 1} → ${this.currentEpoch}`);
         }
 
-        this.beginTick();
+        this.runOperation("begin-tick", () => this.runBeginTick(switchesEpoch));
         this.drainMempool();
-        this.oracle.pump();
+        // a reply or a timeout changes a query's status here, outside any transaction; its record goes where the notification it causes goes.
+        this.logStore?.begin(this.currentTick, LOG_SC_NOTIFICATION);
+        try {
+            this.oracle.pump();
+            // an oc authorization, timeout or delivery also lands between transactions, like core's per-tick engine pass.
+            this.oc.pump();
+        } finally {
+            this.logStore?.end();
+        }
         this.deliverOracleNotifications();
         this.endTick();
         this.ticking.finalizeTick();
@@ -1164,6 +1387,8 @@ export class QubicSimulator {
 
         try {
             const invocator = this.contractId(callerSlot);
+            // straight to invoke(), not fire(): core never measures a function, so the callee accrues nothing and only the
+            // caller's liteCallFunction weight stands in for the call's own overhead.
             const output = callee.invoke(CONTRACT_ENTRY_KIND.FUNCTION, inputType, input, {
                 invocator,
                 originator,
@@ -1198,13 +1423,14 @@ export class QubicSimulator {
             return { error: CALL_ERROR_ALLOCATION_FAILED, output: EMPTY };
         }
 
-        const transferredReward = this.transferInvocationReward(callerSlot, calleeIndex, reward);
+        const transferredReward = this.transferInvocationReward(callerSlot, calleeIndex, reward, originator);
 
         this.callDepth++;
 
         try {
             const invocator = this.contractId(callerSlot);
             // transferInvocationReward already fired the callee's POST_INCOMING_TRANSFER for the reward.
+            // both sides pay, like core's enclosing __rdtsc span: the caller its liteInvokeProcedure weight, the callee its own time.
             const output = this.processTickTransactionContractProcedure(calleeIndex, inputType, input, invocator, originator, transferredReward);
             return { error: NO_CALL_ERROR, output };
         } catch (error) {
@@ -1232,7 +1458,7 @@ export class QubicSimulator {
         };
     }
 
-    private transferInvocationReward(callerSlot: number, calleeIndex: number, reward: bigint): bigint {
+    private transferInvocationReward(callerSlot: number, calleeIndex: number, reward: bigint, originator: Id): bigint {
         const callerId = this.contractId(callerSlot);
         if (this.pitDepth > 0 || reward < 0n || reward > MAX_AMOUNT || !this.decreaseEnergy(this.spectrumIndex(callerId), reward)) {
             return 0n;
@@ -1240,73 +1466,135 @@ export class QubicSimulator {
 
         const calleeId = this.contractId(calleeIndex);
         this.increaseEnergy(calleeId, reward);
-        this.notifyContractOfIncomingTransfer(calleeId, callerId, reward, TRANSFER_TYPE_PROCEDURE_INVOCATION_BY_OTHER_CONTRACT);
+        this.notifyContractOfIncomingTransfer(calleeId, callerId, reward, TRANSFER_TYPE_PROCEDURE_INVOCATION_BY_OTHER_CONTRACT, originator);
         this.logQuTransfer(callerId, calleeId, reward);
         return reward;
     }
 
-    setShareholderProposal(callerSlot: number, calleeIndex: number, proposal: Uint8Array, reward: bigint, originator: Id): number {
-        this.assertOperational();
-        if (calleeIndex === callerSlot || calleeIndex === 0 || !this.contracts.has(calleeIndex) || reward < 0n) {
-            return INVALID_PROPOSAL_INDEX;
+    // the epochs a contract exists in, core's constructionEpoch <= epoch < destructionEpoch. A slot nobody described is always active.
+    setContractLifetime(slot: number, constructionEpoch: number, destructionEpoch: number): void {
+        this.contractLifetimes.set(slot, { constructionEpoch, destructionEpoch });
+    }
+
+    isActiveThisEpoch(slot: number): boolean {
+        const lifetime = this.contractLifetimes.get(slot);
+        return !lifetime || (this.currentEpoch >= lifetime.constructionEpoch && this.currentEpoch < lifetime.destructionEpoch);
+    }
+
+    // the error that takes a contract out of service, 0 while it is healthy.
+    contractErrorOf(slot: number): number {
+        return this.contractErrors.get(slot) ?? (this.fees.isFailed(slot) ? CONTRACT_ERROR_IPO_FAILED : 0);
+    }
+
+    // only a node that keeps running after a contract fault has use for the error: a halting one serves nothing past it.
+    private noteContractError(error: ContractExecutionError): void {
+        let rootCause: unknown = error;
+        while (rootCause instanceof ContractExecutionError) {
+            rootCause = rootCause.cause;
         }
-        if (this.callDepth >= NUMBER_OF_CONTRACT_EXECUTION_BUFFERS) {
-            return INVALID_PROPOSAL_INDEX;
+        const code = rootCause instanceof ContractAbort ? rootCause.code : WASM_TRAP_ERROR_CODE;
+
+        // an abort climbs frame by frame to the root, so every procedure frame it passed through is left errored.
+        for (let failure: unknown = error; failure instanceof ContractExecutionError; failure = failure.cause) {
+            if (failure.kind !== CONTRACT_ENTRY_KIND.FUNCTION && !this.contractErrors.has(failure.slot)) {
+                this.contractErrors.set(failure.slot, code);
+            }
+        }
+    }
+
+    // core's __qpiCallSystemProc: a callback another contract runs for the caller. It skips the fee gate, and a callee that is errored or
+    // outside its epochs aborts the caller instead of answering. Null means the callee does not define the procedure.
+    private runSystemCallback(
+        callbackFlag: number,
+        callerSlot: number,
+        calleeIndex: number,
+        systemProcedure: number,
+        input: Uint8Array,
+        reward: bigint,
+        originator: Id,
+    ): Uint8Array | null {
+        const callee = this.contracts.get(calleeIndex);
+        if (!callee || !callee.hasSysproc(systemProcedure)) {
+            return null;
         }
 
-        const callee = this.contracts.get(calleeIndex)!;
-        if (!callee.hasSysproc(SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL) || !this.fees.reserveOk(calleeIndex)) {
-            return INVALID_PROPOSAL_INDEX;
-        }
-
-        const invocationReward = this.transferInvocationReward(callerSlot, calleeIndex, reward);
-
+        const callbacksRunningBefore = this.callbacksRunning;
+        this.callbacksRunning |= callbackFlag;
         this.callDepth++;
 
         try {
-            const output = this.registry.fire(callee, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL, proposal, {
+            const calleeError = this.contractErrorOf(calleeIndex);
+            if (calleeError !== 0) {
+                throw new ContractAbort(calleeError);
+            }
+            if (!this.isActiveThisEpoch(calleeIndex)) {
+                throw new ContractAbort(CONTRACT_ERROR_CALLEE_INACTIVE);
+            }
+
+            const invocationReward = this.transferInvocationReward(callerSlot, calleeIndex, reward, originator);
+
+            return this.registry.fire(callee, CONTRACT_ENTRY_KIND.SYSPROC, systemProcedure, input, {
                 invocator: this.contractId(callerSlot),
                 originator,
                 invocationReward,
-                entryPoint: SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL,
+                entryPoint: systemProcedure,
             });
-
-            return output.length >= 2 ? new DataView(output.buffer, output.byteOffset, output.byteLength).getUint16(0, true) : 0;
         } finally {
             this.callDepth--;
+            this.callbacksRunning = callbacksRunningBefore;
         }
+    }
+
+    private shareholderCallbackRefused(callerSlot: number, calleeIndex: number, reward: bigint): boolean {
+        return (
+            (this.callbacksRunning & CALLBACK_SHAREHOLDER_PROPOSAL_AND_VOTING) !== 0 ||
+            calleeIndex === callerSlot ||
+            calleeIndex === 0 ||
+            calleeIndex >= this.contractCount ||
+            reward < 0n ||
+            this.callDepth >= NUMBER_OF_CONTRACT_EXECUTION_BUFFERS
+        );
+    }
+
+    setShareholderProposal(callerSlot: number, calleeIndex: number, proposal: Uint8Array, reward: bigint, originator: Id): number {
+        this.assertOperational();
+        if (this.shareholderCallbackRefused(callerSlot, calleeIndex, reward)) {
+            return INVALID_PROPOSAL_INDEX;
+        }
+
+        const output = this.runSystemCallback(
+            CALLBACK_SHAREHOLDER_PROPOSAL_AND_VOTING,
+            callerSlot,
+            calleeIndex,
+            SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL,
+            proposal,
+            reward,
+            originator,
+        );
+        if (!output) {
+            return INVALID_PROPOSAL_INDEX;
+        }
+
+        return output.length >= 2 ? new DataView(output.buffer, output.byteOffset, output.byteLength).getUint16(0, true) : 0;
     }
 
     setShareholderVotes(callerSlot: number, calleeIndex: number, vote: Uint8Array, reward: bigint, originator: Id): number {
         this.assertOperational();
-        if (calleeIndex === callerSlot || calleeIndex === 0 || !this.contracts.has(calleeIndex) || reward < 0n) {
-            return 0;
-        }
-        if (this.callDepth >= NUMBER_OF_CONTRACT_EXECUTION_BUFFERS) {
+        if (this.shareholderCallbackRefused(callerSlot, calleeIndex, reward)) {
             return 0;
         }
 
-        const callee = this.contracts.get(calleeIndex)!;
-        if (!callee.hasSysproc(SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES) || !this.fees.reserveOk(calleeIndex)) {
-            return 0;
-        }
+        const output = this.runSystemCallback(
+            CALLBACK_SHAREHOLDER_PROPOSAL_AND_VOTING,
+            callerSlot,
+            calleeIndex,
+            SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES,
+            vote,
+            reward,
+            originator,
+        );
 
-        const invocationReward = this.transferInvocationReward(callerSlot, calleeIndex, reward);
-
-        this.callDepth++;
-
-        try {
-            const output = this.registry.fire(callee, CONTRACT_ENTRY_KIND.SYSPROC, SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES, vote, {
-                invocator: this.contractId(callerSlot),
-                originator,
-                invocationReward,
-                entryPoint: SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES,
-            });
-
-            return output.length >= 1 ? output[0] : 0;
-        } finally {
-            this.callDepth--;
-        }
+        return output && output.length >= 1 ? output[0] : 0;
     }
 
     procedure(slot: number, inputType: number, input?: Uint8Array, options: ProcedureCallOptions = {}): Uint8Array {
@@ -1328,8 +1616,11 @@ export class QubicSimulator {
         return this.runOperation(
             "contract-procedure",
             () => {
-                if (reward > 0n) {
-                    this.increaseEnergy(this.contractId(slot), reward);
+                // like core's test harness: the reward comes out of the invocator, and a caller who cannot pay does not get the procedure run
+                if (reward > 0n && options.transferReward !== false) {
+                    if (!this.transferBalance(invocator, this.contractId(slot), reward)) {
+                        return EMPTY;
+                    }
                     this.notifyContractOfIncomingTransfer(this.contractId(slot), invocator, reward, TRANSFER_TYPE_PROCEDURE_TRANSACTION);
                 }
 
@@ -1386,14 +1677,18 @@ export class QubicSimulator {
                             const contract = this.contracts.get(slot)!;
                             const isProcedure = contract.entries.some((entry) => entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.inputType === inputType);
 
-                            // A dormant contract takes no transaction at all — the amount goes back and neither the procedure nor the callback runs.
-                            if (!this.fees.reserveOk(slot)) {
+                            // outside its epochs a contract runs nothing and the amount stays where it landed, as on core.
+                            if (!this.isActiveThisEpoch(slot)) {
+                                this.emit("warn", "tx", `slot ${slot} is outside its epochs — tx it=${inputType} skipped`);
+                            } else if (!this.fees.reserveOk(slot) || this.contractErrorOf(slot) !== 0) {
+                                // a dormant or errored contract takes no transaction at all — the amount goes back and neither the procedure nor the callback runs.
                                 if (amount > 0n) {
                                     this.transferBalance(destination, source, amount);
                                 }
                                 moneyFlew = false;
 
-                                this.emit("warn", "fee", `slot ${slot} dormant — tx it=${inputType} skipped${amount > 0n ? `, refunded ${amount}` : ""}`);
+                                const reason = this.fees.reserveOk(slot) ? `in error state ${this.contractErrorOf(slot)}` : "dormant";
+                                this.emit("warn", "fee", `slot ${slot} ${reason} — tx it=${inputType} skipped${amount > 0n ? `, refunded ${amount}` : ""}`);
                             } else if (isProcedure) {
                                 if (amount > 0n) {
                                     this.notifyContractOfIncomingTransfer(destination, source, amount, TRANSFER_TYPE_PROCEDURE_TRANSACTION);
@@ -1518,7 +1813,11 @@ export class QubicSimulator {
     }
 
     nowMs(): number {
-        return this.clockMode === "real" ? Date.now() : this.timeBaseMs + this.currentTick * this.tickDuration;
+        if (this.clockMode === "real") {
+            return (this.tickClockMs ??= Date.now());
+        }
+
+        return this.timeBaseMs + this.currentTick * this.tickDuration;
     }
 
     numberOfEntities(): number {
