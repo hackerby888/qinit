@@ -71,10 +71,10 @@ struct Unsafe : public ContractBase {
 
 const LOG_HEADER_MESSAGE = "must open with a 4-byte word reserved for the contract index";
 
-async function buildLogHeaderContract(fileName: string): Promise<string> {
+async function buildLogHeaderContract(fileName: string, source = LOG_HEADER_CONTRACT, contractKind: "user" | "system" = "user"): Promise<string> {
     const directory = mkdtempSync(join(tmpdir(), "qinit-log-header-gate-"));
     const contractPath = join(directory, fileName);
-    writeFileSync(contractPath, LOG_HEADER_CONTRACT);
+    writeFileSync(contractPath, source);
 
     try {
         const result = await buildContractWithClang({
@@ -86,6 +86,7 @@ async function buildLogHeaderContract(fileName: string): Promise<string> {
             skipVerify: true,
             wasmClang: join(directory, "must-not-run-clang"),
             calleePrelude: "",
+            contractKind,
         });
 
         return result.stderr ?? "";
@@ -104,6 +105,35 @@ test("a log payload that spans the reserved contract-index word fails the build"
 // These two ship with the defect, so the gate has to stay off for them without anyone passing strict.
 test.each(["VottunBridge.h", "qRWA.h"])("%s is exempt from the log header gate by default", async (fileName) => {
     expect(await buildLogHeaderContract(fileName)).not.toContain(LOG_HEADER_MESSAGE);
+});
+
+// VottunBridge's shape: two 24-byte logs, both INFO, no _type. a user contract is refused; core's own is only warned and reaches clang.
+const AMBIGUOUS_LOGS_CONTRACT = `
+using namespace QPI;
+struct Unsafe : public ContractBase {
+  struct OrderLog { uint32 _contractIndex; uint32 _errorCode; uint64 orderId; uint64 amount; sint8 _terminator; };
+  struct TokensLog { uint32 _contractIndex; uint64 locked; uint64 received; sint8 _terminator; };
+  struct StateData { uint32 calls; };
+  struct Emit_input {}; struct Emit_output {};
+  struct Emit_locals { OrderLog order; TokensLog tokens; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Emit) {
+    LOG_INFO(locals.order);
+    LOG_INFO(locals.tokens);
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_PROCEDURE(Emit, 1);
+  }
+};`;
+
+test("two logs a reader cannot tell apart fail a user contract before clang", async () => {
+    const output = await buildLogHeaderContract("Unsafe.h", AMBIGUOUS_LOGS_CONTRACT);
+
+    expect(output).toContain("Qubic protocol violations:");
+    expect(output).toContain("log structs OrderLog and TokensLog both log 24 bytes at INFO and cannot be told apart from the bytes: neither has a _type field");
+});
+
+test("a system contract keeps its indistinguishable logs", async () => {
+    expect(await buildLogHeaderContract("Unsafe.h", AMBIGUOUS_LOGS_CONTRACT, "system")).not.toContain("cannot be told apart");
 });
 
 // `div(a, b)` without its namespace binds to MSVC's C runtime on Core, so the gate rejects it here on both backends; core's own contracts are exempt.

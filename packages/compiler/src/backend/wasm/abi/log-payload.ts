@@ -20,6 +20,10 @@ export const LOG_INTRINSIC_LEVELS: ReadonlyMap<string, number> = new Map([
 export const LOG_HEADER_WORD_BYTES = 4;
 export const LOG_HEADER_WORD_HINT = "must open with a 4-byte word reserved for the contract index";
 
+// a log carries no struct name, so same-size structs are told apart by this word or by severity; the build reports a pair that neither separates
+export const LOG_TYPE_FIELD = "_type";
+export const LOG_AMBIGUITY_HINT = "cannot be told apart from the bytes";
+
 // The struct-shape half of the contract; a null layout is left to the caller, which knows whether that means a definite scalar or an unresolvable type.
 export function logPayloadDefect(layout: StructLayout): LogPayloadDefect | null {
     const terminator = layout.fields.get(LOG_TERMINATOR_FIELD);

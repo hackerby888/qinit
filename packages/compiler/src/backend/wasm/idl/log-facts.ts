@@ -4,10 +4,8 @@ import { parseIntLiteral } from "../../../frontend/lexer";
 import type { ProgramAnalysis } from "../../../semantics/program-analysis";
 import type { StructLayout } from "../../../semantics/types";
 import type { PreparedContractModule } from "../module/module-analysis";
-import { LOG_INTRINSIC_LEVELS } from "../abi/log-payload";
+import { LOG_INTRINSIC_LEVELS, LOG_TYPE_FIELD } from "../abi/log-payload";
 import { collectPayloadRoots, resolvePayload, visitStatement, type PayloadRoots } from "../module/log-call-validation";
-
-export const LOG_TYPE_FIELD = "_type";
 
 // what the walk learned about one log struct. `types` turns null once a `_type` write cannot be folded: a partial set would let a decoder rule the struct out wrongly.
 export interface LogStructFacts {
