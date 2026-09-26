@@ -7,7 +7,12 @@ Target: how Qinit **reads state back** — `packages/cli/src/trace/state-diff.ts
 Repo under test: `47b219d` ("name the state-diff windows and entry annotations"), run from source
 (`bun run packages/cli/src/index.tsx`), Bun 1.3.11.
 
-Nothing here was fixed or committed. Contracts, dumps and captures live outside the repo.
+Contracts, dumps and captures live outside the repo.
+
+**Status.** S1–S8 are fixed and merged (qinit#23 as `c92bd84` on `main`; core-lite#11 on `develop`), and
+R21-E1 is fixed on `main`. The remaining findings are open. For the actionable extract — each open finding
+with its cause at `file:line`, its repro, the proof a fix needs and the traps — read
+[`HANDOFF-STATE-INSPECTION.md`](HANDOFF-STATE-INSPECTION.md) instead of this file.
 
 ---
 
@@ -3058,6 +3063,12 @@ NOST    fundaraisings        short state read at 1009126496: expected 4194240 by
 from the two that are.
 
 ## E1 — the layout is derived without the node's compile-time defines, and never checked against the size the node reports
+
+> **FIXED on `main`** (verified against `cf6addd`). qinit now derives the 8-computor layout: `GQMPROP`
+> slot 6 sums to 9,088 against the node's `stateSize` of 9,088, and `CCF` slot 8 to 476,768 container
+> bytes + 16 scalar = 476,784, also exact. Both read `complete: True`. Checked by summing the layout, not
+> by the absence of an error. The fix corrected the layout derivation — it did **not** add the
+> `stateSize` cross-check recommended below, so that guard is still open (F2 in the handoff).
 
 `ComputorControlledFund.h` and `GeneralQuorumProposal.h` are **byte-identical** in both trees (md5
 `52453c69` and `fed0c6ab`), so version skew cannot explain them. They still fail.
