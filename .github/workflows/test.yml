@@ -776,4 +776,13 @@ jobs:
           # The member-completion clang fallback pairs clang with the sysroot it was shipped with.
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
-        run: xvfb-run -a bun run --filter qpi-vscode test:int
+        # every suite runs even after one fails, so one push reports all of them.
+        run: |
+          failed=""
+          for suite in int campaign xross live; do
+            xvfb-run -a bun run --filter qpi-vscode "test:$suite" || failed="$failed $suite"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::failed suites:$failed"
+            exit 1
+          fi
