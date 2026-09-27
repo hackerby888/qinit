@@ -17,8 +17,8 @@ import { describeFault, readFault } from "../fault";
 import { assertChainFastEnough, deployToSimulator, resolveSigningSeed, runPreflightChecks, waitForTickReadiness } from "./phases";
 import { deployedStateIdl, initialStateRejection, stateCarryoverRejection } from "./state-layout";
 export { resolveNodeCallees } from "../../contracts/callees";
-export { STEPS, classifyConfirm, tickFailureMessage, updateDeploymentSteps } from "./steps";
-export type { DeploymentEvent, DeploymentStepEvent, DeploymentStepState, StepKey } from "./steps";
+export { STEPS, classifyConfirm, deploymentLog, tickFailureMessage, updateDeploymentSteps } from "./steps";
+export type { ContractStatus, DeploymentEvent, DeploymentLog, DeploymentNote, DeploymentStepEvent, DeploymentStepState, StepKey } from "./steps";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -150,9 +150,9 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
     const compiler: CompilerBackend = options.compiler ?? savedCompilerBackend() ?? "clang";
     const outDir = options.outDir ?? resolve("dist/contracts");
     if (options.artifact) {
-        emit({ note: "compiler: prebuilt artifact (exact bytes)" });
+        emit({ topic: "compiler", note: "prebuilt artifact (exact bytes)" });
     } else if (compiler === "typescript") {
-        emit({ note: "compiler: TypeScript (qinit compiler typescript)" });
+        emit({ topic: "compiler", note: "TypeScript (qinit compiler typescript)" });
     }
 
     emit({
@@ -230,7 +230,7 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
                 options.idlPath,
             );
         } catch (error: any) {
-            emit({ note: `IDL: ${String(error?.message ?? error)}` });
+            emit({ topic: "idl", note: String(error?.message ?? error) });
         }
     };
 
@@ -253,7 +253,7 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
 
         staging.slot = slot;
         const stagedBytes = await stageContractState(rpc, slot, options.initialStatePath);
-        emit({ note: `state: ${options.initialStatePath} · ${stagedBytes} B staged` });
+        emit({ topic: "state", note: `${options.initialStatePath} · ${stagedBytes} B staged` });
     }
 
     const backend = options.backend ?? (await rpc.whoami()).backend;
@@ -462,7 +462,8 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
                 }
 
                 emit({
-                    note: `deploy tx did not land for tick ${missedTick}; resent for tick ${resent.tick} [${deployResends}/${DEPLOY_MAX_RESENDS}]`,
+                    topic: "deploy",
+                    note: `tx did not land for tick ${missedTick}; resent for tick ${resent.tick} [${deployResends}/${DEPLOY_MAX_RESENDS}]`,
                 });
                 continue;
             }

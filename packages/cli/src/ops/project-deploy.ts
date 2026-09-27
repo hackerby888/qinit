@@ -1,5 +1,5 @@
 import { CheatMode } from "@qinit/compiler";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { resolveContracts, type CalleeInput, type ContractIdl } from "@qinit/build";
 import { LiteRpc, k12Hex, type DynamicContractRegistryEntry, type NodeBackendIdentity } from "@qinit/core";
 import type { CompilerBackend } from "../config";
@@ -10,7 +10,7 @@ import { compileContracts, type BuiltContract, type SlottedContract } from "./pr
 import { abiAdviceText, checkHeadersAbi } from "./abi-advice";
 import { assignSlots } from "@qinit/build/contracts/project-slots";
 import { deployContract, type DeployResult } from "./deploy";
-import type { DeploymentEvent } from "./deploy/steps";
+import type { ContractStatus, DeploymentEvent } from "./deploy/steps";
 import { DEFAULT_IDL_PATH, saveContractIdl } from "../contracts/idl-file";
 
 export interface ProjectDeploymentRecord {
@@ -40,8 +40,9 @@ function deployedAt(contracts: readonly DynamicContractRegistryEntry[], slot: nu
     return contracts.find((contract) => contract.index === slot && contract.armed);
 }
 
-function dependencyEvent(emit: (event: DeploymentEvent) => void, message: string): void {
-    emit({ note: message });
+function contractEvent(emit: (event: DeploymentEvent) => void, contract: ContractStatus): void {
+    const source = contract.source ? ` · ${contract.source}` : "";
+    emit({ note: `${contract.kind} ${contract.name} @ ${contract.slot}: ${contract.status}${source}`, contract });
 }
 
 async function saveBuiltMetadata(rpc: LiteRpc, built: BuiltContract, idlPath: string): Promise<void> {
@@ -113,6 +114,15 @@ export async function deployProjectContracts(
         state: "ok",
         detail: `${plan.filter((contract) => contract.kind === "custom").length} custom · Main slot ${main.slot}`,
     });
+    const report = (contract: SlottedContract, status: string, tone: ContractStatus["tone"], source?: string) =>
+        contractEvent(emit, {
+            name: contract.name,
+            slot: contract.slot,
+            kind: contract.kind === "system" ? "system" : contract.stateType === main.stateType ? "main" : "callee",
+            status,
+            tone,
+            source: source ?? (contract.kind === "system" ? undefined : relative(resolve(options.projectRoot), contract.sourcePath).replaceAll("\\", "/")),
+        });
 
     const initialStates = options.initialStates ?? {};
     const strayStateName = Object.keys(initialStates).find((name) => !plan.some((contract) => contract.name === name));
@@ -135,10 +145,16 @@ export async function deployProjectContracts(
         skipVerify: options.skipVerify,
         buildRules: options.buildRules,
         cheats: options.cheats,
-        onContract: (contract) => dependencyEvent(emit, `building ${contract.name} @ slot ${contract.slot}`),
+        onContract: (contract) => report(contract, "building", "active"),
     });
+    for (const built of projectBuild.contracts) {
+        report(built.contract, "built", "quiet");
+    }
     if (!projectBuild.ok) {
         const error = projectBuild.result?.stderr ?? "compile failed";
+        if (projectBuild.failed) {
+            report(projectBuild.failed, "build failed", "fail");
+        }
         emit({
             step: "build",
             state: "fail",
@@ -166,8 +182,9 @@ export async function deployProjectContracts(
             if (contract.kind !== "system") {
                 continue;
             }
-            dependencyEvent(emit, `building system ${contract.name} @ slot ${contract.slot} (${options.compiler})`);
+            report(contract, `building (${options.compiler})`, "active");
             const built = await systemWasm(contract.name, options.core, options.compiler);
+            report(contract, "built", "quiet");
             systems.push({
                 contract,
                 wasm: built.wasm,
@@ -180,6 +197,7 @@ export async function deployProjectContracts(
     for (const system of systems) {
         const occupant = deployedAt(registryContracts, system.contract.slot);
         if (occupant && occupant.name !== system.contract.name) {
+            report(system.contract, `slot occupied by ${occupant.name}`, "fail");
             return {
                 ok: false,
                 backend: identity.backend,
@@ -208,14 +226,14 @@ export async function deployProjectContracts(
                 continue;
             }
             const sourceCopy = writeSystemSource(options.projectRoot, contract.sourcePath);
-            dependencyEvent(emit, `system ${contract.name} @ ${contract.slot}: embedded by the core node · ${sourceCopy}`);
+            report(contract, "embedded by the core node", "quiet", sourceCopy);
             const systemStatePath = initialStates[contract.name];
             if (!systemStatePath) {
                 continue;
             }
 
             await stageContractState(rpc, contract.slot, systemStatePath);
-            dependencyEvent(emit, `system ${contract.name} @ ${contract.slot}: state staged, applies at the next tick`);
+            report(contract, "state staged, applies at the next tick", "ok", sourceCopy);
         }
     }
     for (const [systemIndex, system] of systems.entries()) {
@@ -238,10 +256,11 @@ export async function deployProjectContracts(
                 hash: system.hash,
                 source: sourceCopy,
             });
-            dependencyEvent(emit, `system ${system.contract.name} @ ${system.contract.slot}: unchanged · ${sourceCopy}`);
+            report(system.contract, "unchanged", "quiet", sourceCopy);
             continue;
         }
 
+        report(system.contract, "deploying", "active", sourceCopy);
         let deployed;
         try {
             if (systemStatePath) {
@@ -249,6 +268,7 @@ export async function deployProjectContracts(
             }
             deployed = await rpc.directDeploy(system.contract.slot, system.wasm, system.contract.name, "system");
         } catch (error: any) {
+            report(system.contract, "deploy failed", "fail", sourceCopy);
             return {
                 ok: false,
                 backend: identity.backend,
@@ -262,6 +282,7 @@ export async function deployProjectContracts(
             };
         }
         if (!deployed) {
+            report(system.contract, "deploy failed", "fail", sourceCopy);
             return {
                 ok: false,
                 backend: identity.backend,
@@ -282,13 +303,13 @@ export async function deployProjectContracts(
             hash: system.hash,
             source: sourceCopy,
         });
-        dependencyEvent(emit, `system ${system.contract.name} @ ${system.contract.slot}: ${occupant ? "updated" : "deployed"} · ${sourceCopy}`);
+        report(system.contract, occupant ? "updated" : "deployed", "ok", sourceCopy);
     }
     // the node now runs these; a restart seeds qinit.json's selection, so the two must agree. a bare directory gets no qinit.json invented for it.
     if (systems.length) {
         const names = systems.map((system) => system.contract.name);
         const saved = addSystemSelection(names, resolve(options.projectRoot, "qinit.json"));
-        dependencyEvent(emit, saved ? `qinit.json system += ${names.join(", ")}` : `system selection not saved: no qinit.json in ${options.projectRoot}`);
+        emit({ topic: "qinit.json", note: saved ? `system += ${names.join(", ")}` : `system selection not saved: none in ${options.projectRoot}` });
     }
 
     const builtMain = projectBuild.contracts.at(-1);
@@ -313,7 +334,7 @@ export async function deployProjectContracts(
             try {
                 await saveBuiltMetadata(rpc, built, resolve(options.projectRoot, DEFAULT_IDL_PATH));
             } catch (error: any) {
-                dependencyEvent(emit, `metadata ${built.contract.name}: ${String(error?.message ?? error)}`);
+                emit({ topic: "metadata", note: `${built.contract.name}: ${String(error?.message ?? error)}` });
             }
             deployments.push({
                 name: built.contract.name,
@@ -323,17 +344,16 @@ export async function deployProjectContracts(
                 hash: built.hash,
                 idl: built.result.idl,
             });
-            dependencyEvent(emit, `callee ${built.contract.name} @ ${built.contract.slot}: unchanged`);
+            report(built.contract, "unchanged", "quiet");
             continue;
         }
 
-        if (!isMain) {
-            dependencyEvent(emit, `deploying callee ${built.contract.name} @ ${built.contract.slot}`);
-        }
+        report(built.contract, "deploying", "active");
         let result: DeployResult;
         try {
             result = await deployBuiltContract(built, options, identity.backend, rpc, isMain ? emit : () => {}, initialStatePath);
         } catch (error: any) {
+            report(built.contract, "deploy failed", "fail");
             return {
                 ok: false,
                 backend: identity.backend,
@@ -344,6 +364,7 @@ export async function deployProjectContracts(
             };
         }
         if (!result.ok) {
+            report(built.contract, "deploy failed", "fail");
             return {
                 ...result,
                 backend: identity.backend,
@@ -356,6 +377,7 @@ export async function deployProjectContracts(
             mainResult = result;
         }
 
+        report(built.contract, occupant ? "updated" : "deployed", "ok");
         deployments.push({
             name: built.contract.name,
             slot: built.contract.slot,

@@ -3,7 +3,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import { resolve, basename } from "node:path";
 import { readdirSync, statSync } from "node:fs";
 import { loadConfig, projectContractName, projectContractPath, resolveCoreDir, resolveCompilerBackend, resolveRpc } from "../../config";
-import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
+import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentNote, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
 import { nodeContracts } from "../../ops/node";
 import { LiteRpc } from "@qinit/core";
@@ -11,6 +11,7 @@ import { Header, StepRow, type StepState, Panel, theme } from "../../ui";
 import type { CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
+import { DeployLog } from "../deploy-interact/deploy-log";
 
 export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     const { exit } = useApp();
@@ -43,7 +44,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     const startErr = coreErr || contractErr;
 
     const [steps, setSteps] = useState<Record<string, DeploymentStepState>>({});
-    const [notes, setNotes] = useState<string[]>([]);
+    const [notes, setNotes] = useState<DeploymentNote[]>([]);
     const [result, setResult] = useState<ProjectDeployResult | null>(null);
     const [contracts, setContracts] = useState<string[]>([]);
     const [busy, setBusy] = useState(false);
@@ -54,7 +55,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
 
     const emit = (e: DeploymentEvent) => {
         if ("note" in e) {
-            setNotes((n) => [...n, e.note]);
+            setNotes((n) => [...n, e]);
             return;
         }
         setSteps((steps) => updateDeploymentSteps(steps, e));
@@ -89,7 +90,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
                 ),
             );
         } catch (e: any) {
-            setNotes((n) => [...n, "ERROR: " + String(e?.message ?? e)]);
+            setNotes((n) => [...n, { note: "ERROR: " + String(e?.message ?? e) }]);
             setResult({ ok: false, deployments: [], error: String(e?.message ?? e) });
         }
         try {
@@ -196,7 +197,6 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     const lastColor = ok ? theme.ok : result ? theme.err : busy ? theme.info : theme.mute;
     const live = tick != null;
     const pipeColor = busy ? theme.info : ok ? theme.ok : result ? theme.err : theme.info;
-    const isErr = (n: string) => /^(✗|⚠|ERROR)/.test(n);
 
     return (
         <Box flexDirection="column">
@@ -241,17 +241,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
                 </Panel>
             </Box>
 
-            {notes.length > 0 && (
-                <Box marginTop={1}>
-                    <Panel title="notes" color={theme.warn}>
-                        {notes.slice(-4).map((n, i) => (
-                            <Text key={i} color={isErr(n) ? theme.err : undefined} dimColor={!isErr(n)}>
-                                {n}
-                            </Text>
-                        ))}
-                    </Panel>
-                </Box>
-            )}
+            <DeployLog notes={notes} limit={4} />
 
             <Box marginTop={1}>
                 <Panel title={`armed (${contracts.length})`} color={theme.info}>

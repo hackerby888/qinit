@@ -4,19 +4,20 @@ import { Box, Text, useApp } from "ink";
 import { contractAddress } from "@qinit/proto";
 import { LiteRpc, bytesToIdentity } from "@qinit/core";
 import { loadConfig, projectContractName, projectContractPath, resolveCoreDir, resolveCompilerBackend, resolveRpc } from "../../config";
-import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
+import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentNote, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
 import { Header, StepRow, type StepState, Panel, KV, TxHint, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
 import { parseInitialStates } from "../../contracts/state-stage";
+import { DeployLog } from "./deploy-log";
 
 export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
     const dynCallees = parseCallees(commandArgs.getAll("callee"));
     const { exit } = useApp();
     const [steps, setSteps] = useState<Record<string, DeploymentStepState>>({});
-    const [notes, setNotes] = useState<string[]>([]);
+    const [notes, setNotes] = useState<DeploymentNote[]>([]);
     const [result, setResult] = useState<ProjectDeployResult | null>(null);
     const [addr, setAddr] = useState("");
     const [bal, setBal] = useState<string | null>(null);
@@ -34,7 +35,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                 setName(nm);
                 const emit = (e: DeploymentEvent) => {
                     if ("note" in e) {
-                        setNotes((n) => [...n, e.note]);
+                        setNotes((n) => [...n, e]);
                         return;
                     }
                     setSteps((steps) => updateDeploymentSteps(steps, e));
@@ -70,7 +71,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
                 setResult(r);
             } catch (e: any) {
-                setNotes((n) => [...n, "ERROR: " + String(e?.message ?? e).slice(0, 300)]);
+                setNotes((n) => [...n, { note: "ERROR: " + String(e?.message ?? e).slice(0, 300) }]);
                 setResult({
                     ok: false,
                     deployments: [],
@@ -116,19 +117,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                     return <StepRow key={key} state={s.state} label={label} detail={s.detail} pct={s.pct} elapsedMs={s.elapsedMs} />;
                 })}
             </Box>
-            {notes.length > 0 && (
-                <Box marginTop={1} flexDirection="column">
-                    {notes.map((n, i) => (
-                        <Text
-                            key={i}
-                            color={n.startsWith("✗") || n.startsWith("ERROR") ? theme.err : n.startsWith("⚠") ? theme.warn : undefined}
-                            dimColor={!/^[✗⚠E]/.test(n)}
-                        >
-                            {n}
-                        </Text>
-                    ))}
-                </Box>
-            )}
+            <DeployLog notes={notes} />
             {result?.ok && (
                 <Box marginTop={1}>
                     <Panel title="deployed ✓" color={theme.ok}>

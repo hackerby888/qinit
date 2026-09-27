@@ -6,6 +6,7 @@ import { EngineServer } from "@qinit/engine/server";
 import { LiteRpc } from "@qinit/core";
 import { callFunction, invokeProcedure, TX_TICK_OFFSET } from "@qinit/proto";
 import { deployProjectContracts } from "../../src/ops/project-deploy";
+import { deploymentLog, type DeploymentNote } from "../../src/ops/deploy";
 
 const core = process.env.QINIT_CORE?.trim();
 const haveCore = !!core && existsSync(join(core, "src", "qpi", "qpi.h"));
@@ -34,8 +35,11 @@ test.skipIf(!haveCore || !canListen)(
         const server = new EngineServer();
         const handle = await server.start(0);
         const rpc = new LiteRpc(handle.rpcBaseUrl);
-        const deploy = () =>
-            deployProjectContracts(
+        let notes: DeploymentNote[] = [];
+        const statuses = () => deploymentLog(notes).contracts.map(({ name, kind, status, source }) => ({ name, kind, status, source }));
+        const deploy = () => {
+            notes = [];
+            return deployProjectContracts(
                 {
                     projectRoot,
                     contractPath: proxyPath,
@@ -46,8 +50,13 @@ test.skipIf(!haveCore || !canListen)(
                     compiler: "typescript",
                     rpc,
                 },
-                () => {},
+                (event) => {
+                    if ("note" in event) {
+                        notes.push(event);
+                    }
+                },
             );
+        };
 
         try {
             const validProxySource = readFileSync(proxyPath, "utf8");
@@ -55,6 +64,7 @@ test.skipIf(!haveCore || !canListen)(
             const failedBuild = await deploy();
             expect(failedBuild.ok).toBe(false);
             expect(failedBuild.deployments).toEqual([]);
+            expect(statuses().find((contract) => contract.name === "Proxy")).toMatchObject({ kind: "main", status: "build failed" });
             expect((await rpc.dynRegistry()).contracts.some((contract) => contract.armed)).toBe(false);
             writeFileSync(proxyPath, validProxySource);
 
@@ -69,6 +79,11 @@ test.skipIf(!haveCore || !canListen)(
             ).toEqual([
                 { name: "Counter", kind: "custom", action: "deployed" },
                 { name: "Proxy", kind: "main", action: "deployed" },
+            ]);
+
+            expect(statuses()).toEqual([
+                { name: "Counter", kind: "callee", status: "deployed", source: "contracts/Counter.h" },
+                { name: "Proxy", kind: "main", status: "deployed", source: "contracts/Proxy.h" },
             ]);
 
             const counter = first.deployments[0];
@@ -101,6 +116,10 @@ test.skipIf(!haveCore || !canListen)(
                 name: "Proxy",
                 action: "updated",
             });
+            expect(statuses().map(({ name, status }) => ({ name, status }))).toEqual([
+                { name: "Counter", status: "unchanged" },
+                { name: "Proxy", status: "updated" },
+            ]);
 
             writeFileSync(counterPath, readFileSync(counterPath, "utf8").replace("+= 1", "+= 2"));
             const third = await deploy();

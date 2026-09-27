@@ -8,7 +8,44 @@ export type DeploymentStepEvent = {
     detail?: string;
     pct?: number;
 };
-export type DeploymentEvent = DeploymentStepEvent | { note: string };
+export interface ContractStatus {
+    name: string;
+    slot: number;
+    kind: "system" | "callee" | "main";
+    status: string;
+    tone: "active" | "ok" | "quiet" | "fail";
+    source?: string;
+}
+// `note` is the whole line as text; `topic` names what a remark is about, `contract` carries one contract's current status.
+export type DeploymentNote = { note: string; topic?: string; contract?: ContractStatus };
+export type DeploymentEvent = DeploymentStepEvent | DeploymentNote;
+
+export interface DeploymentLog {
+    contracts: ContractStatus[];
+    lines: { topic?: string; text: string }[];
+}
+
+const KIND_ORDER: Record<ContractStatus["kind"], number> = { system: 0, callee: 1, main: 2 };
+
+// a contract reports its status more than once as the deploy moves, and only the last one describes it.
+export function deploymentLog(notes: readonly DeploymentNote[]): DeploymentLog {
+    const contracts = new Map<string, ContractStatus>();
+    const lines: DeploymentLog["lines"] = [];
+
+    for (const entry of notes) {
+        if (entry.contract) {
+            // a later status may not know the path an earlier one carried.
+            contracts.set(entry.contract.name, { ...entry.contract, source: entry.contract.source ?? contracts.get(entry.contract.name)?.source });
+            continue;
+        }
+        lines.push({ topic: entry.topic, text: entry.note });
+    }
+
+    return {
+        contracts: [...contracts.values()].sort((left, right) => KIND_ORDER[left.kind] - KIND_ORDER[right.kind] || left.slot - right.slot),
+        lines,
+    };
+}
 
 export interface DeploymentStepState {
     state: DeploymentStepEvent["state"];

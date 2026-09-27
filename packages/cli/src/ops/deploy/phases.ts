@@ -56,7 +56,7 @@ export async function runPreflightChecks(rpc: LiteRpc, options: PreflightOptions
     if (!options.artifact) {
         const verifyUpdate = await autoUpdateVerifyTool();
         if (verifyUpdate.action === "updated" || verifyUpdate.action === "installed") {
-            emit({ note: `↻ contractverify ${verifyUpdate.action} → ${verifyUpdate.version}` });
+            emit({ topic: "contractverify", note: `${verifyUpdate.action} → ${verifyUpdate.version}` });
         }
     }
 
@@ -119,13 +119,13 @@ export async function resolveSigningSeed(rpc: LiteRpc, explicitSeed: string | un
 
     const saved = savedSeed();
     if (saved) {
-        emit({ note: "using saved seed (qinit seed)" });
+        emit({ topic: "signer", note: "saved seed (qinit seed)" });
         return saved;
     }
 
     const funded = await rpc.fundedSeed();
     if (funded) {
-        emit({ note: "using node funded seed" });
+        emit({ topic: "signer", note: "node funded seed" });
         return funded;
     }
 

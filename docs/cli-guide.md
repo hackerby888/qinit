@@ -923,6 +923,11 @@ The state machine reports these steps:
 node ticking -> resolve slot -> build Wasm -> upload -> deploy -> confirm
 ```
 
+Under the steps, `CONTRACTS` lists every contract of the deployment on one row
+(slot, kind, current status, header path), and `NOTES` holds the remaining
+remarks under a label such as `signer` or `compiler`. `dev` draws the same two
+sections.
+
 The full flow is:
 
 ```text

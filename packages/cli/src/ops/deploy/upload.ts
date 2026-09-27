@@ -137,7 +137,7 @@ export async function uploadContract({ rpc, seed, wasm, hash, emit, readTick, wa
             }
 
             if (attempt < 3) {
-                emit({ note: `retry ${attempt + 1}: UPLOAD_BEGIN not confirmed` });
+                emit({ topic: "upload", note: `retry ${attempt + 1}: UPLOAD_BEGIN not confirmed` });
                 await sleep(600);
             }
         }
@@ -184,7 +184,7 @@ export async function uploadContract({ rpc, seed, wasm, hash, emit, readTick, wa
 
         pendingChunks = failedChunks;
         if (pendingChunks.length) {
-            emit({ note: `retry ${attempt + 1}: ${pendingChunks.length} chunk(s)` });
+            emit({ topic: "upload", note: `retry ${attempt + 1}: ${pendingChunks.length} chunk(s)` });
             await sleep(600);
         }
     }
@@ -244,9 +244,7 @@ export async function uploadContract({ rpc, seed, wasm, hash, emit, readTick, wa
                 );
             }
 
-            emit({
-                note: `assembly: resent ${missing.length} missing chunk(s) [round ${round + 1}]`,
-            });
+            emit({ topic: "upload", note: `assembly: resent ${missing.length} missing chunk(s) [round ${round + 1}]` });
             await waitForTick(resendTick + 1);
         } else {
             await waitForTick((await readTick()) + 1);
