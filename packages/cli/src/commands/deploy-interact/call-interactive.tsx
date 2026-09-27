@@ -446,7 +446,7 @@ export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onR
         const { draft } = wizard;
 
         return wrap(
-            <TextPrompt label="amount (qus)" initial={draft.amount ?? "0"} onSubmit={(amount) => submit({ ...wizard, draft: { ...draft, amount } })} />,
+            <TextPrompt label="amount (qus)" placeholder={draft.amount ?? "0"} onSubmit={(amount) => submit({ ...wizard, draft: { ...draft, amount } })} />,
         );
     }
 
