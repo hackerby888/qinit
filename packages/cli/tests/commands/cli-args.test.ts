@@ -154,7 +154,8 @@ test("node subcommand help shows only the resolved option scope", async () => {
     expect(terminatedHelp.code).toBe(0);
     expect(terminatedHelp.stdout).toContain("usage: qinit node <run|status|stop|get>");
     expect(terminatedHelp.stdout).not.toContain("--restart");
-});
+    // six cli processes start at once, which a slow windows runner has taken past the 5 s default
+}, 30_000);
 
 test("help rejects an unknown subcommand for a known command", async () => {
     const results = await Promise.all([run("help", "node", "launch"), run("node", "launch", "--help"), run("node", "--rpc", "http://x", "launch", "--help")]);
