@@ -58,6 +58,19 @@ type CallFacts = {
 type Confirm = { start: number; net: number; target: number };
 type CallMode = "fn" | "proc";
 
+const TRACE_POLL_LIMIT = 200;
+
+// the toggle is only to blame when the node says tracing is off.
+export function missingTraceNote(tracing: boolean, polled: number): string {
+    if (!tracing) {
+        return "(no trace captured — is the debug toggle available on this node?)";
+    }
+    if (polled >= TRACE_POLL_LIMIT) {
+        return `(no trace: ${polled} newer frames filled the polled window, so this call's frame may sit before them — \`qinit debug\` lists every frame)`;
+    }
+    return "(no trace: tracing is on and the node recorded no frame for this call, so it has not run)";
+}
+
 // Non-interactive forms (qubic-cli style): qinit call --fn <idx> <functionId> --in <values> --out <type>.
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -399,7 +412,8 @@ function CallOneShot({
                 if (wantTrace) {
                     try {
                         await rpc.setDebug(true);
-                        sinceSeq = ((await rpc.debugTrace(0, 500)).entries ?? []).reduce((mx, en) => Math.max(mx, en.seq), 0);
+                        // the limit keeps the newest frames, so one frame carries the newest seq.
+                        sinceSeq = ((await rpc.debugTrace(0, 1)).entries ?? []).reduce((mx, en) => Math.max(mx, en.seq), 0);
                     } catch {}
                 }
 
@@ -587,8 +601,11 @@ function CallOneShot({
                 if (wantTrace) {
                     let te: DebugEntry | undefined;
                     let polled: DebugEntry[] = [];
+                    let tracing = false;
                     for (let i = 0; i < 12 && !te && !skipped; i++) {
-                        polled = (await rpc.debugTrace(sinceSeq, 200)).entries ?? [];
+                        const answer = await rpc.debugTrace(sinceSeq, TRACE_POLL_LIMIT);
+                        tracing = answer.enabled === true;
+                        polled = answer.entries ?? [];
                         te = polled.filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (mode === "fn" ? 0 : 1) && x.entry === entry).pop();
                         if (!te) await sleep(700);
                     }
@@ -647,7 +664,7 @@ function CallOneShot({
                         });
                     } else if (skipped) {
                         addNote(`(no trace: the procedure never ran, because ${skipped})`);
-                    } else addNote("(no trace captured — is the debug toggle available on this node?)");
+                    } else addNote(missingTraceNote(tracing, polled.length));
                 }
 
                 // A halted node accepts a transaction and never runs it, so a broadcast that looks fine here is not. Reported last: the fault follows the call.
