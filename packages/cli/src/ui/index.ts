@@ -4,7 +4,7 @@ export type { Theme } from "./theme";
 export { fmtMs, termCols, termRows, fmtCompact, truncEnd, truncMid, sevColor, windowOf } from "./format";
 export { useFrame, useTerminalSize } from "./hooks";
 export { Rule, Header, Banner, Panel, SectionHeader } from "./layout";
-export { Spinner, Badge, Status, Step, StepRow, Bar } from "./feedback";
+export { Spinner, Badge, Status, TxHint, Step, StepRow, Bar } from "./feedback";
 export type { StepState } from "./feedback";
 export { KV, Tile, TileRow, Sparkline, Table } from "./data";
 export type { TileSpec, SparkRow, Column } from "./data";

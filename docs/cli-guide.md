@@ -1118,6 +1118,11 @@ tickInfo().tick + TX_TICK_OFFSET
 its confirmation deadline and reports whether the target tick was processed and
 the transaction was found.
 
+The contract's balance and address print in their own `CONTRACT` section below
+the result, for functions and procedures alike. A procedure that broadcast ends
+with `qinit explorer <txid> for more info`, as does a `deploy` that produced a
+transaction.
+
 ### 9.4 `--trace`
 
 One-shot tracing wraps the actual dispatch:

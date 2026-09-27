@@ -30,7 +30,7 @@ import { describeContractError, describeFault, readFault } from "../../ops/fault
 import { loadContracts, mergeContracts, missingContractMessage, notLoadedMessage, resolveContract, siblingCalleeSources } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { loadContractIdls } from "../../contracts/idl-lookup";
-import { Header, Spinner, Status, Bar, theme } from "../../ui";
+import { Header, KV, SectionHeader, Spinner, Status, Bar, TxHint, termCols, theme } from "../../ui";
 import { invalidArgs, output, type CommandArguments } from "../../args";
 
 type Result = {
@@ -453,15 +453,7 @@ function CallOneShot({
                     setResult({
                         ok: ne ? false : true,
                         label,
-                        rows: [
-                            ["out", rendered],
-                            ...(info
-                                ? ([
-                                      ["SC balance", info.balance],
-                                      ["SC address", info.address],
-                                  ] as [string, string][])
-                                : []),
-                        ],
+                        rows: [["out", rendered]],
                         err: ne || undefined,
                     });
                 } else {
@@ -581,12 +573,6 @@ function CallOneShot({
                             rows: [
                                 ["tx", txs],
                                 ["tick", String(tick)],
-                                ...(info
-                                    ? ([
-                                          ["SC balance", info.balance],
-                                          ["SC address", info.address],
-                                      ] as [string, string][])
-                                    : []),
                             ],
                             err: (await nodeErr()) || (!r.ok ? r.message : undefined),
                         });
@@ -750,6 +736,34 @@ function CallOneShot({
                     <Text bold color={theme.accent}>
                         ≡ {cmdHint}
                     </Text>
+                </Box>
+            ) : null}
+            <CallFooter address={facts?.address} balance={facts?.balance} tx={facts?.tx} />
+        </Box>
+    );
+}
+
+// the contract's own facts sit apart from the call's result, which is about the entry that ran
+export function CallFooter({ address, balance, tx }: { address?: string; balance?: string; tx?: string }) {
+    return (
+        <Box flexDirection="column">
+            {address ? (
+                <Box flexDirection="column">
+                    <SectionHeader title="contract" width={Math.min(termCols(), 60)} />
+                    <Box marginLeft={2}>
+                        <KV
+                            full
+                            rows={[
+                                ["SC balance", balance ?? "—"],
+                                ["SC address", address],
+                            ]}
+                        />
+                    </Box>
+                </Box>
+            ) : null}
+            {tx ? (
+                <Box marginTop={1}>
+                    <TxHint txId={tx} />
                 </Box>
             ) : null}
         </Box>

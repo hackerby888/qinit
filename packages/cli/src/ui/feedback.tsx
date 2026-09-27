@@ -44,6 +44,16 @@ export function Status({ ok, label, detail, pad = 22 }: { ok?: boolean | null; l
     );
 }
 
+// the id is printed whole so the line can be pasted as it stands
+export function TxHint({ txId }: { txId: string }) {
+    return (
+        <Text>
+            <Text bold color={theme.accent}>{`qinit explorer ${txId}`}</Text>
+            <Text dimColor> for more info</Text>
+        </Text>
+    );
+}
+
 export type StepState = "pending" | "active" | "ok" | "fail";
 
 export function Step({ state, label, detail }: { state: StepState; label: string; detail?: string }) {

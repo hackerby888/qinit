@@ -6,7 +6,7 @@ import { LiteRpc, bytesToIdentity } from "@qinit/core";
 import { loadConfig, projectContractName, projectContractPath, resolveCoreDir, resolveCompilerBackend, resolveRpc } from "../../config";
 import { STEPS, updateDeploymentSteps, type DeploymentEvent, type DeploymentStepState } from "../../ops/deploy";
 import { deployProjectContracts, type ProjectDeployResult } from "../../ops/project-deploy";
-import { Header, StepRow, type StepState, Panel, KV, theme } from "../../ui";
+import { Header, StepRow, type StepState, Panel, KV, TxHint, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
@@ -150,6 +150,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                                 qinit call
                             </Text>
                         </Box>
+                        {result.txId ? <TxHint txId={result.txId} /> : null}
                     </Panel>
                 </Box>
             )}
