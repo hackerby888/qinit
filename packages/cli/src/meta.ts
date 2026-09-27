@@ -404,7 +404,7 @@ const commandMeta = {
         summary: "install the Qinit editor extension",
         usage: "install [--vsix <path>] [--editor <cmd>]",
         options: [
-            stringOption("vsix", "<path>", "local extension package"),
+            stringOption("vsix", "<path>", "local extension package (default: the latest published build)"),
             stringOption("editor", "<cmd>", "editor command: code, cursor, windsurf, or codium"),
         ],
     },

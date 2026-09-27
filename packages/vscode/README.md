@@ -16,7 +16,9 @@ core-lite, a node, and the WASI compiler are not required.
 
 ## Install
 
-Install **Qubic QPI** from the VS Code Marketplace or install a release VSIX:
+With the Qinit CLI, `qinit ext install` downloads the latest build and installs it in VS Code,
+Cursor, Windsurf, or VSCodium. Without it, download `qpi-vscode.vsix` from the
+[latest build](https://github.com/hackerby888/qinit/releases/tag/qinit-vscode-latest) and install it:
 
 ```sh
 code --install-extension qpi-vscode.vsix

@@ -13,6 +13,7 @@ import {
     loadManifest,
     loadVerifyManifest,
     resolveCliTag,
+    downloadExtension,
 } from "../../src/index";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "qinit-test-"));
@@ -147,5 +148,65 @@ test("resolveCliTag reports pointer HTTP failures", async () => {
 
     await expect(resolveCliTag("owner/repo")).rejects.toThrow(
         "CLI release pointer fetch failed (HTTP 503) from " + "https://github.com/owner/repo/releases/download/qinit-cli-latest/latest.txt",
+    );
+});
+
+async function withExtensionRelease(sums: (sha: string) => string, body: string, run: (requested: string[], sha: string, cache: string) => Promise<void>) {
+    const previousCache = process.env.QINIT_CACHE;
+    const cache = tmp();
+    process.env.QINIT_CACHE = cache;
+    const sha = sha256Hex(new TextEncoder().encode("the published extension"));
+    const requested: string[] = [];
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        requested.push(String(input));
+        return String(input).endsWith("/SHA256SUMS") ? new Response(sums(sha)) : new Response(body);
+    }) as typeof fetch;
+
+    try {
+        await run(requested, sha, cache);
+    } finally {
+        if (previousCache === undefined) delete process.env.QINIT_CACHE;
+        else process.env.QINIT_CACHE = previousCache;
+        rmSync(cache, { recursive: true, force: true });
+    }
+}
+
+const BASE = "https://github.com/owner/repo/releases/download/qinit-vscode-latest";
+
+test("downloadExtension caches the verified build of the moving release and reuses it", async () => {
+    await withExtensionRelease(
+        (sha) => `${sha}  qpi-vscode.vsix\n`,
+        "the published extension",
+        async (requested, sha, cache) => {
+            const first = await downloadExtension(undefined, "owner/repo");
+            expect(first).toEqual({ path: join(cache, "downloads", "qpi-vscode.vsix"), url: `${BASE}/qpi-vscode.vsix`, sha256: sha });
+            expect(readFileSync(first.path, "utf8")).toBe("the published extension");
+            expect(requested).toEqual([`${BASE}/SHA256SUMS`, `${BASE}/qpi-vscode.vsix`]);
+
+            await downloadExtension(undefined, "owner/repo");
+            expect(requested).toEqual([`${BASE}/SHA256SUMS`, `${BASE}/qpi-vscode.vsix`, `${BASE}/SHA256SUMS`]);
+        },
+    );
+});
+
+test("downloadExtension downloads nothing when the release names no checksum for the build", async () => {
+    await withExtensionRelease(
+        (sha) => `${sha}  another-file.vsix\n`,
+        "",
+        async (requested) => {
+            await expect(downloadExtension(undefined, "owner/repo")).rejects.toThrow(`no checksum for qpi-vscode.vsix at ${BASE}/SHA256SUMS`);
+            expect(requested).toEqual([`${BASE}/SHA256SUMS`]);
+        },
+    );
+});
+
+test("downloadExtension refuses a build that does not match the published checksum", async () => {
+    await withExtensionRelease(
+        (sha) => `${sha}  qpi-vscode.vsix\n`,
+        "another build",
+        async (_requested, _sha, cache) => {
+            await expect(downloadExtension(undefined, "owner/repo")).rejects.toThrow("sha256 mismatch");
+            expect(existsSync(join(cache, "downloads", "qpi-vscode.vsix"))).toBe(false);
+        },
     );
 });

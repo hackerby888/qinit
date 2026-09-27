@@ -1953,9 +1953,15 @@ Other maintenance commands are intentionally thin:
 | `clean`       | Stop the tracked node and remove the cache                                            |
 | `update`      | Resolve a CLI release, download it, and replace the executable                        |
 | `uninstall`   | Preview or remove discovered CLI binaries and optionally the cache                    |
-| `ext`         | Invoke a supported editor's extension installer                                       |
+| `ext`         | Download the latest extension build and hand it to a supported editor's installer     |
 | `theme`       | Select and persist the terminal palette                                               |
 | `runtime`     | Select and persist core or simulator                                                  |
+
+`ext install` takes the VSIX from the moving release `qinit-vscode-latest`, which
+every commit on `main` that passes the test workflow replaces. The build is
+checked against the release's `SHA256SUMS`, kept at
+`~/.cache/qinit/downloads/qpi-vscode.vsix`, and downloaded again only when the
+published checksum changes. `--vsix <path>` installs a local package instead.
 
 ## 14. Testing commands are two different systems
 

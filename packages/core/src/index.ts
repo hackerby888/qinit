@@ -87,6 +87,8 @@ export type { AssetRef, ReleaseSource, Manifest } from "./cache/manifest";
 export { CLI_REPO, cliAssetName, resolveCliTag, cliReleaseUrls, fetchCliSha } from "./cache/cli-release";
 export { VERIFY_REPO, VERIFY_TAG, cachedVerifyToolPath, loadVerifyManifest, autoUpdateVerifyTool } from "./cache/verify-tool";
 export type { VerifyManifest, VerifyUpdate } from "./cache/verify-tool";
+export { EXTENSION_TAG, EXTENSION_ASSET, downloadExtension } from "./cache/extension";
+export type { DownloadedExtension } from "./cache/extension";
 export { wasiSdkDir, managedWasiSdkStatus, wasiSdkPaths, haveWasiSdkCache, configuredWasiSdk, fetchWasiSdk } from "./cache/wasi-sdk";
 export type { ManagedWasiSdkStatus } from "./cache/wasi-sdk";
 export { loadConfig, loadConfigSafe, resolveCoreDir, QinitConfigError } from "./project";

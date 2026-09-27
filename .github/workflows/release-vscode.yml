@@ -1,55 +1,81 @@
-# Packages the standalone Qubic QPI extension and attaches the Marketplace-ready VSIX to a release.
+# Packages the standalone Qubic QPI extension from main and replaces the VSIX on the moving release that `qinit ext install` downloads.
 name: qinit-vscode-release
 
 on:
-  push:
-    tags: ["qinit-vscode-v*"]
+  workflow_run:
+    workflows: ["test"]
+    types: [completed]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "release tag"
-        required: true
-        default: "qinit-vscode-v0.1.0"
 
 permissions:
   contents: write
+
+# two publishes must never interleave their uploads on the one release.
+concurrency:
+  group: qinit-vscode-latest
+  cancel-in-progress: false
 
 env:
   BUN_VERSION: "1.3.14"
   WASI_SDK_REPOSITORY: "WebAssembly/wasi-sdk"
   WASI_SDK_RELEASE_TAG: "wasi-sdk-29"
   WASI_SDK_ASSET_VERSION: "29.0"
+  TAG: qinit-vscode-latest
 
 jobs:
   release:
+    # only a push to main that passed the whole test workflow publishes; the nightly run and pull requests never do.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # a re-run of an older commit can finish after a newer one published, and must not replace it.
+      - name: Check the commit is still the head of main
+        id: head
+        run: |
+          built=$(git rev-parse HEAD)
+          latest=$(git ls-remote origin refs/heads/${{ github.event.repository.default_branch }} | cut -f 1)
+          echo "commit=$built" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_run" ] && [ "$built" != "$latest" ]; then
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::skipped: $built is no longer the head of main ($latest)"
+          else
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: oven-sh/setup-bun@v2
+        if: steps.head.outputs.current == 'true'
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
       - name: Resolve pinned core
+        if: steps.head.outputs.current == 'true'
         id: core
         run: |
           echo "repository=$(jq -r .coreLite.repository config/repositories.json)" >> "$GITHUB_OUTPUT"
           echo "commit=$(jq -r .coreCommit packages/compiler/core-snapshot.json)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout pinned core-lite
+        if: steps.head.outputs.current == 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.core.outputs.repository }}
           ref: ${{ steps.core.outputs.commit }}
           path: core
 
-      - name: Resolve tag
-        id: t
-        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
-
       - name: Install deps
+        if: steps.head.outputs.current == 'true'
         run: bun install
 
       - name: Cache wasi-sdk
+        if: steps.head.outputs.current == 'true'
         id: wasisdk
         uses: actions/cache@v4
         with:
@@ -57,7 +83,7 @@ jobs:
           key: wasi-sdk-${{ env.WASI_SDK_ASSET_VERSION }}-x86_64-linux
 
       - name: Fetch ${{ env.WASI_SDK_RELEASE_TAG }}
-        if: steps.wasisdk.outputs.cache-hit != 'true'
+        if: steps.head.outputs.current == 'true' && steps.wasisdk.outputs.cache-hit != 'true'
         run: |
           curl -fsSL -o wasi-sdk.tar.gz \
             https://github.com/${{ env.WASI_SDK_REPOSITORY }}/releases/download/${{ env.WASI_SDK_RELEASE_TAG }}/wasi-sdk-${{ env.WASI_SDK_ASSET_VERSION }}-x86_64-linux.tar.gz
@@ -65,27 +91,44 @@ jobs:
           tar -xzf wasi-sdk.tar.gz -C wasi-sdk --strip-components=1
 
       - name: Prepare bundled headers
+        if: steps.head.outputs.current == 'true'
         env:
           QINIT_CORE: ${{ github.workspace }}/core
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun run --filter qpi-vscode prepare:headers
 
+      # the run number only grows, so an editor always sees a build as newer than the one it has.
       - name: Stamp version
+        if: steps.head.outputs.current == 'true'
         run: |
-          V="${{ steps.t.outputs.tag }}"; V="${V#qinit-vscode-}"; V="${V#v}"
+          V="0.1.${{ github.run_number }}"
           sed -i -E "0,/(\"version\": \")[^\"]*(\")/s//\1$V\2/" packages/vscode/package.json
           grep '"version"' packages/vscode/package.json | head -1
+          echo "VERSION=$V" >> "$GITHUB_ENV"
 
       - name: Package VSIX
+        if: steps.head.outputs.current == 'true'
         working-directory: packages/vscode
         run: bun run package
 
+      - name: Checksums
+        if: steps.head.outputs.current == 'true'
+        working-directory: packages/vscode
+        run: sha256sum qpi-vscode.vsix > SHA256SUMS && cat SHA256SUMS
+
+      # the checksum goes up last: a client that reads it then finds the VSIX it names.
       - name: Publish release
+        if: steps.head.outputs.current == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ steps.t.outputs.tag }}"
-          NOTES=$'Standalone Qubic QPI VS Code extension.\nInstall this VSIX or search for publisher `qinit` in the Marketplace.'
-          gh release create "$TAG" packages/vscode/qpi-vscode.vsix --title "$TAG" --notes "$NOTES" \
-          || gh release upload "$TAG" packages/vscode/qpi-vscode.vsix --clobber
+          NOTES="Qubic QPI VS Code extension $VERSION, built from ${{ steps.head.outputs.commit }}. Install it with \`qinit ext install\`."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" packages/vscode/qpi-vscode.vsix --clobber
+            gh release upload "$TAG" packages/vscode/SHA256SUMS --clobber
+            gh release edit "$TAG" --notes "$NOTES" --latest=false
+          else
+            gh release create "$TAG" packages/vscode/qpi-vscode.vsix packages/vscode/SHA256SUMS \
+              --title "Latest Qubic QPI extension" --notes "$NOTES" --latest=false --target "${{ steps.head.outputs.commit }}"
+          fi

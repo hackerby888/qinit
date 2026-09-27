@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { downloadExtension } from "@qinit/core";
 import { Header, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 
-const EXTENSION_ID = "qinit.qpi-vscode";
 const EDITORS = ["code", "cursor", "windsurf", "codium"];
 
 interface Result {
@@ -20,6 +20,7 @@ export function Ext({ commandArgs }: { commandArgs: CommandArguments }) {
     const sub = commandArgs.positionals[0] ?? "";
     const editor = commandArgs.get("editor");
     const vsix = commandArgs.get("vsix");
+    const [busy, setBusy] = useState("installing");
     const [r, setR] = useState<Result | null>(null);
 
     useEffect(() => {
@@ -39,14 +40,31 @@ export function Ext({ commandArgs }: { commandArgs: CommandArguments }) {
                     ok: false,
                     title: "no editor found",
                     rows: [["looked for", EDITORS.join(", ")]],
-                    note: "Install VS Code (or Cursor/Windsurf/VSCodium), or pass --editor. Then search the Marketplace for “Qubic QPI”.",
+                    note: "Install VS Code (or Cursor/Windsurf/VSCodium), or pass --editor.",
                 });
                 return;
             }
-            const target = vsix ? resolve(vsix) : EXTENSION_ID;
-            if (vsix && !existsSync(target)) {
-                setR({ ok: false, title: "vsix not found", rows: [["path", target]] });
-                return;
+
+            let target: string;
+            const rows: [string, string][] = [["editor", editorCmd]];
+            if (vsix) {
+                target = resolve(vsix);
+                if (!existsSync(target)) {
+                    setR({ ok: false, title: "vsix not found", rows: [["path", target]] });
+                    return;
+                }
+                rows.push(["source", target]);
+            } else {
+                setBusy("downloading the extension");
+                try {
+                    const downloaded = await downloadExtension();
+                    target = downloaded.path;
+                    rows.push(["source", downloaded.url], ["sha256", downloaded.sha256]);
+                } catch (error: any) {
+                    setR({ ok: false, title: "download failed", rows, note: `${String(error?.message ?? error)}\nA local package installs with --vsix <path>.` });
+                    return;
+                }
+                setBusy("installing");
             }
 
             const p = Bun.spawnSync([editorPath, "--install-extension", target], {
@@ -58,10 +76,7 @@ export function Ext({ commandArgs }: { commandArgs: CommandArguments }) {
             setR({
                 ok,
                 title: ok ? "extension installed" : "install failed",
-                rows: [
-                    ["editor", editorCmd],
-                    ["source", vsix ? target : `marketplace (${EXTENSION_ID})`],
-                ],
+                rows,
                 note: ok ? "Open a QPI contract header to start using IntelliSense and diagnostics." : log.split("\n").slice(0, 6).join("\n"),
             });
         })();
@@ -69,7 +84,7 @@ export function Ext({ commandArgs }: { commandArgs: CommandArguments }) {
 
     useEffect(() => {
         if (!r) return;
-        if (output.json) process.stdout.write(JSON.stringify({ ok: r.ok, ...Object.fromEntries(r.rows) }) + "\n");
+        if (output.json) process.stdout.write(JSON.stringify({ ok: r.ok, ...Object.fromEntries(r.rows), error: r.ok ? null : (r.note ?? r.title) }) + "\n");
         process.exitCode = r.ok ? 0 : 1;
         const t = setTimeout(() => exit(), 40);
         return () => clearTimeout(t);
@@ -80,7 +95,7 @@ export function Ext({ commandArgs }: { commandArgs: CommandArguments }) {
         return (
             <Box flexDirection="column">
                 <Header cmd="ext" />
-                <Text dimColor>installing…</Text>
+                <Text dimColor>{busy}…</Text>
             </Box>
         );
     return (

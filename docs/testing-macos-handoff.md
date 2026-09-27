@@ -390,7 +390,7 @@ line each, with the status the Windows run and the fixes after it left them in:
 | F78 | false "headers/node version drift", exit 1, for a `--node-bin` node | **fixed** `0b75d9c4` |
 | F79 | `epoch advance` reported "node unreachable" when one 10 s request outlived the sprint | **fixed** `0b75d9c4` (15 s / 30 s budgets, poll after a timeout) |
 | F80 | `clean` reports `killed:true` for a node it never tracked (image-name fallback) | **open**; on macOS the fallback is `pgrep -x Qubic` — probe it (§6.3) |
-| F81 | `ext install` targets a marketplace id that does not exist; `--json` has no `error` | **open**, parked until the extension is published; `--vsix` works |
+| F81 | `ext install` targets a marketplace id that does not exist; `--json` has no `error` | **fixed**: `ext install` downloads the latest build from the `qinit-vscode-latest` release, and `--json` carries `error` |
 | F82 | simulator fired the share-rights callbacks with zero originator/invocator | **fixed** `0b75d9c4`; P1 spec 8/0/64 on all four cells after it |
 | F83 | six repo CLI tests timed out on Windows | **fixed** `0b75d9c4` (`test-utils/cli.ts`) |
 | F84 | `node stop` reported "still alive" for a node it had stopped | **fixed** `b2e3700e` — re-check on the `pgrep` branch (§4D) |
