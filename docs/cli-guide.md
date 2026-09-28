@@ -1831,14 +1831,37 @@ answers every query as it appears, from a file mapping an interface name to repl
 
 On a node, the reply enters through the same path an oracle machine's message uses, so
 the commit, quorum and reveal rounds still run and the contract is notified a few ticks
-later. The simulator commits on arrival and reveals on the next tick. Either way the
-contract observes `PENDING → COMMITTED → SUCCESS`; only the number of ticks differs,
-which is why `scripts/live-node/ci-oracle-dual-engine.ts` compares the sequence and not
-the timing.
+later. The simulator runs the same rounds in
+[`chain/oracle-engine.ts`](../packages/engine/src/chain/oracle-engine.ts), a port of core's
+`OracleEngine` with core's method names, and only packs them tighter: every computor
+commits when the reply arrives, and the reveal is processed with the next tick. Either
+way the contract observes `PENDING → COMMITTED → SUCCESS`; only the number of ticks
+differs, which is why `scripts/live-node/ci-oracle-dual-engine.ts` compares the sequence
+and not the timing.
 
 `--status unavailable` reports that the oracle has no value. That is not the same as
 `UNRESOLVABLE`, which is what the quorum records when computors disagree and no single
 machine can force: the query stays pending and ends at its own timeout on both engines.
+Those two are the only answers the route takes, and it answers
+`{ ok, status, message? }`: `status` is the query's status afterwards, `message` says
+why a request was refused.
+
+What follows from running core's engine, on both engines alike:
+
+| situation | what the contract sees |
+| --- | --- |
+| a wrong interface, query size or reply size | `-1`, no fee taken, no notification |
+| a fee the contract cannot pay, a timeout past one hour, a period that is not 1 to 1440 whole minutes, a second subscription to the same query | `-1` and a notification with status `UNKNOWN` inside the call; a fee that was taken comes back |
+| `SUBSCRIBE_ORACLE` | the id at once, the first query with the next tick |
+| a subscription query | times out one minute after the time it asks about |
+| a reply that is committed but revealed after the timeout | `TIMEOUT` |
+| several queries finishing in one tick | notified in the order they were started |
+| an epoch change | every query and subscription is gone |
+
+The simulator looks at a tick's reveals first, then starts subscription queries, then
+times queries out, and asks a provider (`qinit oracle serve`, `setOracleProvider`) last.
+A query therefore has to live past the tick that answers it: with one-minute ticks a
+one-minute timeout is over before the provider is asked.
 
 ### 12.6 Outsourced computation has no reply
 
@@ -2067,6 +2090,37 @@ with code 0x...`, so a failure nobody asserts on is still visible in the run.
 | `CC_ASSERT` or `qpi.__qpiAbort(c)`       | the abort code, e.g. `0xCC000022` (`0xCC000000 \| line`) |
 | a Wasm trap                              | `0xCC1D0000` (`WASM_TRAP_ERROR_CODE`)                    |
 | unknown function or procedure input type | `ContractErrorFuncProcUnknown` (`9`)                     |
+
+Core's oracle globals are there as they are in core's own tests: `oracleEngine`,
+`userProcedureRegistry`, `QpiContextUserProcedureNotificationCall`, `ts`,
+`addOracleTransactionToTickStorage()` and `getContractOracleQueryId()`. `oracleEngine`
+is the engine the contracts under test reach through `qpi`, so a test can answer a query
+a contract started and drive it through commit, reveal and notification by hand:
+
+```cpp
+oracleEngine.processOracleMachineReply(&machineReply.metadata, sizeof(machineReply));
+for (unsigned int i = 0; i < NUMBER_OF_COMPUTORS; ++i)
+{
+    if (!oracleEngine.getReplyCommitTransaction(txBuffer, i, system.tick + 3, 0))
+        break;
+    oracleEngine.processOracleReplyCommitTransaction((OracleReplyCommitTransactionPrefix*)txBuffer);
+}
+oracleEngine.getReplyRevealTransaction(txBuffer, 0, system.tick + 3, 0);
+system.tick += 3;
+oracleEngine.processOracleReplyRevealTransaction((OracleReplyRevealTransactionPrefix*)txBuffer, 0);
+
+while (const OracleNotificationData* notification = oracleEngine.getNotification())
+{
+    QpiContextUserProcedureNotificationCall qpiContext(*userProcedureRegistry->get(notification->procedureId));
+    qpiContext.call(notification->inputBuffer);
+}
+```
+
+Nothing ticks in a gtest, so nothing of this happens by itself. The engine takes a commit
+only from a computor, which means `broadcastedComputors.computors.publicKeys` needs 676
+different keys before `oracleEngine.init()`. Not kept: user queries, revenue points,
+statistics, snapshots, and the message to the oracle machine, so
+`checkNetworkMessageOracleMachineQuery()` has nothing to check.
 
 `--filter` takes comma-separated case-insensitive substrings and skips
 non-matching tests in the engine, so they are never executed. The same list can
