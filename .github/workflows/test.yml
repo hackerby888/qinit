@@ -626,6 +626,18 @@ jobs:
           stop_node
           echo "=== run-oracle/node.log tail ==="; tail -25 run-oracle/node.log
 
+          # the oracle through the cli, on the node this time. A lone node takes half a minute or more for a tick that carries
+          # its own commit transactions, and now and then stops ticking there, so a failure warns and does not fail the job.
+          start_node run-oracle-cli
+          set +e
+          bun run scripts/live-node/ci-oracle-cli.ts; c10=$?
+          set -e
+          stop_node
+          if [ $c10 -ne 0 ]; then
+            echo "::warning::the oracle cli scenario failed on the core node"
+            echo "=== run-oracle-cli/node.log tail ==="; tail -25 run-oracle-cli/node.log
+          fi
+
           # every refused DEPLOY leaves its outcome on the node, and the simulator has to record the same one.
           start_node run-refusal
           set +e
@@ -660,9 +672,9 @@ jobs:
           done
           [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ] && [ $c4 -eq 0 ] && [ $c5 -eq 0 ] && [ $c6 -eq 0 ] && [ $c7 -eq 0 ] && [ $c8 -eq 0 ] && [ $c9 -eq 0 ]
 
-  # QPI VS Code extension checks that need clangd or a real editor.
   # a contract's oracle queries answered through the cli on a simulator node: by hand, then from a rules file.
   # The simulator keeps real time and a subscription asks once a minute, so this takes about five minutes.
+  # deploy-smoke runs the same script against a core node.
   oracle-cli:
     needs: resolve-core
     runs-on: ubuntu-latest
@@ -684,6 +696,7 @@ jobs:
       - name: Oracle queries through the cli
         run: bun run scripts/live-node/ci-oracle-cli.ts
 
+  # QPI VS Code extension checks that need clangd or a real editor.
   vscode-clangd-check:
     strategy:
       fail-fast: false
