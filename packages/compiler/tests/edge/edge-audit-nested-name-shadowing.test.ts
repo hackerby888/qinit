@@ -1,4 +1,4 @@
-// A contract struct named like a container's private nested struct (LinkedList::Node, Collection::Element) is a
+// A contract struct named like a container's private nested struct (LinkedList::Node, Collection::Element, Collection::PoV) is a
 // template argument bound in the contract's scope; the container's own struct must not shadow it once its body compiles.
 import { describe, expect } from "bun:test";
 import { HAS_CORE } from "../../../../test-utils/paths";
@@ -31,13 +31,19 @@ const CASES: Record<string, string> = {
         "Element e; sint64 idx;",
         "locals.e.tag = 4242; locals.idx = state.mut().coll.add(SELF, locals.e, 1); state.mut().a = state.get().coll.element(locals.idx).tag;",
     ),
+    "Collection<PoV> keeps the contract's PoV": contract(
+        "PoV",
+        "Collection<PoV, 8> coll;",
+        "PoV e; sint64 idx;",
+        "locals.e.tag = 4242; locals.idx = state.mut().coll.add(SELF, locals.e, 1); state.mut().a = state.get().coll.element(locals.idx).tag;",
+    ),
     "HashMap<uint64, Element> keeps the contract's Element": contract(
         "Element",
         "HashMap<uint64, Element, 8> map;",
         "Element e; Element found;",
         "locals.e.tag = 4242; state.mut().map.set(1, locals.e); state.get().map.get(1, locals.found); state.mut().a = locals.found.tag;",
     ),
-    // a set key needs operator==, which the shared element shape lacks.
+    // HashSet nests no struct, so this one only guards; a set key needs operator==, which the shared element shape lacks.
     "HashSet<Element> keeps the contract's Element": contract(
         "Element",
         "HashSet<Element, 8> set;",
