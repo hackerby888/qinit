@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript } from "../../src/index";
+import { soleWord } from "../support/edge-compile";
 
 // The pinned snapshot keeps this hermetic: name resolution does not need a live core checkout.
 await initK12();
@@ -15,8 +16,7 @@ function runStateWord(wasm: Uint8Array): bigint {
     sim.fund(user, 1_000_000n);
     sim.deploy(27, wasm);
     sim.procedure(27, 1, new Uint8Array(32), { invocator: user });
-    const state = new Uint8Array(sim.contracts.get(27)!.state());
-    return new DataView(state.buffer, state.byteOffset).getBigUint64(0, true);
+    return soleWord(sim.contracts.get(27)!.state());
 }
 
 const contract = (members: string, body: string, prelude = "") => `

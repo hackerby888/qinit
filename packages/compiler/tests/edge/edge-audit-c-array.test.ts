@@ -3,8 +3,7 @@ import { HAS_CORE } from "../../../../test-utils/paths";
 // Covers fixed-array bounds, initialization, and ABI/state layouts.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { QubicSimulator } from "@qinit/engine";
-import { edgeCompiler } from "../support/edge-compile";
+import { edgeCompiler, edgeRunner, edgeWords } from "../support/edge-compile";
 
 const compile = edgeCompiler("CArrayEdge");
 
@@ -17,18 +16,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-async function run(stateFields: string, body: string): Promise<bigint> {
-    const result = await compile(wrap(stateFields, body));
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    expect(WebAssembly.validate(result.wasm)).toBe(true);
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    sim.fund(user, 1_000_000n);
-    sim.deploy(27, result.wasm);
-    sim.procedure(27, 1, undefined, { invocator: user });
-    const state = sim.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
-}
+const probe = edgeRunner("CArrayEdge");
+const probeWords = edgeWords("CArrayEdge");
+
+const run = (stateFields: string, body: string) => probe(wrap(stateFields, body));
 
 describe.skipIf(!HAS_CORE)("edge audit — fixed C arrays", () => {
     beforeAll(async () => {
@@ -51,7 +42,7 @@ describe.skipIf(!HAS_CORE)("edge audit — fixed C arrays", () => {
         const body = `state.mut().grid[0][0] = 1; state.mut().grid[0][1] = 2;
       state.mut().grid[1][0] = 4; state.mut().grid[1][1] = 8;
       state.mut().result = state.get().grid[0][1] + state.get().grid[1][1];`;
-        expect(await run(`uint64 grid[2][2];`, body)).toBe(10n);
+        expect(await probeWords(wrap(`uint64 grid[2][2];`, body))).toEqual([10n, 1n, 2n, 4n, 8n]);
     });
 
     test("nested initializer lists populate a multidimensional local array", async () => {

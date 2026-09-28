@@ -1,12 +1,8 @@
-import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
+import { HAS_CORE } from "../../../../test-utils/paths";
 // Positive runtime coverage for legal aggregate copies, returns, and reference binding.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { QubicSimulator } from "@qinit/engine";
-import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
-
-const HEADERS = () => loadQpiHeader(CORE_PATH);
+import { edgeRunner } from "../support/edge-compile";
 
 const wrap = (members: string, body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -19,24 +15,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-async function run(members: string, body: string): Promise<bigint> {
-    const result = await compileContractWithTypeScript({
-        source: wrap(members, body),
-        contractName: "AggregateRuntimeEdge",
-        slot: 27,
-        qpiHeader: HEADERS(),
-        arenaSizeBytes: 1 << 20,
-    });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    expect(WebAssembly.validate(result.wasm)).toBe(true);
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    sim.fund(user, 1_000_000n);
-    sim.deploy(27, result.wasm);
-    sim.procedure(27, 1, undefined, { invocator: user });
-    const state = sim.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
-}
+const probe = edgeRunner("AggregateRuntimeEdge");
+
+const run = (members: string, body: string) => probe(wrap(members, body));
 
 describe.skipIf(!HAS_CORE)("edge audit — aggregate runtime semantics", () => {
     beforeAll(async () => {

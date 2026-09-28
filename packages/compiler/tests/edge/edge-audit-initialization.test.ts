@@ -3,8 +3,7 @@ import { HAS_CORE } from "../../../../test-utils/paths";
 // Covers direct, braced, and parenthesized initialization in helper bodies.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { QubicSimulator } from "@qinit/engine";
-import { edgeCompiler } from "../support/edge-compile";
+import { edgeCompiler, edgeRunner } from "../support/edge-compile";
 
 const compile = edgeCompiler("InitEdge");
 
@@ -18,17 +17,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-async function run(source: string): Promise<bigint> {
-    const result = await compile(source);
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    sim.fund(user, 1_000_000n);
-    sim.deploy(27, result.wasm);
-    sim.procedure(27, 1, undefined, { invocator: user });
-    const state = sim.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
-}
+const run = edgeRunner("InitEdge");
 
 describe.skipIf(!HAS_CORE)("edge audit — direct and aggregate initialization", () => {
     beforeAll(async () => {

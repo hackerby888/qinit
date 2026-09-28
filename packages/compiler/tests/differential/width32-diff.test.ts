@@ -2,6 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // 32-bit fidelity parity for int-rank operations.
 import { wasiToolchain } from "../support/container-toolchains";
+import { soleWord } from "../support/edge-compile";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { writeFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -89,8 +90,7 @@ const run = (wasm: Uint8Array): bigint => {
     sim.fund(user, 1_000_000n);
     sim.deploy(27, wasm);
     sim.procedure(27, 1, undefined, { invocator: user });
-    const st = sim.contracts.get(27)!.state();
-    return new DataView(st.buffer, st.byteOffset).getBigUint64(0, true);
+    return soleWord(sim.contracts.get(27)!.state());
 };
 
 const wasiOk = wasiToolchain().available;

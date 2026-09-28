@@ -2,6 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Mixed signed/unsigned conversions: nothing pinned the branch of usualConversion picking div_s over div_u, where a mistake is a 2^64-scale silent answer.
 import { wasiToolchain } from "../support/container-toolchains";
+import { soleWord } from "../support/edge-compile";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { writeFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -73,8 +74,7 @@ const run = (wasm: Uint8Array): bigint => {
     simulator.fund(user, 1_000_000n);
     simulator.deploy(27, wasm);
     simulator.procedure(27, 1, undefined, { invocator: user });
-    const state = simulator.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset).getBigUint64(0, true);
+    return soleWord(simulator.contracts.get(27)!.state());
 };
 
 const wasiOk = wasiToolchain().available;

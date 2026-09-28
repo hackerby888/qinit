@@ -3,8 +3,8 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
+import { edgeWords } from "../support/edge-compile";
 
 const HEADERS = () => loadQpiHeader(CORE_PATH);
 
@@ -38,17 +38,14 @@ async function compile(body: string) {
     });
 }
 
-async function evaluate(body: string): Promise<bigint> {
-    const result = await compile(body);
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+const probeWords = edgeWords("AliasCastEdge");
 
-    const simulator = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    simulator.fund(user, 1_000_000n);
-    simulator.deploy(27, result.wasm!);
-    simulator.procedure(27, 1, undefined, { invocator: user });
-    const state = simulator.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
+// the buffer rides along in every case, so a cast that spills into it shows.
+async function evaluate(body: string, buffer = [0n, 0n, 0n, 0n]): Promise<bigint> {
+    const [result, ...rest] = await probeWords(contract(body));
+    expect(rest).toEqual(buffer);
+
+    return result;
 }
 
 const castTo = (spelling: string, value: string) => evaluate(`state.mut().result = (uint64)${spelling}(${value});`);
@@ -78,7 +75,7 @@ describe.skipIf(!HAS_CORE)("edge audit — functional casts through an alias", (
 
     // Deciding a name is a scalar is what turns a one-argument call into a cast, so anything that is NOT a scalar has to keep reaching ordinary call handling.
     test("a one-argument call that is not a scalar cast still behaves as a call", async () => {
-        expect(await evaluate("state.mut().buffer.set(0, 77); state.mut().result = state.get().buffer.get(0);")).toBe(77n);
+        expect(await evaluate("state.mut().buffer.set(0, 77); state.mut().result = state.get().buffer.get(0);", [77n, 0n, 0n, 0n])).toBe(77n);
         expect(await evaluate("state.mut().result = div(100ULL, 7ULL);")).toBe(14n);
     });
 

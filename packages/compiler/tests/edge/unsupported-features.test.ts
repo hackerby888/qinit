@@ -5,20 +5,20 @@ import { describe, expect, test } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
+import { soleWord } from "../support/edge-compile";
 
 const HEADERS = () => loadQpiHeader(CORE_PATH);
 
 await initK12();
 
-// Deploy, drive procedure 1, and read the first state word.
+// deploy, drive procedure 1, and read the state's only word.
 function runProcedureStateWord(wasm: Uint8Array): bigint {
     const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     const user = new Uint8Array(32).fill(7);
     sim.fund(user, 1_000_000n);
     sim.deploy(27, wasm);
     sim.procedure(27, 1, new Uint8Array(32), { invocator: user });
-    const state = new Uint8Array(sim.contracts.get(27)!.state());
-    return new DataView(state.buffer, state.byteOffset).getBigUint64(0, true);
+    return soleWord(sim.contracts.get(27)!.state());
 }
 
 // Native C spellings lower correctly at their wasm32 widths, so they must not fail a strict build.

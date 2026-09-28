@@ -3,13 +3,15 @@
 import { beforeAll, describe, expect } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { DiagnosticSeverity } from "../../src/shared/enums";
-import { edgeCompiler, edgeRunner } from "../support/edge-compile";
+import { edgeClangRunner, edgeCompiler, edgeRunner } from "../support/edge-compile";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { HAS_CORE } from "../../../../test-utils/paths";
 import { bothDeclarationOrders, fixtureTest } from "../support/fixture-shapes";
 import { ASSIGNING, COPY_ONLY, FEE_AMOUNT, HALF_KEY, HALF_KEY_BOOL, HELPER_MONEY, MONEY, wrapOperatorFixture as wrap } from "../support/operator-fixtures";
 
 const run = edgeRunner("OperatorOverload");
 const compile = edgeCompiler("OperatorOverload");
+const runWithClang = edgeClangRunner("OperatorOverload");
 
 // operator== deliberately ignores `b`, so {1,2} and {1,99} are equal to the operator and different to memcmp. Every assertion turns on that disagreement.
 
@@ -74,7 +76,7 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
     });
 
     // Core hashes a key by raw bytes but probes slots with operator==, so a key whose equality disagrees with its bytes misses its own slot on both backends.
-    fixtureTest("a byte-different probe misses its slot even when the operator calls it equal", async () => {
+    toolchainTest("a byte-different probe misses its slot even when the operator calls it equal", wasiToolchain(), async () => {
         const source = wrap(
             `${HALF_KEY}
   struct Pair { uint64 x; uint64 y; };`,
@@ -88,10 +90,10 @@ describe.skipIf(!HAS_CORE)("operator overload resolution", () => {
             .replace("HalfKey stored; HalfKey probe;", "HalfKey stored; HalfKey probe; Pair hit;");
 
         // The probe differs from the stored key in `b`, so it hashes elsewhere and the declared operator is never consulted for that slot.
-        expect(await run(source)).toBe(0n);
+        expect(await runWithClang(source)).toBe(0n);
 
         // The same key round-trips, which is the case the container is actually built for.
-        expect(await run(source.replace("locals.probe = { 1, 99 };", "locals.probe = { 1, 2 };"))).toBe(7n);
+        expect(await runWithClang(source.replace("locals.probe = { 1, 99 };", "locals.probe = { 1, 2 };"))).toBe(7n);
     });
 
     fixtureTest("a key type with no operator== is rejected the way Clang rejects it", async () => {

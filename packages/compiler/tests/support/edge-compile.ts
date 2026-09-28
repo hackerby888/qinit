@@ -1,27 +1,25 @@
 // Shared compile helpers for the edge-audit suites, which all build one probe contract at slot 27 and differ only in the contract name.
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { expect } from "bun:test";
-import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader, type CompileResult } from "../../src/index";
 import { DiagnosticSeverity } from "../../src/shared/enums";
+import { clangState, PARITY_ARENA_BYTES, PARITY_SLOT, runState, type ProbeState } from "./parity-runner";
 
 const HEADERS = () => loadQpiHeader(CORE_PATH);
-const PROBE_SLOT = 27;
-const PROBE_ARENA_BYTES = 1 << 20;
 
 export function edgeCompiler(contractName: string): (source: string) => Promise<CompileResult> {
     return (source: string) =>
         compileContractWithTypeScript({
             source,
             contractName,
-            slot: PROBE_SLOT,
+            slot: PARITY_SLOT,
             qpiHeader: HEADERS(),
-            arenaSizeBytes: PROBE_ARENA_BYTES,
+            arenaSizeBytes: PARITY_ARENA_BYTES,
         });
 }
 
-// Compiles, deploys, runs procedure 1, and answers with the first uint64 of the resulting state — the value the edge suites assert on.
-export function edgeRunner(contractName: string): (source: string) => Promise<bigint> {
+// compiles, deploys, runs procedure 1, and answers with every byte of the state it left.
+export function edgeProbe(contractName: string): (source: string) => Promise<ProbeState> {
     const compile = edgeCompiler(contractName);
 
     return async (source: string) => {
@@ -29,13 +27,44 @@ export function edgeRunner(contractName: string): (source: string) => Promise<bi
         expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
         expect(WebAssembly.validate(result.wasm)).toBe(true);
 
-        const simulator = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-        const user = new Uint8Array(32).fill(7);
-        simulator.fund(user, 1_000_000n);
-        simulator.deploy(PROBE_SLOT, result.wasm);
-        simulator.procedure(PROBE_SLOT, 1, undefined, { invocator: user });
+        return runState(result.wasm);
+    };
+}
 
-        const state = simulator.contracts.get(PROBE_SLOT)!.state();
-        return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
+// word 0 stands for a probe only while it is the whole state; a wider probe pins every word through edgeWords.
+export function soleWord(state: Uint8Array): bigint {
+    expect(state.byteLength).toBe(8);
+
+    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
+}
+
+export function edgeRunner(contractName: string): (source: string) => Promise<bigint> {
+    const probe = edgeProbe(contractName);
+
+    return async (source: string) => soleWord(Buffer.from((await probe(source)).stateHex, "hex"));
+}
+
+// every uint64 of the state, so what a probe writes past word 0 is pinned too.
+export function edgeWords(contractName: string): (source: string) => Promise<bigint[]> {
+    const probe = edgeProbe(contractName);
+
+    return async (source: string) => {
+        const state = Buffer.from((await probe(source)).stateHex, "hex");
+        const view = new DataView(state.buffer, state.byteOffset, state.byteLength);
+
+        return Array.from({ length: state.byteLength / 8 }, (_, index) => view.getBigUint64(index * 8, true));
+    };
+}
+
+// a container state is too big to pin by hand, so clang builds the same source and the whole state must hash the same.
+export function edgeClangRunner(contractName: string): (source: string) => Promise<bigint> {
+    const probe = edgeProbe(contractName);
+
+    return async (source: string) => {
+        const ours = await probe(source);
+        const clang = await clangState(contractName, source, "edge");
+        expect(ours.digest).toBe(clang.digest);
+
+        return ours.resultWord;
     };
 }

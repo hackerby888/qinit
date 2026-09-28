@@ -4,6 +4,7 @@ import { QubicSimulator } from "@qinit/engine";
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { compileContractWithTypeScript } from "../../src/index";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
+import { soleWord } from "../support/edge-compile";
 
 // Struct geometry and aggregate passing were caught only by the clang differentials; this runs the same semantics on the pinned qpi.h and the simulator.
 const SOURCE = `using namespace QPI;
@@ -96,8 +97,7 @@ function run(inputType: number): bigint {
     sim.fund(user, 1_000_000n);
     sim.deploy(27, wasm);
     sim.procedure(27, inputType, undefined, { invocator: user });
-    const state = sim.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
+    return soleWord(sim.contracts.get(27)!.state());
 }
 
 describe("struct layout and aggregate passing — no core checkout required", () => {

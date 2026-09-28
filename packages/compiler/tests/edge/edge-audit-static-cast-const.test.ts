@@ -3,8 +3,8 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
+import { edgeRunner } from "../support/edge-compile";
 
 const HEADERS = () => loadQpiHeader(CORE_PATH);
 
@@ -32,18 +32,8 @@ const errorsOf = async (registration: string, declarations = "") =>
     (await compile(registration, declarations)).diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR).map((d) => d.message);
 
 // Runs the contract and reads back state.result, so the value is the emitter's, not the folder's.
-async function evaluate(body: string, declarations = ""): Promise<bigint> {
-    const result = await compile("REGISTER_USER_PROCEDURE(Go, 1);", declarations, body);
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-
-    const simulator = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    simulator.fund(user, 1_000_000n);
-    simulator.deploy(27, result.wasm!);
-    simulator.procedure(27, 1, undefined, { invocator: user });
-    const state = simulator.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
-}
+const run = edgeRunner("StaticCastConstEdge");
+const evaluate = (body: string, declarations = "") => run(contract("REGISTER_USER_PROCEDURE(Go, 1);", declarations, body));
 
 const SCOPED_ENUM = "enum class EProcedureId : uint8 { Go = 1 };";
 

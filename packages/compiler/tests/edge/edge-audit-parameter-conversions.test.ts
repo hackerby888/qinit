@@ -1,12 +1,8 @@
-import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
+import { HAS_CORE } from "../../../../test-utils/paths";
 // Checks native-compatible implicit conversions at function-call boundaries.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { QubicSimulator } from "@qinit/engine";
-import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
-
-const HEADERS = () => loadQpiHeader(CORE_PATH);
+import { edgeWords } from "../support/edge-compile";
 
 const wrap = (helper: string, body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -18,24 +14,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-async function run(helper: string, body: string): Promise<bigint> {
-    const result = await compileContractWithTypeScript({
-        source: wrap(helper, body),
-        contractName: "ParamConversionEdge",
-        slot: 27,
-        qpiHeader: HEADERS(),
-        arenaSizeBytes: 1 << 20,
-    });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    expect(WebAssembly.validate(result.wasm)).toBe(true);
+const probeWords = edgeWords("ParamConversionEdge");
 
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    sim.fund(user, 1_000_000n);
-    sim.deploy(27, result.wasm);
-    sim.procedure(27, 1, undefined, { invocator: user });
-    const state = sim.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
+// denominator and adjacent ride along in every case, so a conversion that spills into them shows.
+async function run(helper: string, body: string, rest = [0n, 0n]): Promise<bigint> {
+    const [result, ...others] = await probeWords(wrap(helper, body));
+    expect(others).toEqual(rest);
+
+    return result;
 }
 
 describe.skipIf(!HAS_CORE)("edge audit — implicit parameter conversions", () => {
@@ -74,6 +60,7 @@ describe.skipIf(!HAS_CORE)("edge audit — implicit parameter conversions", () =
                 `state.mut().denominator = 2; state.mut().adjacent = 1;
        uint128 numerator = (uint128)84;
        state.mut().result = div<uint128>(numerator, state.get().denominator).low;`,
+                [2n, 1n],
             ),
         ).toBe(42n);
     });
@@ -85,6 +72,7 @@ describe.skipIf(!HAS_CORE)("edge audit — implicit parameter conversions", () =
                 `state.mut().denominator = 1000000; state.mut().adjacent = 450000;
        uint128 numerator = (uint128)150000 * (uint128)state.get().adjacent;
        state.mut().result = div<uint128>(numerator, state.get().denominator).low;`,
+                [1000000n, 450000n],
             ),
         ).toBe(67500n);
     });

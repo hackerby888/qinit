@@ -4,6 +4,7 @@ import { QubicSimulator } from "@qinit/engine";
 import { DiagnosticSeverity } from "../../src/shared/enums";
 import { compileContractWithTypeScript } from "../../src/index";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
+import { soleWord } from "../support/edge-compile";
 
 // Narrow-signed and 32-bit semantics were guarded only by the clang differentials, which need a core checkout — so without one none of this is checked.
 // Expectations come from BigInt.asIntN/asUintN, an independent two's complement rather than a transcription; every case avoids undefined signed overflow.
@@ -150,8 +151,7 @@ function run(inputType: number): bigint {
     sim.fund(user, 1_000_000n);
     sim.deploy(27, wasm);
     sim.procedure(27, inputType, undefined, { invocator: user });
-    const state = sim.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
+    return soleWord(sim.contracts.get(27)!.state());
 }
 
 // Two's complement, computed rather than transcribed.

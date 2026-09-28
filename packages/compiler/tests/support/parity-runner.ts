@@ -15,6 +15,8 @@ export interface ProbeState {
     resultWord: bigint;
     // every byte of state: two compilers are compared on all of it, not on the answer alone.
     stateHex: string;
+    // K12 of the whole state, for a container state too big to pin or diff by hand.
+    digest: string;
 }
 
 /** Deploy, invoke the single registered procedure, and read back the state it left. */
@@ -31,6 +33,7 @@ export function runState(wasm: Uint8Array): ProbeState {
     return {
         resultWord: new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true),
         stateHex: Buffer.from(state).toString("hex"),
+        digest: simulator.digest(PARITY_SLOT),
     };
 }
 

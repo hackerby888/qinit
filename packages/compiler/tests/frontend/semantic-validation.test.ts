@@ -2,6 +2,7 @@ import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
+import { soleWord } from "../support/edge-compile";
 import { buildContractWithClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -260,8 +261,7 @@ describe.skipIf(!HAS_CORE)("semantic validation — invalid source must fail lou
                 sim.fund(user, 1_000_000n);
                 sim.deploy(27, wasm);
                 sim.procedure(27, 1, undefined, { invocator: user });
-                const st = sim.contracts.get(27)!.state();
-                return new DataView(st.buffer, st.byteOffset).getBigUint64(0, true);
+                return soleWord(sim.contracts.get(27)!.state());
             };
 
             // The last write reads the outer `v`, which the block never touched.
@@ -302,8 +302,7 @@ describe.skipIf(!HAS_CORE)("semantic validation — invalid source must fail lou
                 sim.fund(user, 1_000_000n);
                 sim.deploy(27, wasm);
                 sim.procedure(27, 1, undefined, { invocator: user });
-                const st = sim.contracts.get(27)!.state();
-                return new DataView(st.buffer, st.byteOffset).getBigUint64(0, true);
+                return soleWord(sim.contracts.get(27)!.state());
             };
 
             const nat = run(new Uint8Array(readFileSync(built.wasmPath!)));

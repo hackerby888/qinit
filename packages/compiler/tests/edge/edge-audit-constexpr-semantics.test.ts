@@ -3,8 +3,9 @@ import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 // Named constexpr expressions retain their declared C++ width/signedness; user contract members also shadow same-named constants imported from qpi.h.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { QubicSimulator } from "@qinit/engine";
 import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
+import { edgeClangRunner, edgeRunner } from "../support/edge-compile";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 
 const HEADERS = () => loadQpiHeader(CORE_PATH);
 
@@ -18,23 +19,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-async function run(source: string): Promise<bigint> {
-    const result = await compileContractWithTypeScript({
-        source,
-        contractName: "ConstexprEdge",
-        slot: 27,
-        qpiHeader: HEADERS(),
-        arenaSizeBytes: 1 << 20,
-    });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    sim.fund(user, 1_000_000n);
-    sim.deploy(27, result.wasm);
-    sim.procedure(27, 1, undefined, { invocator: user });
-    const state = sim.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
-}
+const run = edgeRunner("ConstexprEdge");
+const runWithClang = edgeClangRunner("ConstexprEdge");
 
 describe.skipIf(!HAS_CORE)("edge audit — typed constexpr semantics", () => {
     beforeAll(async () => {
@@ -112,7 +98,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(await run(source)).toBe(999n);
     });
 
-    test("a HashMap miss stays a miss while the name is shadowed", async () => {
-        expect(await run(withMap(`static constexpr sint64 NULL_INDEX = 999;`))).toBe(0n);
+    toolchainTest("a HashMap miss stays a miss while the name is shadowed", wasiToolchain(), async () => {
+        expect(await runWithClang(withMap(`static constexpr sint64 NULL_INDEX = 999;`))).toBe(0n);
     });
 });

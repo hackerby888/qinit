@@ -1,12 +1,8 @@
 // `sizeof(X)` parses as a type only when X starts with a type keyword; every other spelling arrives as an expression, where an unplaceable name defaulted.
-import { DiagnosticSeverity } from "../../src/shared/enums";
-import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
+import { HAS_CORE } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { QubicSimulator } from "@qinit/engine";
-import { compileContractWithTypeScript, loadQpiHeader } from "../../src/index";
-
-const HEADERS = () => loadQpiHeader(CORE_PATH);
+import { edgeRunner } from "../support/edge-compile";
 
 const contract = (body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -23,24 +19,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-async function measure(body: string): Promise<bigint> {
-    const result = await compileContractWithTypeScript({
-        source: contract(body),
-        contractName: "SizeofEdge",
-        slot: 27,
-        qpiHeader: HEADERS(),
-        arenaSizeBytes: 1 << 20,
-    });
-    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-
-    const simulator = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
-    const user = new Uint8Array(32).fill(7);
-    simulator.fund(user, 1_000_000n);
-    simulator.deploy(27, result.wasm!);
-    simulator.procedure(27, 1, undefined, { invocator: user });
-    const state = simulator.contracts.get(27)!.state();
-    return new DataView(state.buffer, state.byteOffset, state.byteLength).getBigUint64(0, true);
-}
+const run = edgeRunner("SizeofEdge");
+const measure = (body: string) => run(contract(body));
 
 const sizeOf = (spelling: string) => measure(`state.mut().result = sizeof(${spelling});`);
 
