@@ -9,7 +9,14 @@ import {
     SPECTRUM_DEPTH as PROTOCOL_SPECTRUM_DEPTH,
     TXS_PER_TICK as PROTOCOL_TXS_PER_TICK,
 } from "@qinit/proto";
-import { CONTRACT_FEES_COUNT } from "../../src/protocol/wire";
+import {
+    CONTRACT_FEES_COUNT,
+    OracleMachineReply,
+    OracleNotificationData,
+    OracleNotificationInput,
+    OracleReplyCommitTransactionItem,
+    OracleSubscription,
+} from "../../src/protocol/wire";
 
 const DIGEST_SIZE = 32;
 const SIG_SIZE = 64;
@@ -40,4 +47,17 @@ test("computor-list slot count + RespondTxStatus moneyFlew width track the proto
     expect(SPECTRUM_DEPTH).toBe(PROTOCOL_SPECTRUM_DEPTH);
     expect(ASSETS_DEPTH).toBe(PROTOCOL_ASSETS_DEPTH);
     expect((TXS_PER_TICK + 7) >> 3).toBe(512); // RespondTxStatus.moneyFlew[(NUMBER_OF_TRANSACTIONS_PER_TICK+7)/8]
+});
+
+test("oracle layouts keep core's sizes and offsets", () => {
+    expect(OracleReplyCommitTransactionItem.SIZE).toBe(72);
+    expect(OracleReplyCommitTransactionItem.OFFSETS.replyKnowledgeProof).toBe(40);
+    expect(OracleMachineReply.SIZE).toBe(16);
+    expect(OracleNotificationInput.SIZE).toBe(16);
+    expect(OracleNotificationInput.OFFSETS.status).toBe(12);
+    expect(OracleSubscription.SIZE).toBe(48);
+    expect(OracleSubscription.OFFSETS.nextQueryTimestamp).toBe(32);
+    expect(OracleSubscription.OFFSETS.firstSubscriberIndex).toBe(44);
+    expect(OracleNotificationData.SIZE).toBe(8 + 16 + 1008);
+    expect(OracleNotificationData.OFFSETS.inputBuffer).toBe(8);
 });

@@ -6,7 +6,7 @@ import { CONTRACT_ENTRY_POINTS, SYSTEM_PROCEDURE_COUNT } from "@qinit/core/wasm/
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm/slot-layout";
 import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
 import { LITE_DEPLOY_ADDRESS } from "@qinit/core/crypto/tx";
-import { DEFAULT_FEE_RESERVE, DEFAULT_NUMBER_OF_COMPUTORS } from "@qinit/engine";
+import { DEFAULT_FEE_RESERVE, DEFAULT_NUMBER_OF_COMPUTORS, OracleReplyCommitTransactionPrefix, OracleReplyRevealTransactionPrefix } from "@qinit/engine";
 import { DEPLOY_OUTCOME_CODES } from "@qinit/core/net/rpc/types";
 import { DeployMessage, UploadBegin, UploadChunkHeader } from "@qinit/proto/deploy";
 import {
@@ -22,6 +22,28 @@ import {
     MAX_ORACLE_QUERY_SIZE,
     MAX_ORACLE_REPLY_SIZE,
     ORACLE_STATUS,
+    ORACLE_QUERY_TYPE_CONTRACT_QUERY,
+    ORACLE_QUERY_TYPE_CONTRACT_SUBSCRIPTION,
+    ORACLE_QUERY_TYPE_USER_QUERY,
+    ORACLE_FLAG_REPLY_PENDING,
+    ORACLE_FLAG_INVALID_ORACLE,
+    ORACLE_FLAG_ORACLE_UNAVAIL,
+    ORACLE_FLAG_INVALID_TIME,
+    ORACLE_FLAG_INVALID_PLACE,
+    ORACLE_FLAG_INVALID_ARG,
+    ORACLE_FLAG_OM_ERROR_FLAGS,
+    ORACLE_FLAG_REPLY_RECEIVED,
+    ORACLE_FLAG_BAD_SIZE_REPLY,
+    ORACLE_FLAG_OM_DISAGREE,
+    ORACLE_FLAG_BAD_SIZE_REVEAL,
+    ORACLE_FLAG_FAKE_COMMITS,
+    MAX_ORACLE_QUERIES,
+    MAX_SIMULTANEOUS_ORACLE_QUERIES,
+    MAX_ORACLE_SUBSCRIPTIONS,
+    MAX_ORACLE_SUBSCRIBERS,
+    MAX_ORACLE_TIMEOUT_MILLISEC,
+    MIN_ORACLE_QUERY_FEE,
+    MIN_ORACLE_SUBSCRIPTION_FEE,
     OC_INVOCATION_STATUS,
     MIN_OC_INVOCATION_FEE,
     MAX_OC_REQUEST_SIZE,
@@ -67,13 +89,12 @@ const readDefine = (file: string, name: string, occurrence: "first" | "last" = "
 };
 
 // Read `constexpr <type> NAME = <expr>;` declarations from a core header, e.g. 10, (1 << 21) or MAX_INPUT_SIZE - 16.
-const readConstexpr = (file: string, name: string, symbols: Readonly<Record<string, number>> = {}): number | null => {
+const readConstexpr = (file: string, name: string, symbols: Readonly<Record<string, number>> = {}, occurrence: "first" | "last" = "first"): number | null => {
     try {
-        const expression = readFileSync(join(core, file), "utf8")
-            .match(new RegExp(`constexpr\\s+\\w+\\s+${name}\\s*=\\s*([^;]+)`))?.[1]
-            .trim();
+        const matches = [...readFileSync(join(core, file), "utf8").matchAll(new RegExp(`constexpr\\s+\\w+\\s+${name}\\s*=\\s*([^;]+)`, "g"))];
+        const expression = (occurrence === "last" ? matches.at(-1) : matches[0])?.[1].trim();
         if (!expression) return null;
-        if (/^\d+$/.test(expression)) return Number(expression);
+        if (/^(\d+|0x[0-9a-fA-F]+)$/.test(expression)) return Number(expression);
 
         let arithmetic = expression;
         for (const [symbol, value] of Object.entries(symbols)) {
@@ -100,6 +121,16 @@ const readDeploymentAddress = (file: string): number | null => {
 const readStructSize = (file: string, name: string): number | null => {
     try {
         const match = readFileSync(join(core, file), "utf8").match(new RegExp(`static_assert\\(sizeof\\(${name}\\)\\s*==\\s*(\\d+)`));
+        return match ? Number(match[1]) : null;
+    } catch {
+        return null;
+    }
+};
+
+// Read the value a transaction prefix struct returns from transactionType().
+const readTransactionType = (file: string, name: string): number | null => {
+    try {
+        const match = readFileSync(join(core, file), "utf8").match(new RegExp(`struct\\s+${name}\\b[\\s\\S]*?transactionType\\(\\)\\s*\\{\\s*return\\s+(\\d+)`));
         return match ? Number(match[1]) : null;
     } catch {
         return null;
@@ -141,6 +172,8 @@ const LOG = "src/logging/logging.h";
 const NET = "src/network_messages/common_def.h";
 const CONTRACT_DEF = "src/contract_core/contract_def.h";
 const OC_ENGINE = "src/oc_core/oc_engine.h";
+const ORACLE_ENGINE = "src/oracle_core/oracle_engine.h";
+const ORACLE_TRANSACTIONS = "src/oracle_core/oracle_transactions.h";
 const QUBIC_CPP = "src/qubic.cpp";
 
 expectEqual("contractSystemProcedureCount", readSystemProcedureCount(CONTRACT_DEF), SYSTEM_PROCEDURE_COUNT);
@@ -235,6 +268,39 @@ for (const [name, value] of [
 ] as const) {
     expectEqual(name, readConstexpr(NET, name), value);
 }
+
+for (const [name, value] of [
+    ["ORACLE_QUERY_TYPE_CONTRACT_QUERY", ORACLE_QUERY_TYPE_CONTRACT_QUERY],
+    ["ORACLE_QUERY_TYPE_CONTRACT_SUBSCRIPTION", ORACLE_QUERY_TYPE_CONTRACT_SUBSCRIPTION],
+    ["ORACLE_QUERY_TYPE_USER_QUERY", ORACLE_QUERY_TYPE_USER_QUERY],
+    ["ORACLE_FLAG_REPLY_PENDING", ORACLE_FLAG_REPLY_PENDING],
+    ["ORACLE_FLAG_INVALID_ORACLE", ORACLE_FLAG_INVALID_ORACLE],
+    ["ORACLE_FLAG_ORACLE_UNAVAIL", ORACLE_FLAG_ORACLE_UNAVAIL],
+    ["ORACLE_FLAG_INVALID_TIME", ORACLE_FLAG_INVALID_TIME],
+    ["ORACLE_FLAG_INVALID_PLACE", ORACLE_FLAG_INVALID_PLACE],
+    ["ORACLE_FLAG_INVALID_ARG", ORACLE_FLAG_INVALID_ARG],
+    ["ORACLE_FLAG_OM_ERROR_FLAGS", ORACLE_FLAG_OM_ERROR_FLAGS],
+    ["ORACLE_FLAG_REPLY_RECEIVED", ORACLE_FLAG_REPLY_RECEIVED],
+    ["ORACLE_FLAG_BAD_SIZE_REPLY", ORACLE_FLAG_BAD_SIZE_REPLY],
+    ["ORACLE_FLAG_OM_DISAGREE", ORACLE_FLAG_OM_DISAGREE],
+    ["ORACLE_FLAG_BAD_SIZE_REVEAL", ORACLE_FLAG_BAD_SIZE_REVEAL],
+    ["ORACLE_FLAG_FAKE_COMMITS", ORACLE_FLAG_FAKE_COMMITS],
+] as const) {
+    expectEqual(name, readConstexpr(NET, name), value);
+}
+
+// the engine's capacities and fee floors; core has two MAX_ORACLE_QUERIES and the simulator takes the full-size one.
+expectEqual("MAX_ORACLE_QUERIES", readConstexpr(ORACLE_ENGINE, "MAX_ORACLE_QUERIES", {}, "last"), MAX_ORACLE_QUERIES);
+expectEqual("MAX_SIMULTANEOUS_ORACLE_QUERIES", readConstexpr(ORACLE_ENGINE, "MAX_SIMULTANEOUS_ORACLE_QUERIES"), MAX_SIMULTANEOUS_ORACLE_QUERIES);
+expectEqual("MAX_ORACLE_SUBSCRIPTIONS", readConstexpr(ORACLE_ENGINE, "MAX_ORACLE_SUBSCRIPTIONS"), MAX_ORACLE_SUBSCRIPTIONS);
+expectEqual("MAX_ORACLE_SUBSCRIBERS", readConstexpr(ORACLE_ENGINE, "MAX_ORACLE_SUBSCRIBERS", { MAX_ORACLE_SUBSCRIPTIONS }), MAX_ORACLE_SUBSCRIBERS);
+expectEqual("MAX_ORACLE_TIMEOUT_MILLISEC", readConstexpr(ORACLE_ENGINE, "MAX_ORACLE_TIMEOUT_MILLISEC"), MAX_ORACLE_TIMEOUT_MILLISEC);
+expectEqual("MIN_ORACLE_QUERY_FEE", readConstexpr(ORACLE_ENGINE, "MIN_ORACLE_QUERY_FEE"), Number(MIN_ORACLE_QUERY_FEE));
+expectEqual("MIN_ORACLE_SUBSCRIPTION_FEE", readConstexpr(ORACLE_ENGINE, "MIN_ORACLE_SUBSCRIPTION_FEE"), Number(MIN_ORACLE_SUBSCRIPTION_FEE));
+
+// a commit or reveal transaction is recognized by its type.
+expectEqual("OracleReplyCommitTransactionPrefix::transactionType", readTransactionType(ORACLE_TRANSACTIONS, "OracleReplyCommitTransactionPrefix"), OracleReplyCommitTransactionPrefix.transactionType);
+expectEqual("OracleReplyRevealTransactionPrefix::transactionType", readTransactionType(ORACLE_TRANSACTIONS, "OracleReplyRevealTransactionPrefix"), OracleReplyRevealTransactionPrefix.transactionType);
 
 // An oc invocation has no reply, so the simulator mirrors the authorization statuses and the engine's admission caps.
 for (const [name, value] of [

@@ -74,6 +74,33 @@ export const ORACLE_STATUS = {
     UNRESOLVABLE: 5,
 } as const;
 
+export const ORACLE_QUERY_TYPE_CONTRACT_QUERY = 0;
+export const ORACLE_QUERY_TYPE_CONTRACT_SUBSCRIPTION = 1;
+export const ORACLE_QUERY_TYPE_USER_QUERY = 2;
+// the low byte is what an oracle machine reports, the rest is what the engine found out itself.
+export const ORACLE_FLAG_REPLY_PENDING = 0x0;
+export const ORACLE_FLAG_INVALID_ORACLE = 0x1;
+export const ORACLE_FLAG_ORACLE_UNAVAIL = 0x2;
+export const ORACLE_FLAG_INVALID_TIME = 0x4;
+export const ORACLE_FLAG_INVALID_PLACE = 0x8;
+export const ORACLE_FLAG_INVALID_ARG = 0x10;
+export const ORACLE_FLAG_OM_ERROR_FLAGS = 0xff;
+export const ORACLE_FLAG_REPLY_RECEIVED = 0x100;
+export const ORACLE_FLAG_BAD_SIZE_REPLY = 0x200;
+export const ORACLE_FLAG_OM_DISAGREE = 0x400;
+export const ORACLE_FLAG_BAD_SIZE_REVEAL = 0x800;
+export const ORACLE_FLAG_FAKE_COMMITS = 0x1000;
+
+// src/oracle_core/oracle_engine.h
+export const MAX_ORACLE_QUERIES = 1 << 21;
+export const ORACLE_QUERY_STORAGE_SIZE = MAX_ORACLE_QUERIES * 256;
+export const MAX_SIMULTANEOUS_ORACLE_QUERIES = 1024;
+export const MAX_ORACLE_SUBSCRIPTIONS = 1 << 13;
+export const MAX_ORACLE_SUBSCRIBERS = MAX_ORACLE_SUBSCRIPTIONS * 16;
+export const MAX_ORACLE_TIMEOUT_MILLISEC = 3600 * 1000;
+export const MIN_ORACLE_QUERY_FEE = 10n;
+export const MIN_ORACLE_SUBSCRIPTION_FEE = 100n;
+
 // an OC invocation has no reply: the status only tracks whether the computors authorized the bundle.
 export const OC_INVOCATION_STATUS = {
     UNKNOWN: 0,

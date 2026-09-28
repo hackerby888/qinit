@@ -48,4 +48,11 @@ export {
     DIGEST_SIZE,
     SIG_SIZE,
     ASSET_RECORD_SIZE,
+    OracleReplyCommitTransactionItem,
+    OracleReplyCommitTransactionPrefix,
+    OracleReplyRevealTransactionPrefix,
+    OracleMachineReply,
+    OracleNotificationInput,
+    OracleSubscription,
+    OracleNotificationData,
 } from "./protocol/wire";

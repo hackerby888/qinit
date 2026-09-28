@@ -4,6 +4,7 @@ import { type Codec, u8, u16, u24, u32, i16, i32, i64, u64, blob, array, sub, ro
 import {
     ASSETS_DEPTH as PROTOCOL_ASSETS_DEPTH,
     MAX_NUMBER_OF_CONTRACTS,
+    MAX_ORACLE_REPLY_SIZE,
     SPECTRUM_DEPTH as PROTOCOL_SPECTRUM_DEPTH,
     TXS_PER_TICK as PROTOCOL_TXS_PER_TICK,
 } from "@qinit/proto";
@@ -233,6 +234,52 @@ export class Transaction {
         return this.bytes.subarray(start, start + SIG_SIZE);
     }
 }
+
+// oracle_core/oracle_transactions.h: a commit transaction's input is n of these items.
+export const OracleReplyCommitTransactionItem = defineStruct("OracleReplyCommitTransactionItem", {
+    queryId: u64,
+    replyDigest: m256,
+    replyKnowledgeProof: m256,
+});
+export const OracleReplyCommitTransactionPrefix = { transactionType: 6, minInputSize: OracleReplyCommitTransactionItem.SIZE } as const;
+// a reveal transaction's input is the query id and then the reply.
+export const OracleReplyRevealTransactionPrefix = { transactionType: 7, minInputSize: 8 } as const;
+
+// oracle_core/core_om_network_messages.h: the reply bytes follow this header.
+export const OracleMachineReply = defineStruct("OracleMachineReply", {
+    oracleQueryId: u64,
+    oracleMachineErrorFlags: u16,
+    _padding0: u16,
+    _padding1: u32,
+});
+
+// qpi.h OracleNotificationInput: what a notification procedure receives, the reply follows this header.
+export const OracleNotificationInput = defineStruct("OracleNotificationInput", {
+    queryId: i64,
+    subscriptionId: i32,
+    status: u8,
+    _padding: blob(3),
+});
+
+// oracle_core/oracle_engine.h
+export const OracleSubscription = defineStruct("OracleSubscription", {
+    initialQueryStorageOffset: u64,
+    interfaceIndex: u32,
+    queryTimestampOffset: u16,
+    subscriberCount: u16,
+    lastPendingQueryId: i64,
+    lastRevealedQueryId: i64,
+    nextQueryTimestamp: u64,
+    generatedQueriesCount: u32,
+    firstSubscriberIndex: i32,
+});
+
+export const OracleNotificationData = defineStruct("OracleNotificationData", {
+    procedureId: u32,
+    contractIndex: u16,
+    inputSize: u16,
+    inputBuffer: blob(OracleNotificationInput.SIZE + MAX_ORACLE_REPLY_SIZE),
+});
 
 // AssetRecord: a 48-byte issuance, ownership, or possession union.
 const assetIssuance = layout([
