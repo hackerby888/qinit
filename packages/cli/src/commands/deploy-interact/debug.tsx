@@ -258,12 +258,12 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                 exit();
             } else if (key.ctrl && input === "t") {
                 setShowInternals((shown) => !shown);
-            } else if (key.upArrow) {
+            } else if (key.upArrow && !key.shift) {
                 const visible = visibleEntriesRef.current;
                 const index = traceSelectionIndex(visible, selectedSeqRef.current);
                 const next = Math.max(0, index - 1);
                 select(next === 0 ? null : (visible[next]?.seq ?? null));
-            } else if (key.downArrow) {
+            } else if (key.downArrow && !key.shift) {
                 const visible = visibleEntriesRef.current;
                 const index = traceSelectionIndex(visible, selectedSeqRef.current);
                 const next = Math.min(visible.length - 1, index + 1);
@@ -404,9 +404,10 @@ function Detail({
 
     useInput(
         (_, key) => {
-            if (key.pageDown) {
+            // shift+arrows because many laptops have no page keys; pgup/pgdn still work where they exist.
+            if (key.pageDown || (key.shift && key.downArrow)) {
                 setStateOffset((offset) => Math.min(offset + stateRows, Math.max(0, changed - stateRows)));
-            } else if (key.pageUp) {
+            } else if (key.pageUp || (key.shift && key.upArrow)) {
                 setStateOffset((offset) => Math.max(0, offset - stateRows));
             }
         },

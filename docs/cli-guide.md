@@ -1554,7 +1554,7 @@ the full path returns with the internal rows under `ctrl+t` in `qinit debug` or
 Hidden rows are always counted in a tail line, so a call that touched only bookkeeping
 never reads as "no change". `qinit call --trace` prints every row; `qinit debug` bounds
 the block to what is left of the terminal after the rows around it and pages through the
-rest with `pgup`/`pgdn`. That bound is not cosmetic: Ink cannot erase a frame taller than
+rest with `shift+↑`/`shift+↓`. That bound is not cosmetic: Ink cannot erase a frame taller than
 the screen, so an overflowing block leaves its own stale rows on the next render — which
 is what made `ctrl+t` look like it only worked one way.
 

@@ -107,7 +107,7 @@ function StateDiff({
         tail.push(`${all.length - start - shown.length} below`);
     }
     if (tail.length) {
-        tail.push("pgup/pgdn");
+        tail.push("shift+↑/↓");
     }
     if (hidden) {
         tail.push(`${hidden} container internals hidden · ${internalsHint}`);
