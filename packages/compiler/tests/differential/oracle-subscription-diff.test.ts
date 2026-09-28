@@ -44,17 +44,23 @@ function run(wasm: Uint8Array) {
     sim.tickDuration = 60_000;
     sim.deploy(SLOT, wasm);
     sim.fund(contractId(), 1_000_000n);
-    sim.setOracleProvider((interfaceIndex) => (interfaceIndex === 0 ? priceReply() : null));
+    const askedInterfaces: number[] = [];
+    sim.setOracleProvider((interfaceIndex) => {
+        askedInterfaces.push(interfaceIndex);
+        return interfaceIndex === 0 ? priceReply() : null;
+    });
 
+    // subscribing starts no query, each of the ticks after it starts one
     const output = sim.procedure(SLOT, 3, subscribeInput());
     const subscriptionId = new DataView(output.buffer, output.byteOffset, output.byteLength).getInt32(0, true);
-    const pendingInterface = sim.pendingOracleQueries()[0]?.interfaceIndex;
+    const pendingAfterSubscribe = sim.pendingOracleQueries().length;
     sim.advance();
     sim.advance();
     sim.advance();
     return {
         subscriptionId,
-        pendingInterface,
+        pendingAfterSubscribe,
+        askedInterfaces,
         balance: sim.balance(contractId()),
         state: sim.query(SLOT, 1),
     };
@@ -95,6 +101,7 @@ toolchainTest("Price subscription matches across TS and Clang artifacts in Virtu
     const typescriptResult = run(typescript.wasm);
     expect(nativeResult.subscriptionId).toBe(0);
     expect(typescriptResult).toEqual(nativeResult);
-    expect(nativeResult.pendingInterface).toBe(0);
+    expect(nativeResult.pendingAfterSubscribe).toBe(0);
+    expect(nativeResult.askedInterfaces).toEqual([0, 0, 0]);
     expect(nativeResult.balance).toBe(990_000n);
 });

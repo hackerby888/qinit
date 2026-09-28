@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/support/k12";
+import { CONTRACT_ENTRY_KIND } from "../../src/contract/runtime";
+import { OracleQuery as DogeShareValidationOracleQuery, OracleReply as DogeShareValidationOracleReply } from "../../src/oracle-interfaces/doge-share-validation";
 import { QubicSimulator } from "../../src/qubic-simulator";
 import { contractId, readInt32LE, readInt64LE, readUint64LE } from "../support/helpers";
 
@@ -14,6 +16,8 @@ const OQ_UNKNOWN = 0n;
 const OQ_PENDING = 1n;
 const OQ_COMMITTED = 2n;
 const OQ_SUCCESS = 3n;
+const OQ_TIMEOUT = 4n;
+const OQ_UNRESOLVABLE = 5n;
 
 function priceInput(milliseconds: number, notifyPrevious = false): Uint8Array {
     const input = new Uint8Array(112);
@@ -92,7 +96,8 @@ test("Price query resolves through its notification procedure", async () => {
 test("Price provider resolves pending queries on advance", async () => {
     const sim = await deployProbe();
     sim.setOracleProvider((interfaceIndex) => (interfaceIndex === 0 ? priceReply(100n, 3n) : null));
-    const queryId = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(60_000)));
+    // a tick is a minute here, and the reply comes in after the tick has looked at the timeouts.
+    const queryId = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(120_000)));
 
     // one tick to answer the query, the next to reveal the reply and notify the contract.
     sim.advance();
@@ -141,11 +146,186 @@ test("unsubscribe stops future Price subscription queries", async () => {
     });
     const subscriptionId = readInt32LE(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_000)));
 
+    // the tick after the subscription asks for the first time
+    expect(sim.pendingOracleQueries()).toEqual([]);
+    sim.advance();
+    expect(calls).toBe(1);
+
     expect(readInt32LE(sim.procedure(SLOT, UNSUBSCRIBE, subscriptionInput(subscriptionId)))).toBe(1);
+    expect(readInt32LE(sim.procedure(SLOT, UNSUBSCRIBE, subscriptionInput(subscriptionId)))).toBe(0);
     sim.advance();
     sim.advance();
     sim.advance();
     expect(calls).toBe(1);
+});
+
+test("a subscription that ends before its first tick never asks", async () => {
+    const sim = await deployProbe();
+    let calls = 0;
+    sim.setOracleProvider(() => {
+        calls++;
+        return priceReply(5n, 1n);
+    });
+
+    const subscriptionId = readInt32LE(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_000)));
+    expect(readInt32LE(sim.procedure(SLOT, UNSUBSCRIBE, subscriptionInput(subscriptionId)))).toBe(1);
+    sim.advance();
+    sim.advance();
+    expect(calls).toBe(0);
+    expect(last(sim).status).toBe(Number(OQ_UNKNOWN));
+});
+
+// a subscriber that asks for it is told the last revealed reply inside its SUBSCRIBE call, under the subscription's id.
+test("a new subscriber can be notified of the subscription's previous reply", async () => {
+    const sim = await deployProbe();
+    sim.setOracleProvider(() => priceReply(9n, 4n));
+
+    const subscriptionId = readInt32LE(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_000)));
+    sim.advance();
+    sim.advance();
+    const revealed = last(sim);
+    expect(revealed).toMatchObject({ numerator: 9n, denominator: 4n, subscriptionId, status: Number(OQ_SUCCESS) });
+    sim.setOracleProvider(null);
+
+    // a query the engine refuses overwrites what the contract saw last
+    expect(readInt32LE(sim.procedure(SLOT, UNSUBSCRIBE, subscriptionInput(subscriptionId)))).toBe(1);
+    expect(readInt64LE(sim.procedure(SLOT, QUERY, priceInput(3_600_001)))).toBe(-1n);
+    expect(last(sim)).toMatchObject({ queryId: -1n, subscriptionId: -1, status: Number(OQ_UNKNOWN) });
+
+    // the id stays with the query when everybody left, and so does the reply
+    expect(readInt32LE(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_000, true)))).toBe(subscriptionId);
+    expect(last(sim)).toEqual(revealed);
+
+    // without the flag the subscriber is told nothing
+    expect(readInt32LE(sim.procedure(SLOT, UNSUBSCRIBE, subscriptionInput(subscriptionId)))).toBe(1);
+    expect(readInt64LE(sim.procedure(SLOT, QUERY, priceInput(3_600_001)))).toBe(-1n);
+    expect(readInt32LE(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_000)))).toBe(subscriptionId);
+    expect(last(sim)).toMatchObject({ queryId: -1n, status: Number(OQ_UNKNOWN) });
+});
+
+// core's host refuses these before it looks at the fee or the notification procedure, so the contract only sees -1.
+test("a request for an interface or a size that does not exist is refused with nothing else happening", async () => {
+    await initK12();
+    const sim = new QubicSimulator();
+    const probe = sim.deploy(SLOT, await wasm("OracleProbe"));
+    sim.fund(contractId(SLOT), 1_000_000n);
+    const onReply = probe.entries.find((entry) => entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.inputSizeBytes === 16 + 16)!.inputType;
+    const query = new Uint8Array(104);
+
+    expect(sim.host.queryOracle(SLOT, 5, query, 16, onReply, 60_000, 0n)).toBe(-1n);
+    expect(sim.host.queryOracle(SLOT, 0, query.subarray(1), 16, onReply, 60_000, 0n)).toBe(-1n);
+    expect(sim.host.queryOracle(SLOT, 0, query, 15, onReply, 60_000, 0n)).toBe(-1n);
+    // the procedure takes a Price reply, which is not the size of the reply this interface gives
+    expect(DogeShareValidationOracleReply.SIZE).not.toBe(16);
+    expect(sim.host.queryOracle(SLOT, 2, new Uint8Array(DogeShareValidationOracleQuery.SIZE), 16, onReply, 60_000, 0n)).toBe(-1n);
+    expect(sim.host.subscribeOracle(SLOT, 5, query, 16, 32, onReply, 60_000, false, 100n)).toBe(-1);
+    expect(sim.host.subscribeOracle(SLOT, 0, query, 15, 32, onReply, 60_000, false, 100n)).toBe(-1);
+    expect(sim.host.subscribeOracle(SLOT, 0, query, 16, 97, onReply, 60_000, false, 100n)).toBe(-1);
+    sim.advance();
+    expect(last(sim)).toMatchObject({ queryId: 0n, status: Number(OQ_UNKNOWN) });
+    expect(sim.balance(contractId(SLOT))).toBe(1_000_000n);
+
+    // a fee the contract cannot pay, or one below the least a subscription costs, is refused with a notification
+    expect(sim.host.subscribeOracle(SLOT, 0, query, 16, 32, onReply, 60_000, false, 99n)).toBe(-1);
+    expect(sim.host.subscribeOracle(SLOT, 0, query, 16, 32, onReply, 60_000, false, 1_000_001n)).toBe(-1);
+    expect(sim.balance(contractId(SLOT))).toBe(1_000_000n);
+    sim.advance();
+    expect(last(sim)).toMatchObject({ queryId: -1n, subscriptionId: -1, status: Number(OQ_UNKNOWN) });
+});
+
+test("a dev reply is a success or an unavailable oracle, once per query", async () => {
+    const sim = await deployProbe();
+    const queryId = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(120_000)));
+    const status = () => readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)));
+
+    // what only the quorum or the clock decides cannot be set, and a reply has the interface's size
+    expect(sim.resolveOracle(queryId, priceReply(1n, 1n), Number(OQ_COMMITTED))).toBe(false);
+    expect(sim.resolveOracle(queryId, priceReply(1n, 1n), Number(OQ_TIMEOUT))).toBe(false);
+    expect(sim.resolveOracle(queryId, new Uint8Array(15))).toBe(false);
+    expect(status()).toBe(OQ_PENDING);
+
+    // an oracle machine that has no value leaves the query to its timeout
+    expect(sim.resolveOracle(queryId, new Uint8Array(0), Number(OQ_UNRESOLVABLE))).toBe(true);
+    expect(status()).toBe(OQ_PENDING);
+    sim.advance();
+    expect(status()).toBe(OQ_PENDING);
+    sim.advance();
+    expect(status()).toBe(OQ_TIMEOUT);
+    expect(last(sim)).toMatchObject({ queryId, subscriptionId: -1, status: Number(OQ_TIMEOUT) });
+    expect(sim.resolveOracle(queryId, priceReply(1n, 1n))).toBe(false);
+
+    const answered = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(120_000)));
+    expect(sim.resolveOracle(answered, priceReply(3n, 1n))).toBe(true);
+    expect(sim.resolveOracle(answered, priceReply(4n, 1n))).toBe(false);
+    sim.advance();
+    expect(last(sim)).toMatchObject({ numerator: 3n, queryId: answered, status: Number(OQ_SUCCESS) });
+});
+
+test("a reply that is committed still times out when the reveal comes after the deadline", async () => {
+    const sim = await deployProbe();
+    const queryId = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(60_000)));
+    let calls = 0;
+    sim.setOracleProvider(() => {
+        calls++;
+        return priceReply(1n, 1n);
+    });
+
+    // the tick a minute later meets the deadline before the provider is asked
+    sim.advance();
+    expect(calls).toBe(0);
+    expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_TIMEOUT);
+    expect(last(sim)).toMatchObject({ queryId, status: Number(OQ_TIMEOUT), numerator: 0n });
+
+    // a reply that came in time is committed, and the deadline still counts until it is revealed
+    const committed = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(120_000)));
+    sim.advance();
+    expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(committed)))).toBe(OQ_COMMITTED);
+    sim.tickDuration = 600_000;
+    sim.advance();
+    expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(committed)))).toBe(OQ_SUCCESS);
+});
+
+// a commit is only taken from a computor, so the engine has to know a key the moment a seat gets it.
+test("computors that got new keys still commit", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ consensus: { numberOfComputors: 8 } });
+    sim.deploy(SLOT, await wasm("OracleProbe"));
+    sim.fund(contractId(SLOT), 1_000_000n);
+    expect(sim.quorum()).toBe(6);
+
+    const first = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(60_000)));
+    expect(sim.resolveOracle(first, priceReply(1n, 1n))).toBe(true);
+
+    for (const computorIdx of [0, 1, 2]) {
+        sim.setComputorKey(computorIdx, new Uint8Array(32).fill(computorIdx + 1));
+    }
+    const second = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(60_000)));
+    expect(sim.resolveOracle(second, priceReply(2n, 1n))).toBe(true);
+    expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(second)))).toBe(OQ_COMMITTED);
+    sim.advance();
+    expect(last(sim)).toMatchObject({ numerator: 2n, queryId: second, status: Number(OQ_SUCCESS) });
+});
+
+test("queries that finish in one tick notify in the order they were started", async () => {
+    const sim = await deployProbe();
+    const first = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(120_000)));
+    const second = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(120_000)));
+
+    expect(sim.resolveOracle(second, priceReply(2n, 1n))).toBe(true);
+    expect(sim.resolveOracle(first, priceReply(1n, 1n))).toBe(true);
+    sim.advance();
+    expect(last(sim)).toMatchObject({ numerator: 2n, queryId: second });
+});
+
+test("an epoch change drops the queries and the replies that wait for their reveal", async () => {
+    const sim = await deployProbe();
+    const queryId = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(120_000)));
+    expect(sim.resolveOracle(queryId, priceReply(1n, 1n))).toBe(true);
+
+    sim.beginEpoch();
+    sim.advance();
+    expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_UNKNOWN);
+    expect(last(sim).numerator).toBe(0n);
 });
 
 test("unknown query ids stay UNKNOWN", async () => {

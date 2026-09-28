@@ -268,8 +268,9 @@ export interface HostServices {
         fee: bigint,
         callerFrame?: ContractCallContext,
     ): number;
-    getOracleQuery(queryId: bigint): Uint8Array | null;
-    getOracleReply(queryId: bigint): Uint8Array | null;
+    // null unless the size is the one the query's interface has
+    getOracleQuery(queryId: bigint, size: number): Uint8Array | null;
+    getOracleReply(queryId: bigint, size: number): Uint8Array | null;
     distributeDividends(slot: number, amountPerShare: bigint, originator?: Id): number;
     callFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Id): { error: number; output: Uint8Array };
     invokeProcedure(
@@ -1372,16 +1373,16 @@ export class Contract {
                     callerFrame(),
                 ),
             getOracleQuery: (queryId: bigint, outOff: number, size: number) => {
-                const q = this.host.getOracleQuery(queryId);
-                if (!q || q.length !== size) {
+                const q = this.host.getOracleQuery(queryId, size);
+                if (!q) {
                     return 0;
                 }
                 this.writeGuest(outOff, q);
                 return 1;
             },
             getOracleReply: (queryId: bigint, outOff: number, size: number) => {
-                const r = this.host.getOracleReply(queryId);
-                if (!r || r.length !== size) {
+                const r = this.host.getOracleReply(queryId, size);
+                if (!r) {
                     return 0;
                 }
                 this.writeGuest(outOff, r);

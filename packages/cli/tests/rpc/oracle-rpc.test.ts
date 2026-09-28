@@ -57,7 +57,8 @@ test("oracle RPC seam: discover a pending query, inject the reply, the notificat
             queryId: q.queryId,
             reply: Buffer.from(priceReply(42n, 1n)).toString("base64"),
         });
-        expect(res.ok).toBe(true);
+        // the simulator's computors commit at once, so the answer already shows the quorum's status
+        expect(res).toEqual({ ok: true, status: 2 });
         srv.engine.advanceTick(1);
         expect(i64(srv.engine.sim.query(SLOT, LAST, new Uint8Array(0)))).toBe(42n); // OnReply stored the numerator
         expect((await (await fetch(h.rpcBaseUrl + "/live/v1/dev/oracle-pending")).json()).queries.length).toBe(0);
@@ -66,7 +67,13 @@ test("oracle RPC seam: discover a pending query, inject the reply, the notificat
             queryId: "999",
             reply: Buffer.from(priceReply(1n, 1n)).toString("base64"),
         });
-        expect(bad.ok).toBe(false);
+        expect(bad).toEqual({ ok: false, status: 0 });
+
+        // only an oracle machine's two answers can be given: a reply, or no value
+        const timeout = await post(h.rpcBaseUrl + "/live/v1/dev/oracle-resolve", { queryId: q.queryId, reply: "", status: 4 });
+        expect(timeout).toEqual({ ok: false, message: "status must be success or unresolvable" });
+        const oversized = await post(h.rpcBaseUrl + "/live/v1/dev/oracle-resolve", { queryId: q.queryId, reply: Buffer.alloc(1009).toString("base64") });
+        expect(oversized).toEqual({ ok: false, message: "reply too large" });
     } finally {
         h.stop();
     }

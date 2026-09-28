@@ -25,7 +25,7 @@ import {
     hexToBytes,
 } from "@qinit/core";
 import { CORE_IO_CAPACITY_BYTES } from "@qinit/core/wasm/sizing";
-import { LITE_TX, CHUNK_DATA_MAX, MAX_INPUT_SIZE, UploadBegin, UploadChunkHeader, DeployMessage } from "@qinit/proto";
+import { LITE_TX, CHUNK_DATA_MAX, MAX_INPUT_SIZE, MAX_ORACLE_REPLY_SIZE, ORACLE_STATUS, UploadBegin, UploadChunkHeader, DeployMessage } from "@qinit/proto";
 import { QubicSimulator, EngineFaultedError, type AssetSnapshot, type FeeMode, type ProcedureCallOptions } from "./qubic-simulator";
 import type { LogSink } from "./logging/log";
 import type { CommitteeOpts } from "./chain/consensus";
@@ -856,8 +856,17 @@ export class VirtualNode implements NodeTransport {
         return this.sim.pendingOracleQueries();
     }
 
-    async oracleResolve(queryId: bigint, reply: Uint8Array, status?: number): Promise<{ ok: boolean }> {
-        return { ok: this.sim.resolveOracle(queryId, reply, status) };
+    // core-lite's dev route, answer for answer.
+    async oracleResolve(queryId: bigint, reply: Uint8Array, status: number = ORACLE_STATUS.SUCCESS): Promise<{ ok: boolean; status?: number; message?: string }> {
+        if (status !== ORACLE_STATUS.SUCCESS && status !== ORACLE_STATUS.UNRESOLVABLE) {
+            return { ok: false, message: "status must be success or unresolvable" };
+        }
+        if (status === ORACLE_STATUS.SUCCESS && reply.length > MAX_ORACLE_REPLY_SIZE) {
+            return { ok: false, message: "reply too large" };
+        }
+
+        const ok = this.sim.resolveOracle(queryId, reply, status);
+        return { ok, status: this.sim.oracleQueryStatus(queryId) };
     }
 
     async stateRead(slot: number, off: number, len: number): Promise<StateRead> {

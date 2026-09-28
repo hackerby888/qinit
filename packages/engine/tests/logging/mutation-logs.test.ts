@@ -1,5 +1,5 @@
 import { beforeAll, expect, test } from "bun:test";
-import { CUSTOM_MESSAGE_OP, QUBIC_LOG_TYPE } from "@qinit/proto";
+import { CUSTOM_MESSAGE_OP, QUBIC_LOG_TYPE, TXS_PER_TICK } from "@qinit/proto";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { concatBytes } from "../../src/support/bytes";
 import { initK12, k12Bytes } from "../../src/support/k12";
@@ -505,8 +505,11 @@ test("oracle queries and subscribers leave core's status and subscriber records"
     };
     const ofType = (tick: number, type: number) => tickRecords(logger, tick).filter((record) => record.type === type);
 
+    // a tick is a minute, and the query has to live through the tick that answers it, two ticks from here
+    const queryInput = priceInput.slice();
+    new DataView(queryInput.buffer).setUint32(104, 180_000, true);
     logger.begin(1, 0);
-    const queryId = new DataView(sim.procedure(29, 2, priceInput).buffer).getBigInt64(0, true);
+    const queryId = new DataView(sim.procedure(29, 2, queryInput).buffer).getBigInt64(0, true);
     logger.end();
     logger.finalizeTick(1);
     // a contract's own query is keyed by the contract, and starts pending.
@@ -533,16 +536,34 @@ test("oracle queries and subscribers leave core's status and subscriber records"
     ]);
 
     sim.setOracleProvider(null);
+    const subscriptionId = new DataView(sim.procedure(29, 3, priceInput).buffer).getInt32(0, true);
+    const subscriptionQueryIds = () => sim.pendingOracleQueries().map((pending) => pending.queryId);
+    expect(subscriptionQueryIds()).toEqual([]);
+
+    // the tick after the subscription starts its queries, keyed by the subscription and not by the contract. The tick is a minute late
+    // for the first one, which times out at once, and on time for the second.
+    sim.advance();
+    const firstQueryId = (BigInt(sim.currentTick) << 31n) | BigInt(TXS_PER_TICK);
+    expect(subscriptionQueryIds()).toEqual([firstQueryId + 1n]);
+    expect(ofType(sim.currentTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([
+        { range: LOG_SC_NOTIFICATION, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(BigInt(subscriptionId), firstQueryId, 1, 1) },
+        { range: LOG_SC_NOTIFICATION, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(BigInt(subscriptionId), firstQueryId + 1n, 1, 1) },
+        { range: LOG_SC_NOTIFICATION, type: QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE, message: statusChange(BigInt(subscriptionId), firstQueryId, 1, 4) },
+    ]);
+
     const subscribeTick = sim.currentTick + 1;
     logger.begin(subscribeTick, 0);
-    const subscriptionId = new DataView(sim.procedure(29, 3, priceInput).buffer).getInt32(0, true);
     const unsubscribeInput = new Uint8Array(4);
     new DataView(unsubscribeInput.buffer).setInt32(0, subscriptionId, true);
+    sim.procedure(29, 4, unsubscribeInput);
+    sim.procedure(29, 3, priceInput);
     sim.procedure(29, 4, unsubscribeInput);
     logger.end();
     logger.finalizeTick(subscribeTick);
 
-    const subscriberRecords = ofType(subscribeTick, QUBIC_LOG_TYPE.ORACLE_SUBSCRIBER_MESSAGE).map((record) => new DataView(record.message.buffer));
+    const subscriberRecords = ofType(subscribeTick, QUBIC_LOG_TYPE.ORACLE_SUBSCRIBER_MESSAGE)
+        .slice(1)
+        .map((record) => new DataView(record.message.buffer));
     // { subscriptionId, interfaceIndex, contractIndex, period, first query time }: a period of zero is the unsubscribe.
     expect(
         subscriberRecords.map((view) => [view.byteLength, view.getInt32(0, true), view.getUint32(4, true), view.getUint32(8, true), view.getUint32(12, true)]),
@@ -552,6 +573,6 @@ test("oracle queries and subscribers leave core's status and subscriber records"
     ]);
     expect(subscriberRecords[0].getBigUint64(16, true)).toBeGreaterThan(0n);
     expect(subscriberRecords[1].getBigUint64(16, true)).toBe(0n);
-    // the subscription's first query is keyed by the subscription, not by the contract.
-    expect(ofType(subscribeTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE).map((record) => [record.message[44], record.message[45]])).toEqual([[1, 1]]);
+    // subscribing starts no query
+    expect(ofType(subscribeTick, QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([]);
 });

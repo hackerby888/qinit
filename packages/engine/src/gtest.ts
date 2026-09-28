@@ -683,14 +683,14 @@ export async function runContractTesting(
                 ),
             unsubscribeOracle: (subscriptionId: number): number => synced(() => sim.host.unsubscribeOracle(mainSlot, subscriptionId | 0)),
             getOracleQuery: (queryId: bigint, outOff: number, size: number): number => {
-                const query = sim.host.getOracleQuery(queryId);
-                if (!query || query.length !== size) return 0;
+                const query = sim.host.getOracleQuery(queryId, size);
+                if (!query) return 0;
                 write(outOff, query);
                 return 1;
             },
             getOracleReply: (queryId: bigint, outOff: number, size: number): number => {
-                const reply = sim.host.getOracleReply(queryId);
-                if (!reply || reply.length !== size) return 0;
+                const reply = sim.host.getOracleReply(queryId, size);
+                if (!reply) return 0;
                 write(outOff, reply);
                 return 1;
             },
