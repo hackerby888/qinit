@@ -1863,6 +1863,13 @@ times queries out, and asks a provider (`qinit oracle serve`, `setOracleProvider
 A query therefore has to live past the tick that answers it: with one-minute ticks a
 one-minute timeout is over before the provider is asked.
 
+[`scripts/live-node/ci-oracle-cli.ts`](../scripts/live-node/ci-oracle-cli.ts) walks all of
+this with these commands on a simulator node it starts for itself:
+[`fixtures/OracleDemo.h`](../fixtures/OracleDemo.h) asks and subscribes, the script answers
+by hand and then from a rules file, and the contract's notification procedure counts what
+it was told. It is the `oracle-cli` job in CI, and a worked example of a contract that
+uses the oracle.
+
 ### 12.6 Outsourced computation has no reply
 
 `INVOKE_OC` is one-way. There is no result on chain, no notification procedure, and no

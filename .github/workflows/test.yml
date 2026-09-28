@@ -661,6 +661,29 @@ jobs:
           [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ] && [ $c4 -eq 0 ] && [ $c5 -eq 0 ] && [ $c6 -eq 0 ] && [ $c7 -eq 0 ] && [ $c8 -eq 0 ] && [ $c9 -eq 0 ]
 
   # QPI VS Code extension checks that need clangd or a real editor.
+  # a contract's oracle queries answered through the cli on a simulator node: by hand, then from a rules file.
+  # The simulator keeps real time and a subscription asks once a minute, so this takes about five minutes.
+  oracle-cli:
+    needs: resolve-core
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      QINIT_CORE: ${{ github.workspace }}/core
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout core-lite (${{ needs.resolve-core.outputs.sha }})
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.resolve-core.outputs.repository }}
+          ref: ${{ needs.resolve-core.outputs.sha }}
+          path: core
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install
+      - name: Oracle queries through the cli
+        run: bun run scripts/live-node/ci-oracle-cli.ts
+
   vscode-clangd-check:
     strategy:
       fail-fast: false

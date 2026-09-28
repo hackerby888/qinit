@@ -24,6 +24,8 @@ const corpus: { name: string; path: string; dynCallees?: Callees; skipVerify?: b
     // exercises the rest of the newly-exposed qpi wasm imports (dayOfWeek, signatureValidity, IPO/mining/oracle).
     { name: "ApiProbe", path: fixturePath("ApiProbe.h"), skipVerify: true },
     { name: "OracleProbe", path: fixturePath("OracleProbe.h"), skipVerify: true },
+    // builds its own Price query and counts what its notification procedure is told; the contract of ci-oracle-cli.ts.
+    { name: "OracleDemo", path: fixturePath("OracleDemo.h") },
     { name: "BigState", path: fixturePath("BigState.h") },
     {
         name: "Proxy",
