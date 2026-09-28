@@ -47,6 +47,30 @@ QBCT_IMPORT(q_state_addr) unsigned int bq_state_addr(unsigned int i);
 QBCT_IMPORT(q_set_computor) void       bq_set_computor(unsigned int i, const void* id32);
 QBCT_IMPORT(q_get_fee_reserve) long long bq_get_fee_reserve(unsigned int idx);
 QBCT_IMPORT(q_set_fee_reserve) void      bq_set_fee_reserve(unsigned int idx, long long amount);
+// core's oracleEngine: every call goes to the engine the contracts run in, so a test and the contract under test see one state
+QBCT_IMPORT(q_oracle_reset) void bq_oracle_reset();
+QBCT_IMPORT(q_oracle_start_contract_query) long long bq_oracle_start_contract_query(unsigned int contractIndex, unsigned int interfaceIndex, const void* queryData, unsigned int querySize, unsigned int timeoutMillisec, unsigned int notificationProcId);
+QBCT_IMPORT(q_oracle_start_contract_subscription) int bq_oracle_start_contract_subscription(unsigned int contractIndex, unsigned int interfaceIndex, const void* queryData, unsigned int querySize, unsigned int notificationPeriodMillisec, unsigned int notificationProcId, unsigned int timestampOffsetInQuery);
+QBCT_IMPORT(q_oracle_stop_contract_subscription) unsigned int bq_oracle_stop_contract_subscription(int subscriptionId, unsigned int contractIndex);
+QBCT_IMPORT(q_oracle_generate_subscription_queries) void bq_oracle_generate_subscription_queries();
+QBCT_IMPORT(q_oracle_process_machine_reply) void bq_oracle_process_machine_reply(const void* replyMessage, unsigned int replyMessageSize);
+QBCT_IMPORT(q_oracle_get_reply_commit_tx) unsigned int bq_oracle_get_reply_commit_tx(void* txBuffer, unsigned int computorIdx, unsigned int txScheduleTick, unsigned int startIdx);
+QBCT_IMPORT(q_oracle_process_reply_commit_tx) unsigned int bq_oracle_process_reply_commit_tx(const void* transaction);
+QBCT_IMPORT(q_oracle_get_reply_reveal_tx) unsigned int bq_oracle_get_reply_reveal_tx(void* txBuffer, unsigned int computorIdx, unsigned int txScheduleTick, unsigned int startIdx);
+QBCT_IMPORT(q_oracle_announce_reveal_tx) void bq_oracle_announce_reveal_tx(const void* transaction);
+QBCT_IMPORT(q_oracle_process_reply_reveal_tx) unsigned int bq_oracle_process_reply_reveal_tx(const void* transaction, unsigned int txSlotInTickData);
+QBCT_IMPORT(q_oracle_process_timeouts) void bq_oracle_process_timeouts();
+QBCT_IMPORT(q_oracle_get_notification) unsigned int bq_oracle_get_notification(void* notification);
+QBCT_IMPORT(q_oracle_get_query) unsigned int bq_oracle_get_query(long long queryId, void* queryData, unsigned int querySize);
+QBCT_IMPORT(q_oracle_get_reply) unsigned int bq_oracle_get_reply(long long queryId, void* replyData, unsigned int replySize);
+QBCT_IMPORT(q_oracle_get_query_status) unsigned int bq_oracle_get_query_status(long long queryId);
+QBCT_IMPORT(q_oracle_get_query_status_flags) unsigned int bq_oracle_get_query_status_flags(long long queryId);
+QBCT_IMPORT(q_oracle_get_pending_contract_queries) unsigned int bq_oracle_get_pending_contract_queries(void* pendingQueries, unsigned int maxCount);
+QBCT_IMPORT(q_oracle_get_subscription) unsigned int bq_oracle_get_subscription(int subscriptionId, void* subscription);
+QBCT_IMPORT(q_oracle_check_state) void bq_oracle_check_state();
+// a procedure a contract registered for notifications, and a call of it as core's notification context makes it
+QBCT_IMPORT(q_user_procedure) unsigned int bq_user_procedure(unsigned int procedureId, void* userProcedureData);
+QBCT_IMPORT(q_call_notification) unsigned int bq_call_notification(unsigned int contractIndex, unsigned int procedureId, const void* input, unsigned int inputSize);
 }
 
 #undef QBCT_IMPORT
@@ -93,6 +117,7 @@ enum : unsigned char {
     contractSystemProcedureCount = 0 WASM_SYSTEM_PROCEDURE_ROWS(QINIT_SYSTEM_PROCEDURE_COUNT),
     USER_PROCEDURE_CALL = contractSystemProcedureCount + 1,
     USER_FUNCTION_CALL = contractSystemProcedureCount + 2,
+    USER_PROCEDURE_NOTIFICATION_CALL = contractSystemProcedureCount + 4,
 };
 #undef QINIT_SYSTEM_PROCEDURE_COUNT
 
@@ -223,6 +248,48 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall, public
         (void)possessor;
         return bq_transfer_holding(assetName, &issuer, &owner, &newOwnerAndPossessor, numberOfShares,
                                    _currentContractIndex);
+    }
+};
+
+// Mirror of contract_def.h's UserProcedureRegistry: what a contract registered for notifications, looked up by procedure id.
+// The procedure itself lives in the contract's module, so the member only says that there is one.
+class UserProcedureRegistry {
+public:
+    struct UserProcedureData {
+        unsigned int procedure;
+        unsigned int contractIndex;
+        unsigned int localsSize;
+        unsigned short inputSize;
+        unsigned short outputSize;
+    };
+
+    // core hands out a pointer into its table; here the last looked-up entry, so a caller that keeps it copies it, as core's context does
+    const UserProcedureData* get(unsigned int procedureId) const {
+        static UserProcedureData userProcData;
+        return bq_user_procedure(procedureId, &userProcData) ? &userProcData : nullptr;
+    }
+};
+static_assert(sizeof(UserProcedureRegistry::UserProcedureData) == 16 && offsetof(UserProcedureRegistry::UserProcedureData, inputSize) == 12, "gtest.ts writes this layout");
+
+static UserProcedureRegistry qbUserProcedureRegistry;
+static UserProcedureRegistry* userProcedureRegistry = &qbUserProcedureRegistry;
+
+// Mirror of contract_exec.h's QpiContextUserProcedureNotificationCall: runs a notification procedure as the tick processor does.
+struct QpiContextUserProcedureNotificationCall : public QPI::QpiContextProcedureCall {
+    UserProcedureRegistry::UserProcedureData notif;
+
+    QpiContextUserProcedureNotificationCall(const UserProcedureRegistry::UserProcedureData& notification)
+        : QPI::QpiContextProcedureCall(notification.contractIndex, QPI::id::zero(), 0, USER_PROCEDURE_NOTIFICATION_CALL), notif(notification) {}
+
+    void call(const void* inputPtr) {
+        if (!notif.procedure) {
+            return;
+        }
+
+        const unsigned int errorCode = bq_call_notification(_currentContractIndex, notif.procedure, inputPtr, notif.inputSize);
+        if (errorCode) {
+            contractError[_currentContractIndex] = errorCode;
+        }
     }
 };
 
@@ -506,6 +573,193 @@ struct QbBroadcastComputors {
 };
 
 static QbBroadcastComputors broadcastedComputors;
+
+// ---- oracleEngine: core's oracle_core/oracle_engine.h object and what core's oracle_testing.h adds for driving it ----
+// The engine is the one the contracts under test reach through qpi, so a query a contract started can be answered here, and a
+// subscription started here is one the contract shares. Statistics, revenue points, snapshots and user queries are not kept.
+
+#include "oracle_core/oracle_transactions.h"
+#include "oracle_core/core_om_network_messages.h"
+
+#ifndef MAX_TRANSACTION_SIZE
+#define MAX_TRANSACTION_SIZE (MAX_INPUT_SIZE + sizeof(Transaction) + SIGNATURE_SIZE)
+#endif
+
+constexpr unsigned int MAX_SIMULTANEOUS_ORACLE_QUERIES = 1024;
+constexpr unsigned int MAX_ORACLE_TIMEOUT_MILLISEC = 3600 * 1000;
+constexpr long long MIN_ORACLE_QUERY_FEE = 10;
+constexpr long long MIN_ORACLE_SUBSCRIPTION_FEE = 100;
+
+struct OracleSubscription {
+    unsigned long long initialQueryStorageOffset;
+    unsigned int interfaceIndex;
+    unsigned short queryTimestampOffset;
+    unsigned short subscriberCount;
+    long long lastPendingQueryId;
+    long long lastRevealedQueryId;
+    QPI::DateAndTime nextQueryTimestamp;
+    unsigned int generatedQueriesCount;
+    int firstSubscriberIndex;
+};
+static_assert(sizeof(OracleSubscription) == 48 && offsetof(OracleSubscription, nextQueryTimestamp) == 32, "gtest.ts writes this layout");
+
+struct OracleNotificationData {
+    unsigned int procedureId;
+    unsigned short contractIndex;
+    unsigned short inputSize;
+    unsigned char inputBuffer[16 + MAX_ORACLE_REPLY_SIZE];
+};
+static_assert(sizeof(OracleNotificationData) == 8 + 16 + MAX_ORACLE_REPLY_SIZE, "gtest.ts writes this layout");
+
+class OracleEngine {
+public:
+    struct PendingContractQuery {
+        long long queryId;
+        unsigned int interfaceIndex;
+        unsigned short contractIndex;
+    };
+
+    // writing broadcastedComputors already told the engine the keys
+    bool init(const QbComputorKeys&) {
+        bq_oracle_reset();
+        return true;
+    }
+
+    bool init(const m256i* computorPublicKeys) {
+        for (unsigned int computorIdx = 0; computorIdx < NUMBER_OF_COMPUTORS; ++computorIdx) {
+            bq_set_computor(computorIdx, &computorPublicKeys[computorIdx]);
+        }
+        bq_oracle_reset();
+        return true;
+    }
+
+    void reset() {
+        bq_oracle_reset();
+    }
+
+    void deinit() {
+    }
+
+    void beginEpoch() {
+        bq_oracle_reset();
+    }
+
+    long long startContractQuery(unsigned short contractIndex, unsigned int interfaceIndex, const void* queryData, unsigned short querySize,
+                                 unsigned int timeoutMillisec, unsigned int notificationProcId) {
+        return bq_oracle_start_contract_query(contractIndex, interfaceIndex, queryData, querySize, timeoutMillisec, notificationProcId);
+    }
+
+    int startContractSubscription(unsigned short contractIndex, unsigned int interfaceIndex, const void* queryData, unsigned short querySize,
+                                  unsigned int notificationPeriodMillisec, unsigned int notificationProcId, unsigned short timestampOffsetInQuery) {
+        return bq_oracle_start_contract_subscription(contractIndex, interfaceIndex, queryData, querySize, notificationPeriodMillisec, notificationProcId, timestampOffsetInQuery);
+    }
+
+    bool stopContractSubscription(int subscriptionId, unsigned short contractIndex) {
+        return bq_oracle_stop_contract_subscription(subscriptionId, contractIndex) != 0;
+    }
+
+    void generateSubscriptionQueries() {
+        bq_oracle_generate_subscription_queries();
+    }
+
+    void processOracleMachineReply(const OracleMachineReply* replyMessage, unsigned int replyMessageSize) {
+        bq_oracle_process_machine_reply(replyMessage, replyMessageSize);
+    }
+
+    unsigned int getReplyCommitTransaction(void* txBuffer, unsigned short computorIdx, unsigned int txScheduleTick, unsigned int startIdx = 0) {
+        return bq_oracle_get_reply_commit_tx(txBuffer, computorIdx, txScheduleTick, startIdx);
+    }
+
+    bool processOracleReplyCommitTransaction(const OracleReplyCommitTransactionPrefix* transaction) {
+        return bq_oracle_process_reply_commit_tx(transaction) != 0;
+    }
+
+    unsigned int getReplyRevealTransaction(void* txBuffer, unsigned short computorIdx, unsigned int txScheduleTick, unsigned int startIdx = 0) {
+        return bq_oracle_get_reply_reveal_tx(txBuffer, computorIdx, txScheduleTick, startIdx);
+    }
+
+    void announceExpectedRevealTransaction(const OracleReplyRevealTransactionPrefix* transaction) {
+        bq_oracle_announce_reveal_tx(transaction);
+    }
+
+    bool processOracleReplyRevealTransaction(const OracleReplyRevealTransactionPrefix* transaction, unsigned int txSlotInTickData) {
+        return bq_oracle_process_reply_reveal_tx(transaction, txSlotInTickData) != 0;
+    }
+
+    void processTimeouts() {
+        bq_oracle_process_timeouts();
+    }
+
+    // one buffer for every call, as in core
+    const OracleNotificationData* getNotification() {
+        static OracleNotificationData notificationOutputBuffer;
+        return bq_oracle_get_notification(&notificationOutputBuffer) ? &notificationOutputBuffer : nullptr;
+    }
+
+    // the engine keeps no user queries, so none ever finishes
+    const void* getFinishedUserQuery() {
+        return nullptr;
+    }
+
+    bool getOracleQuery(long long queryId, void* queryData, unsigned short querySize) const {
+        return bq_oracle_get_query(queryId, queryData, querySize) != 0;
+    }
+
+    bool getOracleReply(long long queryId, void* replyData, unsigned short replySize) const {
+        return bq_oracle_get_reply(queryId, replyData, replySize) != 0;
+    }
+
+    unsigned char getOracleQueryStatus(long long queryId) const {
+        return (unsigned char)bq_oracle_get_query_status(queryId);
+    }
+
+    unsigned short getOracleQueryStatusFlags(long long queryId) const {
+        return (unsigned short)bq_oracle_get_query_status_flags(queryId);
+    }
+
+    unsigned int getPendingContractQueries(PendingContractQuery* pendingQueries, unsigned int maxCount) const {
+        return bq_oracle_get_pending_contract_queries(pendingQueries, maxCount);
+    }
+
+    // core hands out a pointer into its table; here the last looked-up subscription
+    const OracleSubscription* getOracleSubscription(int subscriptionId) const {
+        static OracleSubscription subscription;
+        return bq_oracle_get_subscription(subscriptionId, &subscription) ? &subscription : nullptr;
+    }
+
+    // the engine fails the test with what it found
+    void checkStateConsistencyWithAssert() const {
+        bq_oracle_check_state();
+    }
+};
+static_assert(sizeof(OracleEngine::PendingContractQuery) == 16, "gtest.ts writes this layout");
+
+static OracleEngine oracleEngine;
+
+// core's tick storage keeps a revealed reply for the engine to read back; the engine here keeps it itself.
+struct QbTickStorage {
+    bool init() {
+        return true;
+    }
+
+    void deinit() {
+    }
+
+    void beginEpoch(unsigned int) {
+    }
+
+    void checkStateConsistencyWithAssert() const {
+    }
+};
+static QbTickStorage ts;
+
+static const Transaction* addOracleTransactionToTickStorage(const Transaction* tx, unsigned int) {
+    return tx;
+}
+
+static inline QPI::uint64 getContractOracleQueryId(QPI::uint32 tick, QPI::uint32 indexInTick) {
+    return ((QPI::uint64)tick << 31) | (indexInTick + NUMBER_OF_TRANSACTIONS_PER_TICK);
+}
 
 // ---- free helpers ----
 

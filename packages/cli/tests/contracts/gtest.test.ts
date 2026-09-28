@@ -159,6 +159,229 @@ test.skipIf(!have)(
     120_000,
 );
 
+const ORACLE_PROBE = `${import.meta.dir}/../../../../fixtures/OracleProbe.h`;
+// core's oracle globals as core's own tests use them: the engine, the tick storage, the registry and the notification context.
+const ORACLE_TEST_SOURCE = `#define NO_UEFI
+#include "contract_testing.h"
+#include "oracle_testing.h"
+
+class ContractTestingOracleProbe : protected ContractTesting {
+public:
+    m256i computorKeys[NUMBER_OF_COMPUTORS];
+    id user;
+
+    ContractTestingOracleProbe() : user(7, 7, 7, 7) {
+        initEmptySpectrum();
+        initEmptyUniverse();
+        INIT_CONTRACT(OracleProbe);
+        callSystemProcedure(OracleProbe_CONTRACT_INDEX, INITIALIZE);
+
+        system.tick = 1000;
+        etalonTick.year = 25;
+        etalonTick.month = 12;
+        etalonTick.day = 15;
+        etalonTick.hour = 16;
+        for (unsigned int i = 0; i < NUMBER_OF_COMPUTORS; ++i) {
+            computorKeys[i] = m256i(i * 2, 42, 13, 1337);
+        }
+        EXPECT_TRUE(oracleEngine.init(computorKeys));
+        EXPECT_TRUE(ts.init());
+        ts.beginEpoch(system.tick);
+
+        increaseEnergy(id(OracleProbe_CONTRACT_INDEX, 0, 0, 0), 1000000);
+        increaseEnergy(user, 1000);
+    }
+
+    ~ContractTestingOracleProbe() {
+        oracleEngine.deinit();
+        ts.deinit();
+    }
+
+    sint64 query(uint32 timeoutMillisec) {
+        OracleProbe::Query_input input{};
+        input.timeoutMillisec = timeoutMillisec;
+        OracleProbe::Query_output output{};
+        invokeUserProcedure(OracleProbe_CONTRACT_INDEX, 2, input, output, user, 0);
+        return output.queryId;
+    }
+
+    sint32 subscribe(uint32 periodMillisec) {
+        OracleProbe::Subscribe_input input{};
+        input.periodMillisec = periodMillisec;
+        OracleProbe::Subscribe_output output{};
+        invokeUserProcedure(OracleProbe_CONTRACT_INDEX, 3, input, output, user, 0);
+        return output.subscriptionId;
+    }
+
+    OracleProbe::Last_output last() const {
+        OracleProbe::Last_input input{};
+        OracleProbe::Last_output output{};
+        callFunction(OracleProbe_CONTRACT_INDEX, 1, input, output);
+        return output;
+    }
+
+    unsigned int pendingQueries() const {
+        OracleEngine::PendingContractQuery pending[8];
+        return oracleEngine.getPendingContractQueries(pending, 8);
+    }
+
+    void answer(sint64 queryId, sint64 numerator) {
+        struct {
+            OracleMachineReply metadata;
+            OI::Price::OracleReply data;
+        } machineReply;
+        setMem(&machineReply, sizeof(machineReply), 0);
+        machineReply.metadata.oracleQueryId = queryId;
+        machineReply.data.numerator = numerator;
+        machineReply.data.denominator = 1;
+        oracleEngine.processOracleMachineReply(&machineReply.metadata, sizeof(machineReply));
+    }
+
+    void commitAndReveal(sint64 queryId) {
+        uint8_t txBuffer[MAX_TRANSACTION_SIZE];
+        for (unsigned int i = 0; i < NUMBER_OF_COMPUTORS; ++i) {
+            if (!oracleEngine.getReplyCommitTransaction(txBuffer, i, system.tick + 3, 0)) {
+                break;
+            }
+            EXPECT_TRUE(oracleEngine.processOracleReplyCommitTransaction((OracleReplyCommitTransactionPrefix*)txBuffer));
+        }
+        EXPECT_EQ((int)oracleEngine.getOracleQueryStatus(queryId), (int)ORACLE_QUERY_STATUS_COMMITTED);
+
+        system.tick += 3;
+        EXPECT_EQ(oracleEngine.getReplyRevealTransaction(txBuffer, 0, system.tick + 3, 0), 1u);
+        system.tick += 3;
+        auto* revealTx = (OracleReplyRevealTransactionPrefix*)txBuffer;
+        addOracleTransactionToTickStorage(revealTx, 0);
+        EXPECT_TRUE(oracleEngine.processOracleReplyRevealTransaction(revealTx, 0));
+    }
+
+    // what the tick processor does with the engine's notifications
+    void notifyContracts() {
+        while (const OracleNotificationData* notification = oracleEngine.getNotification()) {
+            const UserProcedureRegistry::UserProcedureData* procData = userProcedureRegistry->get(notification->procedureId);
+            ASSERT_NE(procData, nullptr);
+            EXPECT_EQ(procData->contractIndex, (unsigned int)notification->contractIndex);
+            EXPECT_EQ((int)procData->inputSize, (int)notification->inputSize);
+            QpiContextUserProcedureNotificationCall qpiContext(*procData);
+            qpiContext.call(notification->inputBuffer);
+        }
+    }
+};
+
+TEST(OracleProbe, ReplyReachesTheContract) {
+    ContractTestingOracleProbe t;
+    const sint64 queryId = t.query(60000);
+    EXPECT_EQ(queryId, (sint64)getContractOracleQueryId(system.tick, 0));
+
+    OracleEngine::PendingContractQuery pending[8];
+    EXPECT_EQ(oracleEngine.getPendingContractQueries(pending, 8), 1u);
+    EXPECT_EQ(pending[0].queryId, queryId);
+    EXPECT_EQ((int)pending[0].contractIndex, (int)OracleProbe_CONTRACT_INDEX);
+    EXPECT_EQ(pending[0].interfaceIndex, (unsigned int)OI::Price::oracleInterfaceIndex);
+
+    OI::Price::OracleQuery asked;
+    EXPECT_TRUE(oracleEngine.getOracleQuery(queryId, &asked, sizeof(asked)));
+    EXPECT_FALSE(oracleEngine.getOracleQuery(queryId, &asked, sizeof(asked) - 1));
+
+    t.answer(queryId, 42);
+    EXPECT_EQ((int)oracleEngine.getOracleQueryStatusFlags(queryId), (int)ORACLE_FLAG_REPLY_RECEIVED);
+    t.commitAndReveal(queryId);
+    EXPECT_EQ((int)oracleEngine.getOracleQueryStatus(queryId), (int)ORACLE_QUERY_STATUS_SUCCESS);
+
+    OI::Price::OracleReply reply;
+    EXPECT_TRUE(oracleEngine.getOracleReply(queryId, &reply, sizeof(reply)));
+    EXPECT_EQ(reply.numerator, 42);
+
+    EXPECT_EQ(t.last().numerator, 0);
+    t.notifyContracts();
+    EXPECT_EQ(t.last().numerator, 42);
+    EXPECT_EQ(t.last().queryId, queryId);
+    EXPECT_EQ((int)t.last().status, (int)ORACLE_QUERY_STATUS_SUCCESS);
+    EXPECT_EQ(contractError[OracleProbe_CONTRACT_INDEX], 0u);
+
+    EXPECT_EQ(oracleEngine.getNotification(), nullptr);
+    EXPECT_EQ(oracleEngine.getFinishedUserQuery(), nullptr);
+    oracleEngine.checkStateConsistencyWithAssert();
+}
+
+TEST(OracleProbe, UnansweredQueryTimesOut) {
+    ContractTestingOracleProbe t;
+    const sint64 queryId = t.query(1000);
+
+    oracleEngine.processTimeouts();
+    EXPECT_EQ(oracleEngine.getNotification(), nullptr);
+
+    advanceTimeAndTick(2000);
+    oracleEngine.processTimeouts();
+    t.notifyContracts();
+    EXPECT_EQ(t.last().queryId, queryId);
+    EXPECT_EQ((int)t.last().status, (int)ORACLE_QUERY_STATUS_TIMEOUT);
+    oracleEngine.checkStateConsistencyWithAssert();
+}
+
+TEST(OracleProbe, SubscriptionAsksWhenItsQueriesAreGenerated) {
+    ContractTestingOracleProbe t;
+    const sint32 subscriptionId = t.subscribe(60000);
+    ASSERT_GE(subscriptionId, 0);
+
+    const OracleSubscription* subscription = oracleEngine.getOracleSubscription(subscriptionId);
+    ASSERT_NE(subscription, nullptr);
+    EXPECT_EQ((int)subscription->subscriberCount, 1);
+    EXPECT_EQ(subscription->lastPendingQueryId, -1);
+    EXPECT_EQ(subscription->nextQueryTimestamp, QPI::DateAndTime::now());
+    EXPECT_EQ(t.pendingQueries(), 0u);
+
+    oracleEngine.generateSubscriptionQueries();
+    EXPECT_EQ(t.pendingQueries(), 1u);
+    subscription = oracleEngine.getOracleSubscription(subscriptionId);
+    EXPECT_EQ(subscription->generatedQueriesCount, 1u);
+    EXPECT_EQ(subscription->lastPendingQueryId, (sint64)getContractOracleQueryId(system.tick, 0));
+
+    // a second contract with the same query shares the subscription
+    OracleProbe::Subscribe_input same{};
+    EXPECT_EQ(oracleEngine.startContractSubscription(QX_CONTRACT_INDEX, OI::Price::oracleInterfaceIndex, &same.query, sizeof(same.query),
+        120000, 1, offsetof(OI::Price::OracleQuery, timestamp)), subscriptionId);
+    EXPECT_EQ((int)oracleEngine.getOracleSubscription(subscriptionId)->subscriberCount, 2);
+    EXPECT_TRUE(oracleEngine.stopContractSubscription(subscriptionId, QX_CONTRACT_INDEX));
+    EXPECT_FALSE(oracleEngine.stopContractSubscription(subscriptionId, QX_CONTRACT_INDEX));
+    oracleEngine.checkStateConsistencyWithAssert();
+
+    oracleEngine.beginEpoch();
+    EXPECT_EQ(oracleEngine.getOracleSubscription(subscriptionId), nullptr);
+    EXPECT_EQ(t.pendingQueries(), 0u);
+}
+`;
+
+test.skipIf(!have)(
+    "a gtest drives core's oracleEngine, and the contract under test is the one it answers",
+    async () => {
+        const outDir = mkdtempSync(join(tmpdir(), "qinit-gtest-oracle-"));
+        try {
+            const testPath = join(outDir, "OracleProbe.test.cpp");
+            writeFileSync(testPath, ORACLE_TEST_SOURCE);
+            const run = await runStdGtest({
+                contractPath: ORACLE_PROBE,
+                testPath,
+                name: "OracleProbe",
+                stateType: "OracleProbe",
+                slot: SLOT,
+                core: CORE,
+                backend: "clang",
+                scratch: outDir,
+            });
+            expect(run.runnerOk, run.buildError).toBe(true);
+            expect(run.results.map((result) => [result.name, result.passed, result.message])).toEqual([
+                ["OracleProbe.ReplyReachesTheContract", true, ""],
+                ["OracleProbe.UnansweredQueryTimesOut", true, ""],
+                ["OracleProbe.SubscriptionAsksWhenItsQueriesAreGenerated", true, ""],
+            ]);
+        } finally {
+            rmSync(outDir, { recursive: true, force: true });
+        }
+    },
+    180_000,
+);
+
 const SYSPROBE = `${import.meta.dir}/../../../../fixtures/SysProbe.h`;
 const SYSPROBE_TEST_SOURCE = `#define NO_UEFI
 #include "contract_testing.h"

@@ -1,5 +1,7 @@
 // The compile recipe is the contract between qinit and the core headers: a wrong preamble order or a dropped impl include silently miscompiles.
 import { test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { CheatMode } from "@qinit/compiler";
 import {
@@ -181,9 +183,24 @@ test("Wasm test support resolves its core include through the canonical layout",
     expect(WASM_CONTRACT_TESTING_HEADER).not.toContain("__QINIT_CORE_WASM_ABI_METADATA__");
     expect(WASM_CONTRACT_TESTING_HEADER).toContain("USER_PROCEDURE_CALL = contractSystemProcedureCount + 1");
     expect(WASM_CONTRACT_TESTING_HEADER).toContain("USER_FUNCTION_CALL = contractSystemProcedureCount + 2");
+    expect(WASM_CONTRACT_TESTING_HEADER).toContain("USER_PROCEDURE_NOTIFICATION_CALL = contractSystemProcedureCount + 4");
     expect(WASM_CONTRACT_TESTING_HEADER).not.toMatch(/USER_(?:PROCEDURE|FUNCTION)_CALL\s*=\s*1[34]\b/);
     expect(WASM_CONTRACT_TESTING_HEADER).toContain("contractError[MAX_NUMBER_OF_CONTRACTS]");
     expect(WASM_CONTRACT_TESTING_HEADER).toContain("qb_state_bufs[MAX_NUMBER_OF_CONTRACTS]");
+    // core's oracle globals, with the transaction layouts taken from core's own headers
+    expect(WASM_CONTRACT_TESTING_HEADER).toContain('#include "oracle_core/oracle_transactions.h"');
+    expect(WASM_CONTRACT_TESTING_HEADER).toContain('#include "oracle_core/core_om_network_messages.h"');
+    expect(WASM_CONTRACT_TESTING_HEADER).toContain("static OracleEngine oracleEngine;");
+    expect(WASM_CONTRACT_TESTING_HEADER).toContain("static UserProcedureRegistry* userProcedureRegistry");
+    expect(WASM_CONTRACT_TESTING_HEADER).toContain("static QbTickStorage ts;");
+});
+
+// clang links only the imports a corpus uses, so a name the host lacks would go unnoticed until a corpus reaches it.
+test("every host function the test support header imports is one the gtest host has", () => {
+    const imported = [...WASM_CONTRACT_TESTING_HEADER.matchAll(/QBCT_IMPORT\((q_\w+)\)/g)].map((match) => match[1]);
+    const host = readFileSync(join(import.meta.dir, "../../../engine/src/gtest.ts"), "utf8");
+    expect(imported.length).toBeGreaterThan(40);
+    expect(imported.filter((name) => !new RegExp(`^ {8}${name}: `, "m").test(host))).toEqual([]);
 });
 
 test("Wasm test support generates sparse contract descriptions through the tested slot", () => {

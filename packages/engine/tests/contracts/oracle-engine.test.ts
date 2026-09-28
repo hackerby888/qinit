@@ -1,7 +1,6 @@
 // core's test/oracle_engine.cpp scenarios against the engine port, step for step, plus what only the simulator can meet: tick 0.
 import { beforeAll, expect, test } from "bun:test";
 import {
-    MAX_INPUT_SIZE,
     ORACLE_FLAG_BAD_SIZE_REPLY,
     ORACLE_FLAG_FAKE_COMMITS,
     ORACLE_FLAG_OM_DISAGREE,
@@ -18,8 +17,8 @@ import {
     OracleNotificationInput,
     OracleReplyCommitTransactionItem,
     OracleReplyCommitTransactionPrefix,
+    MAX_TRANSACTION_SIZE,
     OracleReplyRevealTransactionPrefix,
-    SIG_SIZE,
     Transaction,
 } from "../../src/protocol/wire";
 import { initK12, toHex } from "../../src/support/k12";
@@ -27,7 +26,6 @@ import { initK12, toHex } from "../../src/support/k12";
 const NUMBER_OF_COMPUTORS = 676;
 const QUORUM = 451;
 const UINT32_MAX = 0xffffffff;
-const MAX_TRANSACTION_SIZE = MAX_INPUT_SIZE + Transaction.HEADER_SIZE + SIG_SIZE;
 const PRICE_INTERFACE_INDEX = 0;
 const MOCK_INTERFACE_INDEX = 1;
 const NOTIFICATION_PROC_ID = 12345;

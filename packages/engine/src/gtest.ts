@@ -1,12 +1,18 @@
 // Run core-lite contract_testing.h suites in an isolated simulator.
-import { ASSET_ENUMERATION_RECORD, WASM_TRAP_ERROR_CODE, type BuildProfile } from "@qinit/core";
+import { ASSET_ENUMERATION_RECORD, CONTRACT_ENTRY_POINTS, WASM_TRAP_ERROR_CODE, type BuildProfile } from "@qinit/core";
 import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
 import { QubicSimulator } from "./qubic-simulator";
-import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, dateFields, packDateAndTime } from "./contract/runtime";
+import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, dateFields, packDateAndTime, type ContractCallContext } from "./contract/runtime";
 import { initK12, k12Bytes } from "./support/k12";
-import { EntityRecord, M256i } from "./protocol/wire";
+import { packTimestamp } from "./chain/oracle-engine";
+import { EntityRecord, M256i, MAX_TRANSACTION_SIZE, OracleSubscription } from "./protocol/wire";
 import { NO_ASSET_INDEX } from "./ledger/assets";
 import type { Id } from "./support/bytes";
+
+// OracleEngine::PendingContractQuery in the runner
+const PENDING_CONTRACT_QUERY_SIZE = 16;
+// qpi.h packs a notification procedure's id as (contract index << 22) | line
+const NOTIFICATION_CONTRACT_INDEX_SHIFT = 22;
 
 export interface TestResult {
     name: string; // "Suite.Name"
@@ -78,6 +84,8 @@ export async function runContractTesting(
     const read = (off: number, len: number) => mem().slice(off >>> 0, (off >>> 0) + (len >>> 0));
     const write = (off: number, b: Uint8Array) => mem().set(b, off >>> 0);
     const id32 = (p: number) => read(p, 32);
+    // a transaction the runner holds: the view ends where the largest transaction would, the header says how much of it counts
+    const transactionAt = (p: number) => mem().subarray(p >>> 0, (p >>> 0) + MAX_TRANSACTION_SIZE);
     const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 
     // TRACE logs dispatch entry/exit; PROF records aggregate synchronization timings.
@@ -507,6 +515,117 @@ export async function runContractTesting(
             sim.setComputorKey(i >>> 0, id32(idPtr));
         },
 
+        // core's oracleEngine, which a test drives as the tick processor would. A buffer the engine fills is the runner's own memory.
+        q_oracle_reset: () => sim.oracleEngine.reset(),
+        q_oracle_start_contract_query: (contractIndex: number, interfaceIndex: number, queryPtr: number, querySize: number, timeoutMillisec: number, notificationProcId: number): bigint =>
+            sim.oracleEngine.startContractQuery(contractIndex >>> 0, interfaceIndex >>> 0, read(queryPtr, querySize), timeoutMillisec >>> 0, notificationProcId >>> 0),
+        q_oracle_start_contract_subscription: (
+            contractIndex: number,
+            interfaceIndex: number,
+            queryPtr: number,
+            querySize: number,
+            notificationPeriodMillisec: number,
+            notificationProcId: number,
+            timestampOffsetInQuery: number,
+        ): number =>
+            sim.oracleEngine.startContractSubscription(
+                contractIndex >>> 0,
+                interfaceIndex >>> 0,
+                read(queryPtr, querySize),
+                notificationPeriodMillisec >>> 0,
+                notificationProcId >>> 0,
+                timestampOffsetInQuery >>> 0,
+            ),
+        q_oracle_stop_contract_subscription: (subscriptionId: number, contractIndex: number): number =>
+            sim.oracleEngine.stopContractSubscription(subscriptionId | 0, contractIndex >>> 0) ? 1 : 0,
+        q_oracle_generate_subscription_queries: () => sim.oracleEngine.generateSubscriptionQueries(),
+        q_oracle_process_machine_reply: (replyPtr: number, replySize: number) => sim.oracleEngine.processOracleMachineReply(read(replyPtr, replySize)),
+        q_oracle_get_reply_commit_tx: (txPtr: number, computorIdx: number, txScheduleTick: number, startIdx: number): number =>
+            sim.oracleEngine.getReplyCommitTransaction(transactionAt(txPtr), computorIdx >>> 0, txScheduleTick >>> 0, startIdx >>> 0),
+        q_oracle_process_reply_commit_tx: (txPtr: number): number => (sim.oracleEngine.processOracleReplyCommitTransaction(transactionAt(txPtr)) ? 1 : 0),
+        q_oracle_get_reply_reveal_tx: (txPtr: number, computorIdx: number, txScheduleTick: number, startIdx: number): number =>
+            sim.oracleEngine.getReplyRevealTransaction(transactionAt(txPtr), computorIdx >>> 0, txScheduleTick >>> 0, startIdx >>> 0),
+        q_oracle_announce_reveal_tx: (txPtr: number) => sim.oracleEngine.announceExpectedRevealTransaction(transactionAt(txPtr)),
+        q_oracle_process_reply_reveal_tx: (txPtr: number, txSlotInTickData: number): number =>
+            sim.oracleEngine.processOracleReplyRevealTransaction(transactionAt(txPtr), txSlotInTickData >>> 0) ? 1 : 0,
+        q_oracle_process_timeouts: () => sim.oracleEngine.processTimeouts(),
+        q_oracle_get_notification: (outPtr: number): number => {
+            const notification = sim.oracleEngine.getNotification();
+            if (!notification) return 0;
+            write(outPtr, notification.bytes);
+            return 1;
+        },
+        q_oracle_get_query: (queryId: bigint, outPtr: number, querySize: number): number =>
+            sim.oracleEngine.getOracleQuery(queryId, mem().subarray(outPtr >>> 0, (outPtr >>> 0) + (querySize >>> 0))) ? 1 : 0,
+        q_oracle_get_reply: (queryId: bigint, outPtr: number, replySize: number): number =>
+            sim.oracleEngine.getOracleReply(queryId, mem().subarray(outPtr >>> 0, (outPtr >>> 0) + (replySize >>> 0))) ? 1 : 0,
+        q_oracle_get_query_status: (queryId: bigint): number => sim.oracleEngine.getOracleQueryStatus(queryId),
+        q_oracle_get_query_status_flags: (queryId: bigint): number => sim.oracleEngine.getOracleQueryStatusFlags(queryId),
+        // { queryId, interfaceIndex, contractIndex } each
+        q_oracle_get_pending_contract_queries: (outPtr: number, maxCount: number): number => {
+            const pendingQueries = sim.oracleEngine.getPendingContractQueries(maxCount >>> 0);
+            const view = new DataView(mem().buffer);
+            pendingQueries.forEach((pending, index) => {
+                const at = (outPtr >>> 0) + index * PENDING_CONTRACT_QUERY_SIZE;
+                view.setBigInt64(at, pending.queryId, true);
+                view.setUint32(at + 8, pending.interfaceIndex, true);
+                view.setUint16(at + 12, pending.contractIndex, true);
+            });
+            return pendingQueries.length;
+        },
+        q_oracle_get_subscription: (subscriptionId: number, outPtr: number): number => {
+            const subscription = sim.oracleEngine.getOracleSubscription(subscriptionId | 0);
+            if (!subscription) return 0;
+            const out = OracleSubscription.alloc();
+            out.initialQueryStorageOffset = BigInt(subscription.initialQueryStorageOffset);
+            out.interfaceIndex = subscription.interfaceIndex;
+            out.queryTimestampOffset = subscription.queryTimestampOffset;
+            out.subscriberCount = subscription.subscriberCount;
+            out.lastPendingQueryId = subscription.lastPendingQueryId;
+            out.lastRevealedQueryId = subscription.lastRevealedQueryId;
+            out.nextQueryTimestamp = packTimestamp(subscription.nextQueryTimestamp);
+            out.generatedQueriesCount = subscription.generatedQueriesCount;
+            out.firstSubscriberIndex = subscription.firstSubscriberIndex;
+            write(outPtr, out.bytes);
+            return 1;
+        },
+        // core asserts; here what the engine found fails the test
+        q_oracle_check_state: () => {
+            try {
+                sim.oracleEngine.checkStateConsistencyWithAssert();
+            } catch (e) {
+                trap("oracleEngine.checkStateConsistencyWithAssert", e);
+            }
+        },
+        // { procedure, contractIndex, localsSize, inputSize, outputSize } of a procedure registered under this id: the contract index
+        // sits above bit 22 and the procedure's input type below, as core's id of a notification procedure packs them
+        q_user_procedure: (procedureId: number, outPtr: number): number => {
+            const contractIndex = (procedureId >>> 0) >>> NOTIFICATION_CONTRACT_INDEX_SHIFT;
+            const entry = handles[contractIndex]?.entries.find(
+                (candidate) => candidate.kind === CONTRACT_ENTRY_KIND.PROCEDURE && candidate.inputType === (procedureId & 0xffff),
+            );
+            if (!entry) return 0;
+            const view = new DataView(mem().buffer);
+            view.setUint32(outPtr >>> 0, procedureId >>> 0, true);
+            view.setUint32((outPtr >>> 0) + 4, contractIndex, true);
+            view.setUint32((outPtr >>> 0) + 8, 0, true);
+            view.setUint16((outPtr >>> 0) + 12, entry.inputSizeBytes, true);
+            view.setUint16((outPtr >>> 0) + 14, entry.outputSizeBytes, true);
+            return 1;
+        },
+        q_call_notification: (contractIndex: number, procedureId: number, inPtr: number, inSize: number): number => {
+            pushShadowsToEngine();
+            const label = `notification[${contractIndex >>> 0}:${procedureId >>> 0}]`;
+            let code = 0;
+            try {
+                traceDisp(label, () => sim.callUserProcedureNotification(contractIndex >>> 0, procedureId >>> 0, read(inPtr, inSize)));
+            } catch (e: any) {
+                code = failed(label, e) ?? 0;
+            }
+            pullShadowsFromEngine();
+            return code;
+        },
+
         // A trap the test never asserted on would otherwise report as a pass, so it fails the test here.
         t_report: (namePtr: number, nameLen: number, passed: number, msgPtr: number, msgLen: number) => {
             results.push({
@@ -573,6 +692,8 @@ export async function runContractTesting(
                 pullShadowsFromEngine();
             }
         };
+        // core runs a notification raised inside QUERY_ORACLE or SUBSCRIBE_ORACLE under the caller's context, which here is the test's
+        const callerFrame = (): ContractCallContext => ({ ...parties(), invocationReward: 0n, entryPoint: CONTRACT_ENTRY_POINTS.userProcedure });
         const writeAssetIndex = (off: number, index: number) => new DataView(mem().buffer).setInt32(off >>> 0, index, true);
         return {
             beginFn: () => {},
@@ -656,7 +777,9 @@ export async function runContractTesting(
             invokeOc: (interfaceIdx: number, requestOff: number, requestSize: number): bigint =>
                 synced(() => sim.host.invokeOc(mainSlot, interfaceIdx >>> 0, read(requestOff, requestSize))),
             queryOracle: (interfaceIdx: number, queryOff: number, querySize: number, replySize: number, procId: number, timeout: number, fee: bigint): bigint =>
-                synced(() => sim.host.queryOracle(mainSlot, interfaceIdx >>> 0, read(queryOff, querySize), replySize >>> 0, procId >>> 0, timeout >>> 0, fee)),
+                synced(() =>
+                    sim.host.queryOracle(mainSlot, interfaceIdx >>> 0, read(queryOff, querySize), replySize >>> 0, procId >>> 0, timeout >>> 0, fee, callerFrame()),
+                ),
             subscribeOracle: (
                 interfaceIdx: number,
                 queryOff: number,
@@ -679,6 +802,7 @@ export async function runContractTesting(
                         period >>> 0,
                         notifyPrev !== 0,
                         fee,
+                        callerFrame(),
                     ),
                 ),
             unsubscribeOracle: (subscriptionId: number): number => synced(() => sim.host.unsubscribeOracle(mainSlot, subscriptionId | 0)),

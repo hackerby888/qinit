@@ -3,6 +3,7 @@ import { toHex } from "../support/k12";
 import { type Codec, u8, u16, u24, u32, i16, i32, i64, u64, blob, array, sub, roundUp, View, defineStruct } from "@qinit/core";
 import {
     ASSETS_DEPTH as PROTOCOL_ASSETS_DEPTH,
+    MAX_INPUT_SIZE as PROTOCOL_MAX_INPUT_SIZE,
     MAX_NUMBER_OF_CONTRACTS,
     MAX_ORACLE_REPLY_SIZE,
     SPECTRUM_DEPTH as PROTOCOL_SPECTRUM_DEPTH,
@@ -234,6 +235,9 @@ export class Transaction {
         return this.bytes.subarray(start, start + SIG_SIZE);
     }
 }
+
+// public_settings.h: header, the largest input, signature.
+export const MAX_TRANSACTION_SIZE = PROTOCOL_MAX_INPUT_SIZE + Transaction.HEADER_SIZE + SIG_SIZE;
 
 // oracle_core/oracle_transactions.h: a commit transaction's input is n of these items.
 export const OracleReplyCommitTransactionItem = defineStruct("OracleReplyCommitTransactionItem", {

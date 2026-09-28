@@ -21,7 +21,7 @@ import {
 import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, Entity, HostServices, type ContractCallContext } from "./contract/runtime";
 import { toHex, verifySync } from "./support/k12";
 import { TraceRecorder } from "./logging/trace";
-import { Committee, MAX_NUMBER_OF_CONTRACTS, type CommitteeOpts } from "./chain/consensus";
+import { Committee, MAX_NUMBER_OF_CONTRACTS, quorumOf, type CommitteeOpts } from "./chain/consensus";
 import { DEFAULT_CONTRACT_COUNT, FeeManager, type FeeMode } from "./contract/fees";
 import { SpectrumLedger } from "./ledger/spectrum";
 import { OcManager } from "./chain/oc";
@@ -38,7 +38,7 @@ import {
     type AssetSnapshot,
 } from "./ledger/assets";
 import { DEFAULT_TICK_HISTORY, TickConsensus, type TickRecord } from "./chain/ticking";
-import { OracleMachineReply, OracleNotificationInput, SIG_SIZE, Transaction, type TickData } from "./protocol/wire";
+import { MAX_TRANSACTION_SIZE, OracleMachineReply, OracleNotificationInput, type TickData } from "./protocol/wire";
 import { first32BytesEqual, type Id } from "./support/bytes";
 import { PreManagementRightsTransferInput, PreManagementRightsTransferOutput, PostIncomingTransferInput, ContractId } from "./contract/abi";
 import { TxPool, type TxRecord } from "./chain/txs";
@@ -69,7 +69,6 @@ const EMPTY = new Uint8Array(0);
 
 const NO_CALL_ERROR = 0;
 const UINT32_MAX = 0xffffffff;
-const MAX_TRANSACTION_SIZE = MAX_INPUT_SIZE + Transaction.HEADER_SIZE + SIG_SIZE;
 const DATE_AND_TIME_SIZE = 8;
 const CALL_ERROR_INSUFFICIENT_FEES = 2;
 const CALL_ERROR_ALLOCATION_FAILED = 3;
@@ -138,7 +137,8 @@ export class QubicSimulator {
     onLog?: LogSink;
     private registry: ContractRegistry;
     private spectrum = new SpectrumLedger({ tick: () => this.currentTick });
-    private oracle: OracleEngine;
+    // core's oracleEngine global; a gtest drives it directly, as core's own tests do
+    readonly oracleEngine: OracleEngine;
     private oc: OcManager;
     private pitDepth = 0;
     private callbacksRunning = 0;
@@ -238,11 +238,12 @@ export class QubicSimulator {
             },
         };
 
-        this.oracle = new OracleEngine({
+        this.oracleEngine = new OracleEngine({
             nowMs: () => this.nowMs(),
             currentTick: () => this.currentTick,
             numberOfComputors: () => this.ticking.committeeSize(),
-            quorum: () => this.ticking.quorum(),
+            // the committee's own quorum, without deriving the committee's keys for it
+            quorum: () => quorumOf(this.ticking.committeeSize()),
             computorPublicKey: (computorIdx) => this.host.computor(computorIdx),
             computorIndex: (publicKey) => this.computorIndex(publicKey),
             log: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
@@ -325,10 +326,10 @@ export class QubicSimulator {
             ipoBidPrice: (_contractIndex, index) => (index >= 0 && index < this.ticking.committeeSize() ? IPO_SHARE_PRICE : -3n),
             computeMiningFunction: () => ZERO32,
             initMiningSeed: () => {},
-            getOracleQueryStatus: (queryId) => this.oracle.getOracleQueryStatus(queryId),
+            getOracleQueryStatus: (queryId) => this.oracleEngine.getOracleQueryStatus(queryId),
             getOcInvocationStatus: (invocationId) => this.oc.getOcInvocationStatus(invocationId),
             invokeOc: (slot, interfaceIndex, request) => this.oc.startContractInvocation(slot, interfaceIndex, request),
-            unsubscribeOracle: (slot, subscriptionId) => (this.oracle.stopContractSubscription(subscriptionId, slot) ? 1 : 0),
+            unsubscribeOracle: (slot, subscriptionId) => (this.oracleEngine.stopContractSubscription(subscriptionId, slot) ? 1 : 0),
             // the fee is the interface's, whatever the contract passed
             queryOracle: (slot, interfaceIndex, query, replySize, procedureId, timeout, _fee, callerFrame) => {
                 const oracleInterface = ORACLE_INTERFACES[interfaceIndex];
@@ -341,7 +342,7 @@ export class QubicSimulator {
 
                 const fee = oracleInterface.getQueryFee(query);
                 if (fee >= MIN_ORACLE_QUERY_FEE && decreaseOracleFee(slot, fee)) {
-                    const queryId = this.oracle.startContractQuery(slot, interfaceIndex, query, timeout, procedureId);
+                    const queryId = this.oracleEngine.startContractQuery(slot, interfaceIndex, query, timeout, procedureId);
                     if (queryId >= 0n) {
                         return queryId;
                     }
@@ -364,11 +365,11 @@ export class QubicSimulator {
                 }
 
                 if (fee >= MIN_ORACLE_SUBSCRIPTION_FEE && decreaseOracleFee(slot, fee)) {
-                    const subscriptionId = this.oracle.startContractSubscription(slot, interfaceIndex, query, period, procedureId, timestampOffset);
+                    const subscriptionId = this.oracleEngine.startContractSubscription(slot, interfaceIndex, query, period, procedureId, timestampOffset);
                     if (subscriptionId >= 0) {
-                        const lastRevealedQueryId = this.oracle.getOracleSubscription(subscriptionId)?.lastRevealedQueryId ?? -1n;
+                        const lastRevealedQueryId = this.oracleEngine.getOracleSubscription(subscriptionId)?.lastRevealedQueryId ?? -1n;
                         const reply = new Uint8Array(replySize);
-                        if (notifyPrevious && lastRevealedQueryId >= 0n && this.oracle.getOracleReply(lastRevealedQueryId, reply)) {
+                        if (notifyPrevious && lastRevealedQueryId >= 0n && this.oracleEngine.getOracleReply(lastRevealedQueryId, reply)) {
                             this.callOracleNotification(slot, procedureId, callerFrame, lastRevealedQueryId, subscriptionId, ORACLE_STATUS.SUCCESS, reply, replySize);
                         }
                         return subscriptionId;
@@ -381,11 +382,11 @@ export class QubicSimulator {
             },
             getOracleQuery: (queryId, size) => {
                 const query = new Uint8Array(size >>> 0 > MAX_ORACLE_QUERY_SIZE ? 0 : size);
-                return this.oracle.getOracleQuery(queryId, query) ? query : null;
+                return this.oracleEngine.getOracleQuery(queryId, query) ? query : null;
             },
             getOracleReply: (queryId, size) => {
                 const reply = new Uint8Array(size >>> 0 > MAX_ORACLE_REPLY_SIZE ? 0 : size);
-                return this.oracle.getOracleReply(queryId, reply) ? reply : null;
+                return this.oracleEngine.getOracleReply(queryId, reply) ? reply : null;
             },
             isContractId: (id) => (this.isContractAddress(id) ? 1 : 0),
             arbitrator: () => this.ticking.getCommittee().arbitrator.publicKey,
@@ -449,7 +450,7 @@ export class QubicSimulator {
         this.initialTick = initialTick;
         this.lastFinalizedEpoch = normalizedEpoch;
         this.lastFinalizedTick = initialTick;
-        this.oracle.beginEpoch();
+        this.oracleEngine.beginEpoch();
         this.oc.beginEpoch();
         this.pendingOracleNotifications = [];
         this.heldOracleRevealTransactions = [];
@@ -1190,7 +1191,7 @@ export class QubicSimulator {
 
     // a reply reached the node. The simulator's computors all commit to it at once, and the reveal is a transaction of the next tick.
     private processOracleMachineReply(replyMessage: Uint8Array): void {
-        this.oracle.processOracleMachineReply(replyMessage);
+        this.oracleEngine.processOracleMachineReply(replyMessage);
 
         const txScheduleTick = this.currentTick + 1;
         const txBuffer = new Uint8Array(MAX_TRANSACTION_SIZE);
@@ -1200,7 +1201,7 @@ export class QubicSimulator {
             const commitTransactions: Uint8Array[] = [];
             let startIdx = 0;
             do {
-                startIdx = this.oracle.getReplyCommitTransaction(txBuffer, computorIdx, txScheduleTick, startIdx);
+                startIdx = this.oracleEngine.getReplyCommitTransaction(txBuffer, computorIdx, txScheduleTick, startIdx);
                 if (startIdx) {
                     commitTransactions.push(txBuffer.slice());
                 }
@@ -1211,12 +1212,12 @@ export class QubicSimulator {
                 break;
             }
             for (const transaction of commitTransactions) {
-                this.oracle.processOracleReplyCommitTransaction(transaction);
+                this.oracleEngine.processOracleReplyCommitTransaction(transaction);
             }
         }
 
         let startIdx = 0;
-        while ((startIdx = this.oracle.getReplyRevealTransaction(txBuffer, 0, txScheduleTick, startIdx)) !== 0) {
+        while ((startIdx = this.oracleEngine.getReplyRevealTransaction(txBuffer, 0, txScheduleTick, startIdx)) !== 0) {
             this.heldOracleRevealTransactions.push(txBuffer.slice());
         }
     }
@@ -1225,10 +1226,10 @@ export class QubicSimulator {
     private processOracleTick(): void {
         const revealTransactions = this.heldOracleRevealTransactions;
         this.heldOracleRevealTransactions = [];
-        revealTransactions.forEach((transaction, txSlotInTickData) => this.oracle.processOracleReplyRevealTransaction(transaction, txSlotInTickData));
+        revealTransactions.forEach((transaction, txSlotInTickData) => this.oracleEngine.processOracleReplyRevealTransaction(transaction, txSlotInTickData));
 
-        this.oracle.generateSubscriptionQueries();
-        this.oracle.processTimeouts();
+        this.oracleEngine.generateSubscriptionQueries();
+        this.oracleEngine.processTimeouts();
 
         // a provider stands in for the oracle machine, whose reply comes in after the tick asked for it
         if (!this.oracleProvider) {
@@ -1240,6 +1241,26 @@ export class QubicSimulator {
                 this.processOracleMachineReply(oracleMachineReply(pending.queryId, reply, 0));
             }
         }
+    }
+
+    private fireUserProcedureNotification(contract: Contract, procedureId: number, input: Uint8Array): Uint8Array {
+        return this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, procedureId, input, {
+            invocator: ZERO32,
+            originator: ZERO32,
+            invocationReward: 0n,
+            entryPoint: EP_USER_PROCEDURE_NOTIFICATION,
+        });
+    }
+
+    // core's QpiContextUserProcedureNotificationCall: the procedure runs for nobody and with no reward.
+    callUserProcedureNotification(slot: number, procedureId: number, input: Uint8Array): Uint8Array {
+        this.assertOperational();
+        const contract = this.contracts.get(slot);
+        if (!contract) {
+            throw new Error(`unknown contract ${slot}`);
+        }
+
+        return this.runOperation("oracle-notification", () => this.fireUserProcedureNotification(contract, procedureId, input), { contractErrorsOnly: true });
     }
 
     private deliverOracleNotifications(): void {
@@ -1254,12 +1275,7 @@ export class QubicSimulator {
                 this.logStore?.begin(this.currentTick, LOG_SC_NOTIFICATION);
                 rangeOpen = true;
             }
-            this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, procedureId, input, {
-                invocator: ZERO32,
-                originator: ZERO32,
-                invocationReward: 0n,
-                entryPoint: EP_USER_PROCEDURE_NOTIFICATION,
-            });
+            this.fireUserProcedureNotification(contract, procedureId, input);
         };
 
         try {
@@ -1269,7 +1285,7 @@ export class QubicSimulator {
             }
 
             // the engine hands out one buffer, which the procedure it is copied for may make the engine fill again
-            for (let notification = this.oracle.getNotification(); notification; notification = this.oracle.getNotification()) {
+            for (let notification = this.oracleEngine.getNotification(); notification; notification = this.oracleEngine.getNotification()) {
                 notify(notification.contractIndex, notification.procedureId, notification.inputBuffer.slice(0, notification.inputSize));
             }
         } finally {
@@ -1310,7 +1326,7 @@ export class QubicSimulator {
     }
 
     private runBeginEpoch(): void {
-        this.oracle.beginEpoch();
+        this.oracleEngine.beginEpoch();
         this.oc.beginEpoch();
         this.pendingOracleNotifications = [];
         this.heldOracleRevealTransactions = [];
@@ -1514,17 +1530,17 @@ export class QubicSimulator {
                 }
 
                 // the engine returns nothing, so acceptance is read back from the flags it records on the query
-                const statusBefore = this.oracle.getOracleQueryStatus(queryId);
+                const statusBefore = this.oracleEngine.getOracleQueryStatus(queryId);
                 this.processOracleMachineReply(oracleMachineReply(queryId, succeeds ? reply : EMPTY, succeeds ? 0 : ORACLE_FLAG_ORACLE_UNAVAIL));
                 const acceptedFlag = succeeds ? ORACLE_FLAG_REPLY_RECEIVED : ORACLE_FLAG_OM_ERROR_FLAGS;
-                return statusBefore === ORACLE_STATUS.PENDING && (this.oracle.getOracleQueryStatusFlags(queryId) & acceptedFlag) !== 0;
+                return statusBefore === ORACLE_STATUS.PENDING && (this.oracleEngine.getOracleQueryStatusFlags(queryId) & acceptedFlag) !== 0;
             },
             { contractErrorsOnly: true },
         );
     }
 
     oracleQueryStatus(queryId: bigint): number {
-        return this.oracle.getOracleQueryStatus(queryId);
+        return this.oracleEngine.getOracleQueryStatus(queryId);
     }
 
     pendingOracleQueries(): {
@@ -1534,9 +1550,9 @@ export class QubicSimulator {
         query: Uint8Array;
     }[] {
         const pendingQueries = [];
-        for (const pending of this.oracle.getPendingContractQueries(MAX_SIMULTANEOUS_ORACLE_QUERIES)) {
+        for (const pending of this.oracleEngine.getPendingContractQueries(MAX_SIMULTANEOUS_ORACLE_QUERIES)) {
             const query = new Uint8Array(ORACLE_INTERFACES[pending.interfaceIndex].query.SIZE);
-            if (this.oracle.getOracleQuery(pending.queryId, query)) {
+            if (this.oracleEngine.getOracleQuery(pending.queryId, query)) {
                 pendingQueries.push({ queryId: pending.queryId, slot: pending.contractIndex, interfaceIndex: pending.interfaceIndex, query });
             }
         }
