@@ -26,7 +26,7 @@ const MINUTE_SUBSCRIPTION_FEE = 10_000;
 const TWO_MINUTE_SUBSCRIPTION_FEE = 6_500;
 const RULES = { Price: "777sint64, 7sint64" };
 const CLI_TIMEOUT_MS = 180_000;
-// a core node needs its commit, quorum and reveal rounds, and the tick that carries its commits takes it half a minute.
+// a core node needs its commit, quorum and reveal rounds, and one built with swap storage half a minute more for the tick of its commits.
 const NOTIFICATION_BUDGET_SECONDS = 90;
 const SUBSCRIPTION_PERIOD_SECONDS = 60;
 const POLL_MS = 2000;

@@ -1871,10 +1871,13 @@ node of its own, which is the `oracle-cli` job in CI; with it, it uses that node
 how `deploy-smoke` runs it on a core node. It is also a worked example of a contract that
 uses the oracle.
 
-A core node that is alone takes half a minute or more for a tick that carries its own 676
-commit transactions, so an answered query is notified that much later there, and `qinit
-call --proc` may stop waiting first: it then reports `broadcast · unconfirmed`, and with
-`--json` leaves `balance` out.
+A core node built with swap storage (`USE_SWAP`, the default of a plain build) takes half a
+minute or more for a tick that carries its own 676 commit transactions: each one is a
+random insert into the transaction digest map, and that map is far larger than the swap
+cache. An answered query is notified that much later there, and `qinit call --proc` may
+stop waiting first: it then reports `broadcast · unconfirmed`, and with `--json` leaves
+`balance` out. A node built with `-DCMAKE_NO_USE_SWAP=ON`, as the installed one is, has no
+such tick.
 
 ### 12.6 Outsourced computation has no reply
 
