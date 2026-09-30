@@ -1500,6 +1500,11 @@ the deterministic TypeScript engine and core-lite use the same clock semantics. 
 without available `TickData` shows `—`. Pressing `x` hides the selected record for this
 `qinit debug` session only; it does not clear the node's trace ring.
 
+An oracle notification frame reads `proc#<line> (Name, notification)` on the simulator and on a core
+node alike: the number is the source line of its `PRIVATE_PROCEDURE`, which is the id core assigns
+it, the invocator is all zeros, and an inline one (a refused query, `notifyPrevious`) shows as a
+child of the call that raised it.
+
 `describeTrace()` in [`trace/format.ts`](../packages/cli/src/trace/format.ts):
 
 1. Starts with raw input and output hex.

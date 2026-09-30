@@ -54,6 +54,8 @@ export type { TxRecord } from "./chain/txs";
 
 const EP_USER_PROCEDURE = CONTRACT_ENTRY_POINTS.userProcedure;
 const EP_USER_PROCEDURE_NOTIFICATION = CONTRACT_ENTRY_POINTS.userProcedureNotification;
+// core keys a notification by `(slot << 22) | line` in its registry; the module entry, its trace and the IDL use the low 16 bits, as core's wasm host does when it registers it.
+const notificationEntry = (procedureId: number): number => procedureId & 0xffff;
 const ZERO32 = new Uint8Array(32);
 const IPO_SHARE_PRICE = 1000000n; // default IPO price per share (Qu)
 
@@ -1143,7 +1145,7 @@ export class QubicSimulator {
                 .get(slot)
                 ?.entries.some(
                     (entry) =>
-                        entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.inputType === (procedureId & 0xffff) && entry.inputSizeBytes === 16 + replySize,
+                        entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.inputType === notificationEntry(procedureId) && entry.inputSizeBytes === 16 + replySize,
                 ) ?? false
         );
     }
@@ -1182,7 +1184,7 @@ export class QubicSimulator {
 
         const contract = callerFrame ? this.contracts.get(slot) : undefined;
         if (contract) {
-            this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, procedureId, input, callerFrame!);
+            this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, notificationEntry(procedureId), input, callerFrame!);
             return;
         }
 
@@ -1244,7 +1246,7 @@ export class QubicSimulator {
     }
 
     private fireUserProcedureNotification(contract: Contract, procedureId: number, input: Uint8Array): Uint8Array {
-        return this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, procedureId, input, {
+        return this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, notificationEntry(procedureId), input, {
             invocator: ZERO32,
             originator: ZERO32,
             invocationReward: 0n,

@@ -5,12 +5,20 @@ import { entryLabel } from "../../src/trace/entry-label";
 
 const idl = {
     functions: [{ name: "GetCount", inputType: 0 }],
-    procedures: [{ name: "Increase", inputType: 1 }],
+    procedures: [
+        { name: "Increase", inputType: 1 },
+        { name: "OnPrice", inputType: 155, notification: true },
+    ],
 } as unknown as ContractIdl;
 
 test("user entries are named from the IDL", () => {
     expect(entryLabel(0, 0, idl)).toBe("fn#0 (GetCount)");
     expect(entryLabel(1, 1, idl)).toBe("proc#1 (Increase)");
+});
+
+// the node dispatches a notification by the source line of its procedure, and the label says so where the number would otherwise look like a typo
+test("a notification procedure is marked as one", () => {
+    expect(entryLabel(1, 155, idl)).toBe("proc#155 (OnPrice, notification)");
 });
 
 test("an already-resolved name is used as it stands", () => {

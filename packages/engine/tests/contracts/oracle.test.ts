@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
+import { loadWasmFixture as wasm, loadWasmFixtureIdl } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/support/k12";
 import { CONTRACT_ENTRY_KIND } from "../../src/contract/runtime";
 import { OracleQuery as DogeShareValidationOracleQuery, OracleReply as DogeShareValidationOracleReply } from "../../src/oracle-interfaces/doge-share-validation";
@@ -405,4 +405,46 @@ test("a reply still arrives a tick after it is committed, never inside the call"
 
     sim.advance();
     expect(inlineLast(sim)).toEqual({ notifications: 1n, seenInsideCall: 0n, queryId: started.queryId, subscriptionId: -1 });
+});
+
+// the contract passes core's registry id `(slot << 22) | line` to QUERY_ORACLE; the trace records the module entry the IDL names, as a core node does.
+async function inlineNotificationEntry(): Promise<number> {
+    const procedure = (await loadWasmFixtureIdl("OracleInline")).procedures.find((candidate) => candidate.notification);
+    expect(procedure).toBeDefined();
+    return procedure!.inputType;
+}
+
+test("a delivered notification is traced by its entry number for nobody", async () => {
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.tickDuration = 60_000;
+    sim.deploy(SLOT, await wasm("OracleInline"));
+    sim.fund(contractId(SLOT), 1_000_000n);
+    sim.setDebug(true);
+
+    const started = inlineQuery(sim);
+    expect(sim.resolveOracle(started.queryId, priceReply(42n, 1n))).toBe(true);
+    sim.advance();
+    expect(inlineLast(sim).notifications).toBe(1n);
+
+    const entry = await inlineNotificationEntry();
+    const frames = sim.getTrace().entries.filter((frame) => frame.index === SLOT && frame.kind === CONTRACT_ENTRY_KIND.PROCEDURE && frame.entry === entry);
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toMatchObject({ ok: true, invocator: "0".repeat(64), invocationReward: 0, inSize: 16 + 16 });
+});
+
+test("an inline notification is traced as a child of the call that raised it", async () => {
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.deploy(SLOT, await wasm("OracleInline"));
+    sim.setDebug(true);
+
+    expect(inlineQuery(sim).seenInsideCall).toBe(1n);
+
+    const entry = await inlineNotificationEntry();
+    const { entries } = sim.getTrace();
+    const query = entries.find((frame) => frame.index === SLOT && frame.entry === INLINE_QUERY);
+    expect(query?.children).toHaveLength(1);
+    const child = entries.find((frame) => frame.seq === query!.children![0]);
+    expect(child).toMatchObject({ index: SLOT, kind: CONTRACT_ENTRY_KIND.PROCEDURE, entry, inSize: 16 + 16 });
 });

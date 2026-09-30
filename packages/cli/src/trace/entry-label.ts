@@ -24,6 +24,15 @@ export function entryLabel(kind: number, entry: number, from?: ContractIdl | str
     const prefix = kind === FUNCTION ? "fn" : kind === PROCEDURE ? "proc" : `kind${kind}`;
     const idl = typeof from === "string" ? undefined : from;
     const registered = kind === FUNCTION ? idl?.functions : kind === PROCEDURE ? idl?.procedures : undefined;
-    const name = typeof from === "string" ? from : registered?.find((candidate) => candidate.inputType === entry)?.name;
-    return name ? `${prefix}#${entry} (${name})` : `${prefix}#${entry}`;
+    if (typeof from === "string") {
+        return `${prefix}#${entry} (${from})`;
+    }
+
+    // a notification's number is the source line core assigned it, so the label says why it looks like no other procedure
+    const match = registered?.find((candidate) => candidate.inputType === entry);
+    if (!match) {
+        return `${prefix}#${entry}`;
+    }
+
+    return match.notification ? `${prefix}#${entry} (${match.name}, notification)` : `${prefix}#${entry} (${match.name})`;
 }
