@@ -29,50 +29,6 @@ struct OracleDemo : public ContractBase
         uint8 inCall;
     };
 
-    typedef OracleNotificationInput<OI::Price> OnPrice_input;
-    typedef NoData OnPrice_output;
-    struct OnPrice_locals {};
-
-    PRIVATE_PROCEDURE_WITH_LOCALS(OnPrice)
-    {
-        state.mut().notifications = state.get().notifications + 1;
-        // set while Ask or Subscribe is running: a notification that comes then came before the call returned
-        if (state.get().inCall)
-        {
-            state.mut().notificationsInsideCall = state.get().notificationsInsideCall + 1;
-            state.mut().lastInsideCallQueryId = input.queryId;
-        }
-        state.mut().lastQueryId = input.queryId;
-        state.mut().lastSubscriptionId = input.subscriptionId;
-        state.mut().lastStatus = input.status;
-        if (input.subscriptionId >= 0)
-        {
-            state.mut().subscriptionNotifications = state.get().subscriptionNotifications + 1;
-        }
-
-        if (input.status == ORACLE_QUERY_STATUS_SUCCESS)
-        {
-            state.mut().successes = state.get().successes + 1;
-            if (OI::Price::replyIsValid(input.reply))
-            {
-                state.mut().lastNumerator = input.reply.numerator;
-                state.mut().lastDenominator = input.reply.denominator;
-            }
-        }
-        else if (input.status == ORACLE_QUERY_STATUS_TIMEOUT)
-        {
-            state.mut().timeouts = state.get().timeouts + 1;
-        }
-        else if (input.status == ORACLE_QUERY_STATUS_UNRESOLVABLE)
-        {
-            state.mut().unresolvables = state.get().unresolvables + 1;
-        }
-        else
-        {
-            state.mut().unknowns = state.get().unknowns + 1;
-        }
-    }
-
     struct Ask_input { uint32 timeoutMillisec; };
     struct Ask_output { sint64 queryId; };
     struct Ask_locals { OI::Price::OracleQuery query; };
@@ -190,6 +146,50 @@ struct OracleDemo : public ContractBase
     PUBLIC_FUNCTION(Status)
     {
         output.status = qpi.getOracleQueryStatus(input.queryId);
+    }
+
+    typedef OracleNotificationInput<OI::Price> OnPrice_input;
+    typedef NoData OnPrice_output;
+    struct OnPrice_locals {};
+
+    PRIVATE_PROCEDURE_WITH_LOCALS(OnPrice)
+    {
+        state.mut().notifications = state.get().notifications + 1;
+        // set while Ask or Subscribe is running: a notification that comes then came before the call returned
+        if (state.get().inCall)
+        {
+            state.mut().notificationsInsideCall = state.get().notificationsInsideCall + 1;
+            state.mut().lastInsideCallQueryId = input.queryId;
+        }
+        state.mut().lastQueryId = input.queryId;
+        state.mut().lastSubscriptionId = input.subscriptionId;
+        state.mut().lastStatus = input.status;
+        if (input.subscriptionId >= 0)
+        {
+            state.mut().subscriptionNotifications = state.get().subscriptionNotifications + 1;
+        }
+
+        if (input.status == ORACLE_QUERY_STATUS_SUCCESS)
+        {
+            state.mut().successes = state.get().successes + 1;
+            if (OI::Price::replyIsValid(input.reply))
+            {
+                state.mut().lastNumerator = input.reply.numerator;
+                state.mut().lastDenominator = input.reply.denominator;
+            }
+        }
+        else if (input.status == ORACLE_QUERY_STATUS_TIMEOUT)
+        {
+            state.mut().timeouts = state.get().timeouts + 1;
+        }
+        else if (input.status == ORACLE_QUERY_STATUS_UNRESOLVABLE)
+        {
+            state.mut().unresolvables = state.get().unresolvables + 1;
+        }
+        else
+        {
+            state.mut().unknowns = state.get().unknowns + 1;
+        }
     }
 
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
