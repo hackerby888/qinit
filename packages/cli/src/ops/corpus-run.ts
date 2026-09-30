@@ -15,6 +15,7 @@ const MAIN_ARENA = DEFAULT_COMPILE_ARENA_SIZE_BYTES;
 const DEP_ARENA = 128 * 1024 * 1024;
 const NOST_ARENA = 256 * 1024 * 1024;
 const SLACK = 128 * 1024 * 1024;
+type TsCompile = Awaited<ReturnType<typeof compileContractWithTypeScript>>;
 
 const mainArenaSize = (name: string): number => (name === "NOST" ? NOST_ARENA : MAIN_ARENA);
 
@@ -201,28 +202,40 @@ async function typescriptWasms(
     const callees: ContractIdl[] = [];
     const calleeSources: any[] = [];
     let nextBase = SHARED_START;
+    const requireWasm = (o: any, r: TsCompile, stage: string) => {
+        if (r.wasm.byteLength) return r;
+        const errors = r.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR).map((diagnostic) => diagnostic.message);
+        throw new Error(`${o.contractName} ${stage}: ${errors.join("; ") || "compiler returned empty wasm"}`);
+    };
+    // core's scratchpad holds a whole contract state, and a container rebuild asks for about its own size: a state past the small arena gets an arena of that size.
+    const withStateArena = async (o: any, r: TsCompile, oph?: (p: string) => void): Promise<TsCompile> => {
+        const stateSize = stateSizeOf(r.wasm);
+        if (stateSize <= ARENA) return r;
+        return requireWasm(o, await compileContractWithTypeScript({ ...o, arenaSizeBytes: align64k(stateSize) + ARENA, onPhase: oph }), "state-sized build");
+    };
     const emitAt = async (o: any, arenaSizeBytes: number): Promise<{ wasm: Uint8Array; timings?: Record<string, number> }> => {
         const oph = onPhase ? (p: string) => onPhase(`compiling ${o.contractName} (TypeScript) — ${p}`) : undefined;
-        const requireWasm = (r: Awaited<ReturnType<typeof compileContractWithTypeScript>>, stage: string) => {
-            if (r.wasm.byteLength) return r;
-            const errors = r.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR).map((diagnostic) => diagnostic.message);
-            throw new Error(`${o.contractName} ${stage}: ${errors.join("; ") || "compiler returned empty wasm"}`);
-        };
         if (!shared) {
-            const r = requireWasm(
-                await compileContractWithTypeScript({
-                    ...o,
-                    arenaSizeBytes: ARENA,
-                    onPhase: oph,
-                }),
-                "build",
+            const r = await withStateArena(
+                o,
+                requireWasm(
+                    o,
+                    await compileContractWithTypeScript({
+                        ...o,
+                        arenaSizeBytes: ARENA,
+                        onPhase: oph,
+                    }),
+                    "build",
+                ),
+                oph,
             );
             return { wasm: r.wasm, timings: r.timings };
         }
-        const p1 = requireWasm(await compileContractWithTypeScript({ ...o, arenaSizeBytes: ARENA }), "state-size probe").wasm; // silent — arena-independent
+        const p1 = requireWasm(o, await compileContractWithTypeScript({ ...o, arenaSizeBytes: ARENA }), "state-size probe").wasm; // silent — arena-independent
         const base = nextBase;
         nextBase = align64k(base + stateSizeOf(p1) + arenaSizeBytes + SLACK);
         const r = requireWasm(
+            o,
             await compileContractWithTypeScript({
                 ...o,
                 arenaSizeBytes,
@@ -256,7 +269,7 @@ async function typescriptWasms(
         if (!dr.idl) {
             throw new Error(`TypeScript dependency ${d.name}: compiler did not produce IDL`);
         }
-        out[d.slot] = shared && main.name !== "NOST" ? (await emitAt(depOpts, DEP_ARENA)).wasm : dr.wasm;
+        out[d.slot] = shared && main.name !== "NOST" ? (await emitAt(depOpts, DEP_ARENA)).wasm : (await withStateArena(depOpts, dr)).wasm;
         callees.push({
             ...dr.idl,
             name: d.stateType,

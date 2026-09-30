@@ -287,6 +287,8 @@ jobs:
   corpus:
     needs: resolve-core
     runs-on: ubuntu-latest
+    # a green run takes 12-19 minutes; a hung gtest sat for the 6 hour default once
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Checkout core-lite (${{ needs.resolve-core.outputs.sha }})

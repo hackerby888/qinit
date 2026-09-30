@@ -571,6 +571,116 @@ for (const backend of ["clang", "typescript"] as const) {
     );
 }
 
+// core sizes a contract's scratchpad to hold any state, so a container rebuild always fits; the gtest arena has to follow for a map past the small arena.
+const LEDGER_SOURCE = `using namespace QPI;
+
+struct Ledger2
+{
+};
+
+struct Ledger : public ContractBase
+{
+    struct StateData
+    {
+        HashMap<uint64, uint64, 1048576> entries;
+    };
+
+    struct Put_input { uint64 key; };
+    struct Put_output {};
+    struct Drop_input { uint64 key; };
+    struct Drop_output {};
+    struct Count_input {};
+    struct Count_output { uint64 count; };
+
+    PUBLIC_PROCEDURE(Put)
+    {
+        state.mut().entries.set(input.key, input.key);
+    }
+
+    PUBLIC_PROCEDURE(Drop)
+    {
+        state.mut().entries.removeByKey(input.key);
+        state.mut().entries.cleanup();
+    }
+
+    PUBLIC_FUNCTION(Count)
+    {
+        output.count = state.get().entries.population();
+    }
+
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
+    {
+        REGISTER_USER_PROCEDURE(Put, 1);
+        REGISTER_USER_PROCEDURE(Drop, 2);
+        REGISTER_USER_FUNCTION(Count, 1);
+    }
+};
+`;
+
+const LEDGER_TEST_SOURCE = `#define NO_UEFI
+#include "contract_testing.h"
+
+class ContractTestingLedger : protected ContractTesting {
+public:
+    ContractTestingLedger() {
+        initEmptySpectrum();
+        initEmptyUniverse();
+        INIT_CONTRACT(Ledger);
+        callSystemProcedure(Ledger_CONTRACT_INDEX, INITIALIZE);
+    }
+    uint64 count() const {
+        Ledger::Count_input input{};
+        Ledger::Count_output output{};
+        callFunction(Ledger_CONTRACT_INDEX, 1, input, output);
+        return output.count;
+    }
+    void put(const id& user, uint64 key) {
+        Ledger::Put_input input{ key };
+        Ledger::Put_output output{};
+        invokeUserProcedure(Ledger_CONTRACT_INDEX, 1, input, output, user, 0);
+    }
+    void drop(const id& user, uint64 key) {
+        Ledger::Drop_input input{ key };
+        Ledger::Drop_output output{};
+        invokeUserProcedure(Ledger_CONTRACT_INDEX, 2, input, output, user, 0);
+    }
+};
+
+TEST(Ledger, RebuildsA16MiBMapAfterARemoval) {
+    ContractTestingLedger t;
+    const id user = id::randomValue();
+    increaseEnergy(user, 1000000);
+    for (uint64 key = 1; key <= 100; ++key) t.put(user, key);
+    t.drop(user, 50);
+    EXPECT_EQ(t.count(), 99ull);
+}
+`;
+
+for (const backend of ["clang", "typescript"] as const) {
+    test.skipIf(!have)(
+        `a map larger than the gtest arena rebuilds with ${backend}`,
+        async () => {
+            const scratch = mkdtempSync(join(tmpdir(), `qinit-gtest-ledger-${backend}-`));
+            const contractPath = join(scratch, "Ledger.h");
+            const testPath = join(scratch, "Ledger.test.cpp");
+            writeFileSync(contractPath, LEDGER_SOURCE);
+            writeFileSync(testPath, LEDGER_TEST_SOURCE);
+
+            try {
+                const run = await runStdGtest({ contractPath, testPath, name: "Ledger", stateType: "Ledger", slot: 101, core: CORE, backend, scratch });
+
+                expect(run.runnerOk, run.buildError).toBe(true);
+                expect(run.results.map((result) => [result.name, result.passed, result.message.trim()])).toEqual([
+                    ["Ledger.RebuildsA16MiBMapAfterARemoval", true, ""],
+                ]);
+            } finally {
+                rmSync(scratch, { recursive: true, force: true });
+            }
+        },
+        180_000,
+    );
+}
+
 // Every template ships a gtest that must build and pass on both backends, the way `qinit new` then `qinit gtest` runs it; intercontract drives its callee.
 for (const backend of ["clang", "typescript"] as const) {
     for (const kind of TEMPLATE_KINDS) {
