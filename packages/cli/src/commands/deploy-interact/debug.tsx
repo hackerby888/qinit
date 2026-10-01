@@ -103,7 +103,7 @@ export function formatTraceAge(tickMs?: number, chainNowMs?: number): string {
 
 const PACE_SAMPLES = 8;
 
-// The tick-info samples the pace is read from: the last few on which the tick moved. A restarted node counts from a lower tick, so its pace starts over.
+// the tick-info samples the pace is read from: the last few on which the tick moved. A restarted node counts from a lower tick, so its pace starts over.
 export function withTickSample(samples: TickSample[], sample: TickSample): TickSample[] {
     const last = samples[samples.length - 1];
     if (last && sample.tick <= last.tick) {

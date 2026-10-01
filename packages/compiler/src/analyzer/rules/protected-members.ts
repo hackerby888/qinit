@@ -77,7 +77,7 @@ export function nonPublicMembers(source: string, contractName: string, macros: R
     return members;
 }
 
-// The contract's body: the opening brace of the top-level `struct`/`class` named after the contract, or failing that the one deriving from
+// the contract's body: the opening brace of the top-level `struct`/`class` named after the contract, or failing that the one deriving from
 // ContractBase. A nested `struct Name`, a `struct Name x` parameter or variable and a forward declaration define nothing and are passed over.
 function findContractBody(tokens: Token[], contractName: string): number {
     let named = -1;

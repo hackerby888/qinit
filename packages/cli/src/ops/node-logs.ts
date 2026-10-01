@@ -1,4 +1,4 @@
-// A node's log records per tick over the peer protocol both engines serve: the tick's log-id ranges, then REQUEST_LOG over the whole span
+// a node's log records per tick over the peer protocol both engines serve: the tick's log-id ranges, then REQUEST_LOG over the whole span
 // (a core tick can hold thousands of one-record ranges, one per computor transaction, and a request each is more than core answers).
 import { connect, type Socket } from "node:net";
 import { HEADER_SIZE, MSG, frame, readHeader } from "@qinit/engine/protocol/peer-codec";
@@ -21,12 +21,12 @@ const ATTEMPTS = 3;
 const RETRY_PAUSE_MS = 1_000;
 
 export interface LogReader {
-    /** Every record of one tick, in log-id order; none for a tick the node holds no records for. */
+    /** every record of one tick, in log-id order; none for a tick the node holds no records for. */
     tick(tick: number): Promise<NodeLogRecord[]>;
     close(): void;
 }
 
-/** A log reader on one peer connection, reopened when the node drops it: requests go one after another, each matched by its own dejavu. */
+/** a log reader on one peer connection, reopened when the node drops it: requests go one after another, each matched by its own dejavu. */
 export function openLogReader(host: string, port: number): LogReader {
     let socket: Socket | null = null;
     let received = new Uint8Array(0);
@@ -161,7 +161,7 @@ export function openLogReader(host: string, port: number): LogReader {
     };
 }
 
-/** One tick's records over a connection of its own. */
+/** one tick's records over a connection of its own. */
 export async function readTickLogRecords(host: string, port: number, tick: number): Promise<NodeLogRecord[]> {
     const reader = openLogReader(host, port);
     try {

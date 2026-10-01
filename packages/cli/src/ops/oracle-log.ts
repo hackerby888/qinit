@@ -38,7 +38,7 @@ function view(message: Uint8Array): DataView {
 
 type ZeroTransfer = { contract: number; amount: bigint; direction: "burned" | "refunded" };
 
-// A contract's transfer to or from the zero id: the shape of a fee and of its refund, and of a donation or a plain burn as well.
+// a contract's transfer to or from the zero id: the shape of a fee and of its refund, and of a donation or a plain burn as well.
 function zeroTransfer(record: NodeLogRecord | undefined): ZeroTransfer | null {
     if (record?.type !== QUBIC_LOG_TYPE.QU_TRANSFER || record.message.length < QuTransfer.OFFSETS.amount + 8) return null;
     const at = QuTransfer.OFFSETS;
@@ -52,7 +52,7 @@ function zeroTransfer(record: NodeLogRecord | undefined): ZeroTransfer | null {
     return refunded !== null ? { contract: refunded, amount, direction: "refunded" } : null;
 }
 
-// The contract a record was paid for by: its own query, a subscription it opens, or an OC invocation.
+// the contract a record was paid for by: its own query, a subscription it opens, or an OC invocation.
 function payingContract(record: NodeLogRecord | undefined): number | null {
     if (!record) return null;
     const data = view(record.message);
@@ -96,16 +96,14 @@ export function oracleLogEntries(records: readonly NodeLogRecord[]): OracleLogEn
             const at = OracleSubscriberLogMessage.OFFSETS;
             const data = view(message);
             const subscriber = {
-                tick,
-                range,
                 subscriptionId: data.getInt32(at.subscriptionId, true),
                 contract: data.getUint32(at.contractIndex, true),
                 interface: interfaceName(data.getUint32(at.interfaceIndex, true)),
             };
             const periodMs = data.getUint32(at.periodInMilliseconds, true);
             // both engines log an unsubscribe as a subscriber record with a period of zero
-            if (periodMs === 0) entries.push({ ...subscriber, record: "unsubscription" });
-            else entries.push({ ...subscriber, record: "subscription", periodMs, firstQuery: String(data.getBigUint64(at.firstQueryDateAndTime, true)) });
+            if (periodMs === 0) entries.push({ tick, range, record: "unsubscription", ...subscriber });
+            else entries.push({ tick, range, record: "subscription", ...subscriber, periodMs, firstQuery: String(data.getBigUint64(at.firstQueryDateAndTime, true)) });
         } else if (type === QUBIC_LOG_TYPE.OC_INVOCATION_STATUS_CHANGE && message.length >= OcInvocationStatusChange.OFFSETS._terminator) {
             const at = OcInvocationStatusChange.OFFSETS;
             const data = view(message);

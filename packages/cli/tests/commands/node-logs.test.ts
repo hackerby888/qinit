@@ -1,4 +1,4 @@
-// The log reader against a scripted peer: what core answers that the simulator's peer server never does — a refusal, a busy node, a prefix of
+// the log reader against a scripted peer: what core answers that the simulator's peer server never does — a refusal, a busy node, a prefix of
 // the span asked for — and one connection for a whole range of ticks.
 import { expect, test } from "bun:test";
 import { createServer, type Socket } from "node:net";

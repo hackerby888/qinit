@@ -111,7 +111,7 @@ export function pendingFacts(queries: PendingQuery[]): OracleFacts["pending"] {
     }));
 }
 
-// One pass of `serve`: answer every pending query a rule or --reply covers. A query whose reply cannot be encoded is reported once
+// one pass of `serve`: answer every pending query a rule or --reply covers. A query whose reply cannot be encoded is reported once
 // and remembered in `skipped`, so one bad query does not end the others; a failed request is the node's trouble and is not remembered.
 export async function servePending(
     rpc: Pick<LiteRpc, "oraclePending" | "oracleResolve">,
