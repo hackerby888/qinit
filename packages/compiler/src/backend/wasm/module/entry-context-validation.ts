@@ -170,11 +170,7 @@ export function validateEntryContextConversions(prepared: PreparedContractModule
             if (call.callee.kind !== AstKind.MEMBER_ACCESS || call.callee.object.kind !== AstKind.IDENTIFIER || call.callee.object.name !== "qpi") return;
             const member = call.callee.member;
             if (programAnalysis.hasInstanceMethod(callerContext, member) || !programAnalysis.hasInstanceMethod(PROCEDURE_CONTEXT, member)) return;
-            programAnalysis.error(
-                `'${name}' takes ${callerContext} and cannot use ${QPI_MACRO_OF_MEMBER.get(member) ?? `qpi.${member}`}, which needs ${PROCEDURE_CONTEXT}` +
-                    ` — call it from a procedure`,
-                call.span,
-            );
+            programAnalysis.error(`'${name}' takes ${callerContext} and cannot use ${QPI_MACRO_OF_MEMBER.get(member) ?? `qpi.${member}`}, which needs ${PROCEDURE_CONTEXT} — call it from a procedure`, call.span);
         });
     }
 }
