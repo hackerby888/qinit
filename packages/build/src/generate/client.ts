@@ -134,7 +134,7 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
                 JSON.stringify({
                     name: idl.name,
                     functions: idl.functions.map((entry) => [entry.name, entry.inputType, entry.input, entry.output]),
-                    procedures: idl.procedures.map((entry) => [entry.name, entry.inputType, entry.input, entry.output]),
+                    procedures: procedures.map((entry) => [entry.name, entry.inputType, entry.input, entry.output]),
                 }),
             ),
         ),

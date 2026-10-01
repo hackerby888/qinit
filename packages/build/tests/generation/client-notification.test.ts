@@ -24,3 +24,14 @@ test("a notification entry gets no client method; the other procedures keep thei
     expect(out.includes("async OnReply(")).toBe(false);
     expect(out.includes("procedureId: 2")).toBe(false);
 });
+
+test("a notification moving a line leaves the client's digest alone", () => {
+    const digestAt = (line: number) => {
+        const idl = extractIdl(SRC, "Demo");
+        const onReply = idl.procedures.find((entry) => entry.name === "OnReply")!;
+        onReply.notification = true;
+        onReply.inputType = line;
+        return /QINIT_IDL_DIGEST = "([0-9a-f]+)"/.exec(generateClient(idl, 28))![1];
+    };
+    expect(digestAt(140)).toBe(digestAt(155));
+});
