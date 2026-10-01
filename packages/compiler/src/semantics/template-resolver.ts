@@ -175,17 +175,14 @@ export function withLocalStructs(
     return withMemberConstants(programAnalysis, localStructBindings(programAnalysis, members, templateBindings, owner), members);
 }
 
-/**
- * A member list's own integer `static constexpr` members bind for the members around them (class scope before namespace scope), so
- * `SlowAnySizeArray<uint8, k>` reads the struct's `k`, not QPI's `Ch::k` through `using namespace QPI`.
- */
+/** a member list's own integer `static constexpr` members bind for the members around them, over anything inherited (class scope
+ *  before namespace scope), so `SlowAnySizeArray<uint8, k>` reads the struct's `k`, not QPI's `Ch::k` through `using namespace QPI`. */
 function withMemberConstants(programAnalysis: ProgramAnalysis, templateBindings: TemplateBindings, members: Declaration[]): TemplateBindings {
     let values = templateBindings.values;
     for (const member of members) {
         if (member.kind !== AstKind.VARIABLE) continue;
         const variableDeclaration = member as VariableDecl;
         if (!(variableDeclaration.isStatic || variableDeclaration.isConstexpr) || !variableDeclaration.initializer) continue;
-        if (values.has(variableDeclaration.name)) continue;
         try {
             const value = programAnalysis.evalConstBig(variableDeclaration.initializer, { ...templateBindings, values });
             if (values === templateBindings.values) values = new Map(templateBindings.values);
@@ -214,13 +211,21 @@ function localStructBindings(
                 ownStructs.set((member as StructDecl).name, member as StructDecl);
             }
         }
-        return {
+        // such a struct is no template, so the caller's values are not its own: it sees the constants of the structs around it,
+        // outermost first, and its own are laid over them. The contract's resolve program-wide and are left to that.
+        const enclosing: StructDecl[] = [];
+        for (let parent = programAnalysis.structParent.get(owner); parent && enclosing.length < 64; parent = programAnalysis.structParent.get(parent)) {
+            if (parent !== programAnalysis.contractStruct) enclosing.unshift(parent);
+        }
+        let scoped: TemplateBindings = {
             types: templateBindings.types,
-            values: templateBindings.values,
+            values: new Map(),
             structs: ownStructs,
             scopeIsKnown: true,
             scopeStructs: programAnalysis.structsVisibleIn(owner),
         };
+        for (const parent of enclosing) scoped = withMemberConstants(programAnalysis, scoped, parent.members);
+        return scoped;
     }
 
     let structs = templateBindings.structs;
