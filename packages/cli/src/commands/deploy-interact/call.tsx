@@ -571,8 +571,10 @@ function CallOneShot({
                                 : r.confirmed && !r.included
                                   ? "dropped — not included"
                                   : "broadcast · unconfirmed";
-                        // a processed tx to a number the contract never registered ran nothing, so it is not a success
-                        const ranNothing = unregistered !== undefined && detail === "processed";
+                        // a processed tx to a number the node never registered ran nothing, unless it carried qu: that moved and the contract was told.
+                        // only the node's own list says so; a catalog entry for a contract core runs natively can be behind it.
+                        const listedByNode = sets.user.some((contract) => contract.index === idx);
+                        const ranNothing = unregistered !== undefined && detail === "processed" && amount === 0n && listedByNode;
                         const ok = !r.ok ? false : r.confirmed && !r.included ? false : !ranNothing;
                         // Only a processed tx has a settled balance; a pre-inclusion read would be the silent-wrong value.
                         const info = detail === "processed" ? await contractInfo() : undefined;
