@@ -8,7 +8,7 @@ import { loadConfig, resolveRpc } from "../../config";
 import { Header, Spinner, KV, theme, termCols } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { readTickLogRecords } from "../../ops/node-logs";
-import { oracleLogEntries, oracleLogText, type OracleLogEntry } from "../../ops/oracle-log";
+import { interfaceName, oracleLogEntries, oracleLogText, type OracleLogEntry } from "../../ops/oracle-log";
 
 type PendingQuery = { queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array };
 
@@ -111,8 +111,8 @@ export function pendingFacts(queries: PendingQuery[]): OracleFacts["pending"] {
     }));
 }
 
-// One pass of `serve`: answer every pending query a rule or --reply covers. A query this server cannot answer is reported once
-// and remembered in `skipped`, so one bad query does not end the others.
+// One pass of `serve`: answer every pending query a rule or --reply covers. A query whose reply cannot be encoded is reported once
+// and remembered in `skipped`, so one bad query does not end the others; a failed request is the node's trouble and is not remembered.
 export async function servePending(
     rpc: Pick<LiteRpc, "oraclePending" | "oracleResolve">,
     answer: { rules: Record<string, string> | null; reply: string; replyHex: string | undefined },
@@ -121,19 +121,22 @@ export async function servePending(
     const lines: string[] = [];
     for (const query of await rpc.oraclePending()) {
         if (skipped.has(query.queryId)) continue;
-        const oracleInterface = interfaceOf(query.interfaceIndex);
-        const replyText = answer.rules ? answer.rules[oracleInterface.name] : answer.reply;
-        if (!replyText && !(!answer.rules && answer.replyHex)) continue;
+        // a node built from newer headers can ask on an interface this registry lacks: it is named by number and refused by encodeReply
+        const name = interfaceName(query.interfaceIndex);
+        const replyText = answer.rules ? answer.rules[name] : answer.reply;
+        if (!replyText && (answer.rules || answer.replyHex === undefined)) continue;
 
+        let reply: Uint8Array;
         try {
             // a rule is reply text; `undefined` keeps it from reading as an empty --reply-hex
-            const reply = await encodeReply(query.interfaceIndex, replyText ?? "", answer.rules ? undefined : answer.replyHex);
-            const result = await rpc.oracleResolve(query.queryId, reply, ORACLE_STATUS.SUCCESS);
-            lines.push(`#${query.queryId} ${oracleInterface.name} ${result.ok ? "answered" : "refused"}`);
+            reply = await encodeReply(query.interfaceIndex, replyText ?? "", answer.rules ? undefined : answer.replyHex);
         } catch (e: any) {
             skipped.add(query.queryId);
-            lines.push(`#${query.queryId} ${oracleInterface.name} skipped: ${String(e?.message ?? e)}`);
+            lines.push(`#${query.queryId} ${name} skipped: ${String(e?.message ?? e)}`);
+            continue;
         }
+        const result = await rpc.oracleResolve(query.queryId, reply, ORACLE_STATUS.SUCCESS);
+        lines.push(`#${query.queryId} ${name} ${result.ok ? "answered" : "refused"}`);
     }
     return lines;
 }
@@ -199,7 +202,7 @@ export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
                     ]);
                 } else if (o.sub === "serve") {
                     const rules = o.rules ? loadRules(o.rules) : null;
-                    if (!rules && !o.reply && !o.replyHex) throw new Error("serve needs --rules <file> or a --reply to answer every query with");
+                    if (!rules && !o.reply && o.replyHex === undefined) throw new Error("serve needs --rules <file> or a --reply to answer every query with");
                     setBusy("answering oracle queries — ctrl-c to stop");
 
                     const skipped = new Set<bigint>();

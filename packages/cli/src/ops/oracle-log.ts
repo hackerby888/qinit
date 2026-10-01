@@ -21,7 +21,7 @@ export type OracleLogEntry =
     | { tick: number; range: number; record: "fee"; contract: number; amount: string; direction: "burned" | "refunded" };
 
 const nameOf = (table: Record<string, number>, value: number) => Object.keys(table).find((name) => table[name] === value) ?? String(value);
-const interfaceName = (index: number) => ORACLE_INTERFACES[index]?.name ?? `interface ${index}`;
+export const interfaceName = (index: number) => ORACLE_INTERFACES[index]?.name ?? `interface ${index}`;
 
 // A contract's id is its slot in the first four bytes and zeros after; the zero id is where a fee is burned and where a refund comes from.
 function contractSlot(key: Uint8Array): number | null {
