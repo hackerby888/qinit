@@ -26,10 +26,10 @@ export function accessAfterMacro(macros: ReadonlyMap<string, MacroDef>, name: st
 }
 
 /** The structs and typedefs a contract declares where they are not public, each with the macro that made them so. */
-export function nonPublicMembers(source: string, stateType: string, macros: ReadonlyMap<string, MacroDef>): Map<string, string> {
+export function nonPublicMembers(source: string, contractName: string, macros: ReadonlyMap<string, MacroDef>): Map<string, string> {
     const tokens = new Lexer(source).tokenize();
     const members = new Map<string, string>();
-    const open = findContractBody(tokens, stateType);
+    const open = findContractBody(tokens, contractName);
     if (open < 0) return members;
 
     let access = AccessSpec.PUBLIC; // a struct's members start public
@@ -67,16 +67,34 @@ export function nonPublicMembers(source: string, stateType: string, macros: Read
     return members;
 }
 
-// `struct <stateType> ... {` at the top level: the token index of its opening brace.
-function findContractBody(tokens: Token[], stateType: string): number {
+// The contract's body: the token index of the opening brace of the top-level `struct`/`class` named after the contract, or failing that
+// the one deriving from ContractBase (as detectQpiContractName and driver/callees.ts find it). A nested `struct Name`, a parameter or
+// variable written `struct Name x` and a forward declaration are not definitions, so they are passed over.
+function findContractBody(tokens: Token[], contractName: string): number {
+    let named = -1;
+    let derived = -1;
+    let depth = 0;
     for (let index = 0; index + 1 < tokens.length; index++) {
-        if (tokens[index].kind !== TokenKind.KW_STRUCT || tokens[index + 1].text !== stateType) continue;
-        for (let brace = index + 2; brace < tokens.length; brace++) {
-            if (tokens[brace].kind === TokenKind.SEMICOLON) break; // a forward declaration
-            if (tokens[brace].kind === TokenKind.L_BRACE) return brace;
+        const token = tokens[index];
+        if (token.kind === TokenKind.L_BRACE) depth++;
+        else if (token.kind === TokenKind.R_BRACE) depth--;
+        if (depth !== 0 || (token.kind !== TokenKind.KW_STRUCT && token.kind !== TokenKind.KW_CLASS)) continue;
+        const name = tokens[index + 1];
+        if (name.kind !== TokenKind.IDENTIFIER) continue;
+
+        let hasContractBase = false;
+        for (let cursor = index + 2; cursor < tokens.length; cursor++) {
+            const kind = tokens[cursor].kind;
+            if (kind === TokenKind.SEMICOLON || kind === TokenKind.L_PAREN || kind === TokenKind.R_PAREN || tokens[cursor].text === "=") break;
+            if (kind === TokenKind.IDENTIFIER && tokens[cursor].text === "ContractBase") hasContractBase = true;
+            if (kind !== TokenKind.L_BRACE) continue;
+            if (name.text === contractName) named = cursor;
+            else if (hasContractBase && derived < 0) derived = cursor;
+            break;
         }
+        if (named >= 0) return named;
     }
-    return -1;
+    return derived;
 }
 
 // The cross-contract call macros name the callee's members themselves (qpi_macros.h): `Callee::Proc`, `Callee::Proc##_locals` and

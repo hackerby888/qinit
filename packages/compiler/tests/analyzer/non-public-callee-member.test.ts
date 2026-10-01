@@ -49,6 +49,21 @@ test("declared above the private procedure, or reopened by a public macro or lab
     expect(findings(NOTE + "    PUBLIC_FUNCTION(Peek) { }\n    struct Peek_input {};\n    struct Peek_output {};\n" + ASK)).toEqual([]);
 });
 
+// the callee's body is the top-level definition, not an earlier `struct Leaf` written as a parameter type or nested in another struct
+test("the contract body is found past earlier structs that mention its name, and as a class", () => {
+    const expected = ["7:31 'Ask_input' is declared after PRIVATE_PROCEDURE(Note) in Leaf", "7:51 'Ask_output' is declared after PRIVATE_PROCEDURE(Note) in Leaf"];
+    const before = (prefix: string, head = "struct Leaf : public ContractBase") =>
+        analyzeContract({ source: CALLER, contractName: "Mid", slot: 35, calleeSources: [{ name: "Leaf", slot: 34, source: `using namespace QPI;\n${prefix}${head} {\n${NOTE}${ASK}};\n` }] })
+            .diagnostics.filter((diagnostic) => diagnostic.code === "qpi/non-public-callee-member")
+            .map((diagnostic) => `${diagnostic.span.line}:${diagnostic.span.column} ${diagnostic.message.slice(0, diagnostic.message.indexOf(","))}`);
+    expect(before("struct Helper { static void touch(struct Leaf& leaf) { } };\n")).toEqual(expected);
+    expect(before("struct Outer { struct Leaf { uint64 x; }; };\n")).toEqual(expected);
+    expect(before("struct Leaf;\n")).toEqual(expected);
+    expect(before("", "class Leaf : public ContractBase")).toEqual(expected);
+    // the Qubic convention names the state struct after the contract, and the include-time name may be the CONTRACT_STATE_TYPE macro
+    expect(before("", "struct CONTRACT_STATE_TYPE : public ContractBase")).toEqual(expected);
+});
+
 test("an explicit protected: label hides the struct too", () => {
     expect(findings("    protected:\n" + ASK)).toEqual(["7:31 'Ask_input' is declared after protected: in Leaf", "7:51 'Ask_output' is declared after protected: in Leaf"]);
 });
