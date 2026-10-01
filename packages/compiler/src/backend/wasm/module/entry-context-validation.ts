@@ -21,11 +21,16 @@ function convertible(programAnalysis: ProgramAnalysis, from: string, to: string)
     return from === to || programAnalysis.methodOwnerNames(from).includes(to);
 }
 
-/** Every call expression in a statement tree, callee and arguments included. */
-function visitCalls(statement: Statement | undefined, visit: (call: Expression & { kind: AstKind.CALL }) => void): void {
+/** Every call expression in a statement tree, callee and arguments included; `visitTemplate` also sees the template calls. */
+function visitCalls(
+    statement: Statement | undefined,
+    visit: (call: Expression & { kind: AstKind.CALL }) => void,
+    visitTemplate?: (call: Expression & { kind: AstKind.TEMPLATE_CALL }) => void,
+): void {
     const inExpression = (expression: Expression | undefined): void => {
         if (!expression) return;
         if (expression.kind === AstKind.CALL) visit(expression);
+        if (expression.kind === AstKind.TEMPLATE_CALL) visitTemplate?.(expression);
         for (const child of subExpressions(expression)) inExpression(child);
     };
     const inStatement = (node: Statement | undefined): void => {
@@ -122,6 +127,14 @@ function selfCallTarget(call: Expression & { kind: AstKind.CALL }): string | nul
 // What `CALL(f, in, out)` becomes; see driver/qpi/scaffold.ts.
 const SELF_CALL_INTRINSIC = "__qpi_call_self";
 
+// The oracle and OC macros expand to template members of QpiContextProcedureCall (core-lite qpi_macros.h); the message names the macro the author wrote.
+const QPI_MACRO_OF_MEMBER = new Map([
+    ["__qpiQueryOracle", "QUERY_ORACLE"],
+    ["__qpiSubscribeOracle", "SUBSCRIBE_ORACLE"],
+    ["__qpiInvokeOC", "INVOKE_OC"],
+]);
+const PROCEDURE_CONTEXT = "QpiContextProcedureCall";
+
 /** Report every call that would forward a weaker context than the callee declares. */
 export function validateEntryContextConversions(prepared: PreparedContractModule): void {
     const contract = prepared.contract;
@@ -151,6 +164,16 @@ export function validateEntryContextConversions(prepared: PreparedContractModule
                 `'${name}' takes ${callerContext} and cannot CALL '${targetName}', which requires ${calleeContext}` +
                     ` — a read-only entry may not reach one that can move state`,
                 programAnalysis.memberFnLine.get(name) ?? call.span?.line ?? 0,
+            );
+        }, (call) => {
+            // `qpi.m<T>(...)` that only a procedure's context declares: clang refuses it as "no member named 'm'", the lowering has no name for it.
+            if (call.callee.kind !== AstKind.MEMBER_ACCESS || call.callee.object.kind !== AstKind.IDENTIFIER || call.callee.object.name !== "qpi") return;
+            const member = call.callee.member;
+            if (programAnalysis.hasInstanceMethod(callerContext, member) || !programAnalysis.hasInstanceMethod(PROCEDURE_CONTEXT, member)) return;
+            programAnalysis.error(
+                `'${name}' takes ${callerContext} and cannot use ${QPI_MACRO_OF_MEMBER.get(member) ?? `qpi.${member}`}, which needs ${PROCEDURE_CONTEXT}` +
+                    ` — call it from a procedure`,
+                call.span,
             );
         });
     }

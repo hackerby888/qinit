@@ -1,6 +1,14 @@
 import { expect, test } from "bun:test";
 import type { DebugEntry } from "@qinit/core";
-import { formatTraceAge, idlCacheKey, mergeTraceEntries, traceSelectionIndex, visibleForTarget } from "../../src/commands/deploy-interact/debug";
+import {
+    estimateTraceAgeMs,
+    formatEstimatedAge,
+    formatTraceAge,
+    idlCacheKey,
+    mergeTraceEntries,
+    traceSelectionIndex,
+    visibleForTarget,
+} from "../../src/commands/deploy-interact/debug";
 
 const frame = (fields: Partial<DebugEntry>): DebugEntry =>
     ({ seq: 0, tick: 1, index: 29, entry: 1, kind: 1, ok: true, hostCalls: [], logs: [], cheats: [], ...fields }) as DebugEntry;
@@ -93,4 +101,27 @@ test("debug idl cache key follows a redeploy into the same slot", () => {
     expect(idlCacheKey(reordered)).toBe(idlCacheKey(before));
     expect(idlCacheKey(redeployed)).not.toBe(idlCacheKey(before));
     expect(idlCacheKey([{ index: 29 }] as any)).toBe("29:");
+});
+
+// F260: the simulator keeps no tick data for a tick without transactions — where every delivered oracle notification lands — so its row is aged
+// by the node's pace instead of showing no time at all.
+test("debug ages a row with no tick data by the node's pace", () => {
+    const first = { tick: 2700, at: 10_000 };
+    const last = { tick: 2760, at: 70_000 }; // 60 ticks in 60 s
+
+    expect(estimateTraceAgeMs(2750, first, last, 70_000)).toBe(10_000);
+    expect(estimateTraceAgeMs(2750, first, last, 72_500)).toBe(12_500);
+    expect(estimateTraceAgeMs(2760, first, last, 70_000)).toBe(0);
+    expect(estimateTraceAgeMs(2640, { tick: 2700, at: 0 }, { tick: 2710, at: 1_000 }, 1_000)).toBe(7_000); // 100 ms a tick
+
+    // no pace yet, a single sample, or a row newer than the last sample: no estimate
+    expect(estimateTraceAgeMs(2750, undefined, last, 70_000)).toBeUndefined();
+    expect(estimateTraceAgeMs(2750, last, last, 70_000)).toBeUndefined();
+    expect(estimateTraceAgeMs(2761, first, last, 70_000)).toBeUndefined();
+
+    expect(formatEstimatedAge()).toBe("—");
+    expect(formatEstimatedAge(1_000)).toBe("now");
+    expect(formatEstimatedAge(30_000)).toBe("~30 sec ago");
+    expect(formatEstimatedAge(59_000)).toBe("~59 sec ago");
+    expect(formatEstimatedAge(12 * 60_000)).toBe("~12 min ago");
 });

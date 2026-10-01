@@ -192,3 +192,11 @@ test("initOutput enables plain output without json", () => {
     expect(output.json).toBe(false);
     expect(output.plain).toBe(true);
 });
+
+test("a negative number after a string option is its value, not a flag", () => {
+    const parsed = parseArgs(["--in", "-1sint64", "--json"], { strings: ["in"] });
+    expect(parsed.get("in")).toBe("-1sint64");
+    expect(parsed.has("json")).toBe(true);
+    expect(parseArgs(["--in", "-.5"], { strings: ["in"] }).get("in")).toBe("-.5");
+    expect(() => parseArgs(["--in", "--json"], { strings: ["in"] })).toThrow();
+});

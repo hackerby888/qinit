@@ -210,6 +210,18 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             if (expression.callee.kind === AstKind.MEMBER_ACCESS) {
                 const source = context.lowering.emitTemplateContainerCall(context, expression, true);
                 if (source !== null) return watIr.rawWatNode(source, WatNodeType.I64, "source-compiled template instance method");
+                // QUERY_ORACLE / INVOKE_OC in a function: entry-context-validation.ts already named it at its line
+                const callee = expression.callee;
+                const contextType = context.params?.get("qpi")?.type;
+                if (
+                    callee.object.kind === AstKind.IDENTIFIER &&
+                    callee.object.name === "qpi" &&
+                    contextType?.kind === AstKind.NAME &&
+                    !context.programAnalysis.hasInstanceMethod(contextType.name, callee.member) &&
+                    context.programAnalysis.hasInstanceMethod("QpiContextProcedureCall", callee.member)
+                ) {
+                    return watIr.i64Constant(0);
+                }
             }
             context.programAnalysis.warn(
                 `unsupported template_call '${expression.callee.kind === AstKind.IDENTIFIER ? expression.callee.name : "?"}' as value`,

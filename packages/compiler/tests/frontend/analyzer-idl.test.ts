@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { AbiScalarKind, AbiTypeKind, parseContractIdl } from "@qinit/proto/contract-idl";
+import { AbiScalarKind, AbiScalarSemantic, AbiTypeKind, parseContractIdl } from "@qinit/proto/contract-idl";
 import { layoutOf } from "@qinit/proto/abi";
 import { analyzeContract } from "../../src/analyzer";
 import { compileContract } from "../../src/driver/compile-contract";
@@ -311,6 +311,9 @@ struct RareAbiTypes : public ContractBase {
         });
         expect(fields.get(name)?.size).toBe(size);
     }
+    // F254: a DateAndTime is a uint64 on the wire and carries what it packs, so a reader can show the date; a plain uint64 carries nothing
+    expect(fields.get("dateValue")?.type).toMatchObject({ semantic: AbiScalarSemantic.DATE_AND_TIME, format: "uint64" });
+    expect(fields.get("uint64Value")?.type).not.toHaveProperty("semantic");
 
     expect(fields.get("bits2")?.type).toMatchObject({
         kind: AbiTypeKind.BIT_ARRAY,

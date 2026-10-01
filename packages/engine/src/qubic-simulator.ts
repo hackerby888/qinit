@@ -175,6 +175,7 @@ export class QubicSimulator {
     private readonly haltOnContractFault: boolean;
     // Drained by the transport each tick. A caller that advances the simulator directly never drains it, so the backlog is capped rather than growing.
     private prunedTransactionIds: string[] = [];
+    private deferredEngineLogs: { type: number; message: Uint8Array }[] = [];
     private terminalFault: EngineFaultInfo | null = null;
     private lastFinalizedTick = 0;
     private lastFinalizedEpoch = 0;
@@ -248,7 +249,7 @@ export class QubicSimulator {
             quorum: () => quorumOf(this.ticking.committeeSize()),
             computorPublicKey: (computorIdx) => this.host.computor(computorIdx),
             computorIndex: (publicKey) => this.computorIndex(publicKey),
-            log: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
+            log: (type, message) => this.logEngineMessage(type, message),
         });
 
         // core's host takes the fee, asks the engine, and hands the fee back when the engine refuses.
@@ -264,7 +265,7 @@ export class QubicSimulator {
         this.oc = new OcManager({
             ...contractEnergy,
             currentTick: () => this.currentTick,
-            log: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
+            log: (type, message) => this.logEngineMessage(type, message),
         });
         this.host = {
             tick: () => this.currentTick + this.cheatTickOffset,
@@ -489,6 +490,16 @@ export class QubicSimulator {
         return this.terminalFault;
     }
 
+    // Core logs a commit inside the computor transaction that carries it, in a tick. Here `resolveOracle` commits when the reply arrives,
+    // between ticks, where the store has no range open — so the record waits for the next tick's oracle pass instead of being lost.
+    private logEngineMessage(type: number, message: Uint8Array): void {
+        if (this.logStore?.betweenRanges) {
+            this.deferredEngineLogs.push({ type, message: message.slice() });
+            return;
+        }
+        this.logStore?.logMessage(type, message, this.currentEpoch);
+    }
+
     private runOperation<T>(
         phase: string,
         operation: () => T,
@@ -521,6 +532,12 @@ export class QubicSimulator {
 
     getContractFeeReserve(slot: number): bigint {
         return this.fees.getContractFeeReserve(slot);
+    }
+
+    // what qpi.queryFeeReserve answers for the contract: with fees off a reserve nobody set reads as the legacy constant, not 0,
+    // so a reader of the registry does not take every contract for dormant.
+    reportedFeeReserve(slot: number): bigint {
+        return this.fees.queryFeeReserve(slot, slot);
     }
 
     // What this phase has accumulated for a contract but not yet charged; the reserve only moves at the phase boundary.
@@ -1272,6 +1289,12 @@ export class QubicSimulator {
             if (!contract) {
                 return;
             }
+            // a redeploy that moved the notification to another line leaves the query naming an entry the contract no longer has;
+            // core finds no procedure behind the id and runs nothing, so no frame is recorded for it here either
+            const entry = notificationEntry(procedureId);
+            if (!contract.entries.some((candidate) => candidate.kind === CONTRACT_ENTRY_KIND.PROCEDURE && candidate.inputType === entry)) {
+                return;
+            }
 
             if (!rangeOpen) {
                 this.logStore?.begin(this.currentTick, LOG_SC_NOTIFICATION);
@@ -1472,6 +1495,9 @@ export class QubicSimulator {
         // a reply or a timeout changes a query's status here, outside any transaction; its record goes where the notification it causes goes.
         this.logStore?.begin(this.currentTick, LOG_SC_NOTIFICATION);
         try {
+            for (const { type, message } of this.deferredEngineLogs.splice(0)) {
+                this.logStore?.logMessage(type, message, this.currentEpoch);
+            }
             this.processOracleTick();
             // an oc authorization, timeout or delivery also lands between transactions, like core's per-tick engine pass.
             this.oc.pump();

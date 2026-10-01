@@ -83,3 +83,17 @@ test("an --out that disagrees with the IDL is refused in either direction", asyn
         stop();
     }
 }, 60_000);
+
+// once processed, a tx to an unregistered proc number ran nothing, so `--json` no longer calls it ok.
+test("a processed tx to an unregistered proc number is not ok", async () => {
+    const { run, stop } = await boot();
+    try {
+        const proc = await run("--proc", String(SLOT), "9", "--json");
+        expect(proc.code, proc.stdout).toBe(1);
+        const result = JSON.parse(proc.stdout.slice(proc.stdout.indexOf("{")));
+        expect(result.ok).toBe(false);
+        expect(result.error).toContain("no proc 9 on contract 28 (registered: 1): the transaction was processed and ran nothing");
+    } finally {
+        stop();
+    }
+}, 60_000);

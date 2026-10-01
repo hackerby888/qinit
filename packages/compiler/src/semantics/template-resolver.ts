@@ -172,6 +172,37 @@ export function withLocalStructs(
     templateBindings: TemplateBindings,
     owner?: StructDecl,
 ): TemplateBindings {
+    return withMemberConstants(programAnalysis, localStructBindings(programAnalysis, members, templateBindings, owner), members);
+}
+
+/**
+ * A member list's own integer `static constexpr` members bind for the members around them (class scope before namespace scope), so
+ * `SlowAnySizeArray<uint8, k>` reads the struct's `k`, not QPI's `Ch::k` through `using namespace QPI`.
+ */
+function withMemberConstants(programAnalysis: ProgramAnalysis, templateBindings: TemplateBindings, members: Declaration[]): TemplateBindings {
+    let values = templateBindings.values;
+    for (const member of members) {
+        if (member.kind !== AstKind.VARIABLE) continue;
+        const variableDeclaration = member as VariableDecl;
+        if (!(variableDeclaration.isStatic || variableDeclaration.isConstexpr) || !variableDeclaration.initializer) continue;
+        if (values.has(variableDeclaration.name)) continue;
+        try {
+            const value = programAnalysis.evalConstBig(variableDeclaration.initializer, { ...templateBindings, values });
+            if (values === templateBindings.values) values = new Map(templateBindings.values);
+            values.set(variableDeclaration.name, value);
+        } catch {
+            /* not an integer constant (a bool selector, an id) — not a dimension */
+        }
+    }
+    return values === templateBindings.values ? templateBindings : { ...templateBindings, values };
+}
+
+function localStructBindings(
+    programAnalysis: ProgramAnalysis,
+    members: Declaration[],
+    templateBindings: TemplateBindings,
+    owner?: StructDecl,
+): TemplateBindings {
     // Only when the owner's nesting was recorded. A struct nested in a class template is registered by
     // the template machinery, so its chain reads as file scope; those keep the inherited map.
     if (owner && programAnalysis.structScopeKnown.has(owner)) {

@@ -97,6 +97,11 @@ export class QubicLogStore {
     end(): void {
         this.current = null;
     }
+
+    // Between two ranges a record has nowhere to go and is dropped; a paused store drops on purpose, so that is not "between".
+    get betweenRanges(): boolean {
+        return !this.paused && this.current === null;
+    }
     pause(): void {
         this.paused = true;
     }

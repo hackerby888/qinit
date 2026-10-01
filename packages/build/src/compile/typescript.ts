@@ -71,6 +71,21 @@ function requireCalleeIdl(callee: DynamicCalleeSource, result: SourceAnalysisRes
     };
 }
 
+// The compiler remaps a span onto the contract's own text (compiler driver/diagnostics.ts); what lies outside it — the QPI prelude, a library
+// helper's body — lands on offset 0 or one past the end and names no line of this file, so only a span inside it gets clang's `path:line:col:`.
+export function formatCompileError(
+    contractPath: string,
+    source: string,
+    diagnostic: { message: string; span?: { start: number; line: number; column: number } },
+): string {
+    const span = diagnostic.span;
+    if (!span || span.line <= 0 || span.start <= 0 || span.start >= source.length) {
+        return `error: ${diagnostic.message}`;
+    }
+    // a backend diagnostic knows its line only, which the remapper reports as column 1
+    return `${contractPath}:${span.line}${span.column > 1 ? `:${span.column}` : ""}: error: ${diagnostic.message}`;
+}
+
 export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Promise<ContractBuildResult> {
     const qpiHeader = loadQpiHeader(o.corePath);
     if (!qpiHeader) {
@@ -152,7 +167,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
     if (errors.length) {
         return {
             ok: false,
-            stderr: errors.map((diagnostic) => `error: ${diagnostic.message}`).join("\n"),
+            stderr: errors.map((diagnostic) => formatCompileError(contractPath, source, diagnostic)).join("\n"),
         };
     }
     if (!result.idl) {

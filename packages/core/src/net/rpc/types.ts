@@ -43,7 +43,8 @@ export interface DynamicContractRegistryEntry {
     lastError?: string;
     // Execution fee reserve in qu as decimal text; at or below zero the contract is dormant. Older nodes omit it.
     feeReserve?: string;
-    // What the current fee phase accumulated and has not charged yet; the simulator reports it, a core node does not.
+    // What the current fee phase accumulated and has not charged yet: the simulator's own total, or a core node's measured time at its fee
+    // multiplier (the charge is the computors' quorum over such reports). Older nodes omit it.
     executionFee?: string;
 }
 export interface DynamicContractRegistry {

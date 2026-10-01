@@ -191,8 +191,16 @@ export class EngineServer {
 
         if (path.startsWith("/live/v1/balances/")) {
             engine.sim.assertOperational();
+            let identity: string;
+            try {
+                identity = decodeURIComponent(path.slice("/live/v1/balances/".length));
+                engine.idToBytes(identity);
+            } catch (error) {
+                // a malformed identity or a wrong checksum is the caller's input, not the node's failure
+                return json({ code: 400, message: error instanceof Error ? error.message : String(error) }, 400);
+            }
             return json({
-                balance: await engine.balance(decodeURIComponent(path.slice("/live/v1/balances/".length))),
+                balance: await engine.balance(identity),
             });
         }
 
