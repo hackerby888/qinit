@@ -55,21 +55,30 @@ export function nonPublicMembers(source: string, contractName: string, macros: R
                 if (after !== AccessSpec.PUBLIC && declared) members.set(declared, `declared by ${opener}`);
             }
         } else if (access !== AccessSpec.PUBLIC && (token.kind === TokenKind.KW_STRUCT || token.kind === TokenKind.KW_CLASS)) {
+            // `struct X {`, `struct X : Base` and `struct X final` declare X; `struct X field;` and a `struct X&` parameter only use it
             const name = tokens[index + 1];
-            if (name?.kind === TokenKind.IDENTIFIER) members.set(name.text, `declared after ${opener}`);
+            const next = tokens[index + 2];
+            const defines = next?.kind === TokenKind.L_BRACE || next?.kind === TokenKind.COLON || next?.text === "final";
+            if (name?.kind === TokenKind.IDENTIFIER && defines) members.set(name.text, `declared after ${opener}`);
         } else if (access !== AccessSpec.PUBLIC && token.kind === TokenKind.KW_TYPEDEF) {
-            let end = index + 1;
-            while (end < tokens.length && tokens[end].kind !== TokenKind.SEMICOLON) end++;
-            const name = tokens[end - 1];
-            if (name?.kind === TokenKind.IDENTIFIER) members.set(name.text, `declared after ${opener}`);
+            // the name is the last identifier before the typedef's own `;`: past an inline body's fields, outside an array bound
+            let name: Token | undefined;
+            let nested = 0;
+            for (let cursor = index + 1; cursor < tokens.length; cursor++) {
+                const kind = tokens[cursor].kind;
+                if (kind === TokenKind.L_BRACE || kind === TokenKind.L_BRACKET) nested++;
+                else if (kind === TokenKind.R_BRACE || kind === TokenKind.R_BRACKET) nested--;
+                else if (kind === TokenKind.SEMICOLON && nested === 0) break;
+                else if (kind === TokenKind.IDENTIFIER && nested === 0) name = tokens[cursor];
+            }
+            if (name) members.set(name.text, `declared after ${opener}`);
         }
     }
     return members;
 }
 
-// The contract's body: the token index of the opening brace of the top-level `struct`/`class` named after the contract, or failing that
-// the one deriving from ContractBase (as detectQpiContractName and driver/callees.ts find it). A nested `struct Name`, a parameter or
-// variable written `struct Name x` and a forward declaration are not definitions, so they are passed over.
+// The contract's body: the opening brace of the top-level `struct`/`class` named after the contract, or failing that the one deriving from
+// ContractBase. A nested `struct Name`, a `struct Name x` parameter or variable and a forward declaration define nothing and are passed over.
 function findContractBody(tokens: Token[], contractName: string): number {
     let named = -1;
     let derived = -1;
@@ -106,9 +115,7 @@ const CROSS_CONTRACT_MACROS = new Set([
     "CALL_OTHER_CONTRACT_FUNCTION_E",
 ]);
 
-const refusal = (member: string, reason: string, callee: string) =>
-    `'${member}' is ${reason} in ${callee}, which leaves it protected: another contract cannot name it ` +
-    `(clang: "'${member}' is a protected member of '${callee}'") — declare it above the private function or procedure`;
+const refusal = (member: string, reason: string, callee: string) => `'${member}' is ${reason} in ${callee}, which leaves it protected: another contract cannot name it (clang: "'${member}' is a protected member of '${callee}'") — declare it above the private function or procedure`;
 
 /** Every `Callee::Member` in the caller, and every member a cross-contract call macro names for it, that the callee leaves protected. */
 export function nonPublicCalleeMemberDiagnostics(

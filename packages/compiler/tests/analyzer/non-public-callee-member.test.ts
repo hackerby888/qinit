@@ -64,6 +64,45 @@ test("the contract body is found past earlier structs that mention its name, and
     expect(before("", "struct CONTRACT_STATE_TYPE : public ContractBase")).toEqual(expected);
 });
 
+// naming a public struct in a protected region declares nothing, so it stays public; clang accepts the caller.
+test("a use of a public struct after a private procedure does not hide it", () => {
+    expect(findings(ASK + NOTE + "    struct Ask_input lastAsk;\n")).toEqual([]);
+    expect(findings(ASK + NOTE + "    static void touch(struct Ask_input& in) { }\n")).toEqual([]);
+    expect(findings(ASK + NOTE + "    struct Ask_input lastAsk{};\n    struct Ask_output* lastOut = nullptr;\n")).toEqual([]);
+});
+
+test("a protected typedef is known by its own name, not by a field or an array bound", () => {
+    const named = (calleeBody: string, member: string) =>
+        analyzeContract({
+            source: CALLER.replace("Leaf::Ask_input in; Leaf::Ask_output out;", `Leaf::${member} in;`),
+            contractName: "Mid",
+            slot: 35,
+            calleeSources: [{ name: "Leaf", slot: 34, source: leaf(calleeBody) }],
+        })
+            .diagnostics.filter((diagnostic) => diagnostic.code === "qpi/non-public-callee-member")
+            .map((diagnostic) => diagnostic.message.slice(0, diagnostic.message.indexOf(" is ")));
+    const inline = ASK + NOTE + "    typedef struct { uint64 a; } Foo;\n";
+    expect(named(inline, "Foo")).toEqual(["'Foo'"]);
+    expect(named(inline, "a")).toEqual([]);
+    const sized = ASK + NOTE + "    static constexpr uint64 N = 4;\n    typedef uint8 Buf[N];\n";
+    expect(named(sized, "Buf")).toEqual(["'Buf'"]);
+    expect(named(sized, "N")).toEqual([]);
+    expect(named(ASK + NOTE + "    typedef Array<uint8, 8> Bytes;\n", "Bytes")).toEqual(["'Bytes'"]);
+});
+
+test("a struct, a derived struct and an enum class defined after a private procedure stay hidden", () => {
+    const named = (calleeBody: string, member: string) =>
+        analyzeContract({
+            source: CALLER.replace("Leaf::Ask_input in; Leaf::Ask_output out;", `Leaf::${member} in;`),
+            contractName: "Mid",
+            slot: 35,
+            calleeSources: [{ name: "Leaf", slot: 34, source: leaf(calleeBody) }],
+        }).diagnostics.filter((diagnostic) => diagnostic.code === "qpi/non-public-callee-member").length;
+    expect(named(ASK + NOTE + "    struct Extra : public Ask_input { uint64 more; };\n", "Extra")).toBe(1);
+    expect(named(ASK + NOTE + "    struct Sealed final { uint64 more; };\n", "Sealed")).toBe(1);
+    expect(named(ASK + NOTE + "    enum class Mode : uint8 { A, B };\n", "Mode")).toBe(1);
+});
+
 test("an explicit protected: label hides the struct too", () => {
     expect(findings("    protected:\n" + ASK)).toEqual(["7:31 'Ask_input' is declared after protected: in Leaf", "7:51 'Ask_output' is declared after protected: in Leaf"]);
 });
