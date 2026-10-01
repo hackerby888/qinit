@@ -145,6 +145,20 @@ test("getTransactionByHash finds a broadcast tx and 404s an unknown hash", async
     }
 });
 
+test("getTransfersForIdentity answers 400 for a malformed identity or a wrong checksum", async () => {
+    const { base, stop, identity } = await serveWithTx();
+    try {
+        const wrongChecksum = identity.slice(0, 59) + (identity[59] === "A" ? "B" : "A");
+        const checksum = await post(base, "/query/v1/getTransfersForIdentity", { identity: wrongChecksum });
+        expect(checksum.status).toBe(400);
+        expect((await checksum.json()).message).toContain("checksum");
+        expect((await post(base, "/query/v1/getTransfersForIdentity", { identity: "not-an-identity" })).status).toBe(400);
+        expect((await post(base, "/query/v1/getTransfersForIdentity", {})).status).toBe(400);
+    } finally {
+        stop();
+    }
+});
+
 test("getTransfersForIdentity tags the sender's transfer as outgoing", async () => {
     const { base, stop, identity } = await serveWithTx();
     try {
