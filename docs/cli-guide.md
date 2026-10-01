@@ -1857,7 +1857,7 @@ What follows from running core's engine, on both engines alike:
 | --- | --- |
 | a wrong interface, query size or reply size | `-1`, no fee taken, no notification |
 | a fee the contract cannot pay, a timeout past one hour, a period that is not 1 to 1440 whole minutes, a second subscription to the same query | `-1` and a notification with status `UNKNOWN` inside the call; a fee that was taken comes back |
-| `SUBSCRIBE_ORACLE` | the id at once, the first query with the next tick |
+| `SUBSCRIBE_ORACLE` | the id at once, the first query in the same tick, after the tick's transactions |
 | a subscription query | times out one minute after the time it asks about |
 | a reply that is committed but revealed after the timeout | `TIMEOUT` |
 | several queries finishing in one tick | notified in the order they were started |

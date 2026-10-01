@@ -24,7 +24,7 @@ const LIST_WIDTH = 60;
 // What the detail pane is owed before the list starts giving up columns for it.
 const DETAIL_WIDTH = 50;
 const LIST_COLS: Column[] = [
-    { header: "time", max: 10, dim: true },
+    { header: "time", max: 11, dim: true },
     { header: "tick", align: "right", max: 10 },
     { header: "contract", max: 14 },
     // A squeezed pane gives up the entry's name before its kind and number, which are what identify it.
@@ -34,6 +34,7 @@ const LIST_COLS: Column[] = [
 ];
 
 type TickClock = { tick: number; chainMs: number; resolvedAt: number };
+type TickSample = { tick: number; at: number };
 
 function latestTickClock(tickTimes: Iterable<TickClock>): TickClock | undefined {
     let latest: TickClock | undefined;
@@ -100,6 +101,38 @@ export function formatTraceAge(tickMs?: number, chainNowMs?: number): string {
     return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
+const PACE_SAMPLES = 8;
+
+// the tick-info samples the pace is read from: the last few on which the tick moved. A restarted node counts from a lower tick, so its pace starts over.
+export function withTickSample(samples: TickSample[], sample: TickSample): TickSample[] {
+    const last = samples[samples.length - 1];
+    if (last && sample.tick <= last.tick) {
+        return sample.tick < last.tick ? [sample] : samples;
+    }
+    return [...samples, sample].slice(-PACE_SAMPLES);
+}
+
+// A row's age from the node's pace: the simulator keeps no tick data for a tick without transactions (a delivered oracle notification always
+// lands on one), so such a row is placed by its distance in ticks from the current tick. The pace is the median step: a stall or a burst moves a mean.
+export function estimateTraceAgeMs(tick: number, samples: TickSample[], nowMs?: number): number | undefined {
+    const last = samples[samples.length - 1];
+    if (samples.length < 2 || nowMs == null || tick > last.tick) {
+        return undefined;
+    }
+    const paces = samples.slice(1).map((sample, index) => (sample.at - samples[index].at) / (sample.tick - samples[index].tick));
+    const msPerTick = paces.sort((left, right) => left - right)[Math.floor(paces.length / 2)];
+    return Math.max(0, (last.tick - tick) * msPerTick + (nowMs - last.at));
+}
+
+// "~" marks an age placed by the node's pace rather than read from the tick's own timestamp.
+export function formatEstimatedAge(ageMs?: number): string {
+    if (ageMs == null) {
+        return "—";
+    }
+    const age = formatTraceAge(0, ageMs);
+    return age === "now" ? age : `~${age}`;
+}
+
 export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     const target = commandArgs.get("contract") ?? commandArgs.positionals[0];
     const rpcBaseUrl = resolveRpc(commandArgs.get("rpc"), loadConfig());
@@ -125,6 +158,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     const visibleEntriesRef = useRef<DebugEntry[]>([]);
     const hiddenSeqs = useRef(new Set<number>());
     const tickTimeAttempts = useRef(new Map<number, number>());
+    const tickSamples = useRef<TickSample[]>([]);
     const mounted = useRef(true);
     const since = useRef(0);
     const reg = useRef<DynamicContractRegistryEntry[]>([]);
@@ -144,6 +178,11 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
             .then((r) => alive && setEnabled(r.enabled))
             .catch((e) => setErr(String(e?.message ?? e)));
         const poll = setInterval(async () => {
+            rpc.tickInfo()
+                .then(({ tick }) => {
+                    tickSamples.current = withTickSample(tickSamples.current, { tick, at: performance.now() });
+                })
+                .catch(() => {});
             try {
                 reg.current = (await rpc.dynRegistry()).contracts ?? [];
                 // Entry names come from the IDLs, and resolving one can re-run the compiler — so they reload when a slot appears, leaves or is redeployed.
@@ -249,7 +288,15 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     }, [entries]);
 
     const clockAnchor = latestTickClock(tickTimes.values());
-    const chainNowMs = clockAnchor ? clockAnchor.chainMs + Math.max(0, performance.now() - clockAnchor.resolvedAt) : undefined;
+    const paceSamples = tickSamples.current;
+    const nowMs = performance.now();
+    // the newest tick with a timestamp need not be the current one (on the simulator it rarely is), so its own age comes from the node's pace
+    const anchorAgeMs = clockAnchor ? estimateTraceAgeMs(clockAnchor.tick, paceSamples, nowMs) : undefined;
+    const chainNowMs = clockAnchor ? clockAnchor.chainMs + (anchorAgeMs ?? Math.max(0, nowMs - clockAnchor.resolvedAt)) : undefined;
+    const traceAge = (tick: number) => {
+        const known = tickTimes.get(tick);
+        return known ? formatTraceAge(known.chainMs, chainNowMs) : formatEstimatedAge(estimateTraceAgeMs(tick, paceSamples, nowMs));
+    };
 
     // isActive=false in a non-TTY (CI/pipe) → Ink skips raw mode instead of throwing; still renders + polls.
     useInput(
@@ -315,7 +362,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                         <Table
                             columns={LIST_COLS}
                             rows={win.map((e) => [
-                                formatTraceAge(tickTimes.get(e.tick)?.chainMs, chainNowMs),
+                                traceAge(e.tick),
                                 String(e.tick),
                                 nameOf(e.index),
                                 entryLabel(e.kind, e.entry, idls.get(e.index)),

@@ -1,5 +1,14 @@
 import { expect, test } from "bun:test";
-import { AbiScalarKind, AbiTypeKind, QINIT_IDL_VERSION, formatAbiType, parseContractIdl, parseContractIdlFile, type ContractIdl } from "../../src/contract-idl";
+import {
+    AbiScalarKind,
+    AbiScalarSemantic,
+    AbiTypeKind,
+    QINIT_IDL_VERSION,
+    formatAbiType,
+    parseContractIdl,
+    parseContractIdlFile,
+    type ContractIdl,
+} from "../../src/contract-idl";
 
 const emptyStruct: ContractIdl["state"] = {
     kind: AbiTypeKind.STRUCT,
@@ -651,4 +660,23 @@ test("rejects out-of-order, misaligned, and out-of-bounds fields", () => {
             },
         }),
     ).toThrow(/exceeds struct size/);
+});
+
+// F254: a DateAndTime scalar keeps its semantic through parsing; the format text and the encoding are the uint64's.
+test("a scalar's semantic survives parsing and an unknown one is refused", () => {
+    const stamped = (semantic: unknown): ContractIdl => ({
+        ...idl,
+        state: {
+            kind: AbiTypeKind.STRUCT,
+            size: 8,
+            align: 8,
+            format: "uint64",
+            fields: [{ name: "stamped", offset: 0, size: 8, type: { kind: AbiTypeKind.SCALAR, scalar: AbiScalarKind.UINT64, size: 8, align: 8, format: "uint64", semantic } as any }],
+        },
+    });
+    const parsed = parseContractIdl(stamped(AbiScalarSemantic.DATE_AND_TIME));
+    const field = (parsed.state as Extract<ContractIdl["state"], { kind: AbiTypeKind.STRUCT }>).fields[0];
+    expect(field.type).toMatchObject({ scalar: AbiScalarKind.UINT64, format: "uint64", semantic: AbiScalarSemantic.DATE_AND_TIME });
+    expect(formatAbiType(field.type)).toBe("uint64");
+    expect(() => parseContractIdl(stamped("Weekday"))).toThrow("unknown semantic 'Weekday'");
 });

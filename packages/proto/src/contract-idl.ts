@@ -26,6 +26,12 @@ export enum AbiTypeKind {
     LINKED_LIST = "linked_list",
 }
 
+// What a scalar's bits mean beyond their width; the encoding and the format text stay the scalar's, so only a renderer reads it.
+export enum AbiScalarSemantic {
+    // QPI::DateAndTime: one uint64 packing year (bits 46+), month, day, hour, minute, second, millisecond and microsecond (qpi_date_time.h)
+    DATE_AND_TIME = "DateAndTime",
+}
+
 export enum AbiScalarKind {
     BIT = "bit",
     ID = "id",
@@ -61,6 +67,7 @@ interface AbiTypeBase {
 export interface AbiScalar extends AbiTypeBase {
     kind: AbiTypeKind.SCALAR;
     scalar: AbiScalarKind;
+    semantic?: AbiScalarSemantic;
 }
 
 // name is the C++ struct name, e.g. "Get_output"; an entry's struct carries format without braces ("uint64", not "{ uint64 }")
@@ -461,7 +468,10 @@ function parseAbiType(value: unknown, label: string, allowUnpaddedTail = false):
             if (!Object.values(AbiScalarKind).includes(scalar)) {
                 throw new Error(`${label} has unknown scalar '${scalar}'`);
             }
-            type = { kind, scalar, ...common };
+            if (raw.semantic !== undefined && !Object.values(AbiScalarSemantic).includes(raw.semantic as AbiScalarSemantic)) {
+                throw new Error(`${label} has unknown semantic '${String(raw.semantic)}'`);
+            }
+            type = raw.semantic === undefined ? { kind, scalar, ...common } : { kind, scalar, semantic: raw.semantic as AbiScalarSemantic, ...common };
             break;
         }
         case AbiTypeKind.STRUCT: {

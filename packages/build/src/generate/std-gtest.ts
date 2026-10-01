@@ -5,7 +5,8 @@ const SAMPLE_SEED_ID = "id::randomValue()";
 
 export function genStdGtest(idl: ContractIdl, name: string, stateType: string = name): string {
     const contractType = stateType;
-    const procedures = idl.procedures;
+    // a notification is not in core's user-procedure table, so invokeUserProcedure on it never runs.
+    const procedures = idl.procedures.filter((entry) => !entry.notification);
     const functions = idl.functions;
 
     const head = [

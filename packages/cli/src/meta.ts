@@ -122,19 +122,21 @@ const commandMeta = {
     oracle: {
         group: "node",
         json: true,
-        summary: "answer oracle queries while developing",
-        usage: "[pending | resolve <queryId> | serve]",
+        summary: "answer oracle queries while developing, and read their log",
+        usage: "[pending | resolve <queryId> | serve | log [<fromTick> [<toTick>]]]",
         options: [
             stringOption("rpc", "<url>", "RPC URL"),
             stringOption("reply", "<value text>", "reply value, e.g. '123456sint64, 1000sint64'"),
             stringOption("reply-hex", "<hex>", "reply bytes for a layout too large to type"),
             stringOption("status", "<success|unavailable>", "answer with a value, or report none"),
             stringOption("rules", "<path>", "serve: interface name to reply text"),
+            stringOption("peer-port", "<n>", `log: the node's peer port (default: ${DEFAULT_PEER_PORT})`),
         ],
         examples: [
             "qinit oracle pending",
             "qinit oracle resolve 172596578652000256 --reply '123456sint64, 1000sint64'",
             "qinit oracle serve --rules oracle.json",
+            "qinit oracle log 2740 2760",
         ],
     },
     epoch: {

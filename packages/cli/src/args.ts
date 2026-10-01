@@ -113,10 +113,28 @@ export function parseCommandInvocation(command: CommandName, args: readonly stri
     };
 }
 
+// node:util refuses a string option whose value starts with '-' as ambiguous, so `--in "-1sint64"` is joined into `--in=-1sint64` first.
+function joinNegativeValues(args: readonly string[], definitions: ReturnType<typeof optionDefinitions>): string[] {
+    const joined: string[] = [];
+    for (let index = 0; index < args.length; index++) {
+        const arg = args[index];
+        const next = args[index + 1];
+        const definition = arg.startsWith("--") && !arg.includes("=") ? definitions[arg.slice(2)] : undefined;
+        if (definition?.type === "string" && next !== undefined && /^-[0-9.]/.test(next)) {
+            joined.push(`${arg}=${next}`);
+            index++;
+        } else {
+            joined.push(arg);
+        }
+    }
+    return joined;
+}
+
 export function parseArgs(args: readonly string[], options: ParseOptions = {}): CommandArguments {
+    const definitions = optionDefinitions(options);
     const { values, positionals } = parseNodeArgs({
-        args: [...args],
-        options: optionDefinitions(options),
+        args: joinNegativeValues(args, definitions),
+        options: definitions,
         allowPositionals: true,
         strict: true,
     });

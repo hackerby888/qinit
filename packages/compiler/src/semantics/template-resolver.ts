@@ -172,6 +172,34 @@ export function withLocalStructs(
     templateBindings: TemplateBindings,
     owner?: StructDecl,
 ): TemplateBindings {
+    return withMemberConstants(programAnalysis, localStructBindings(programAnalysis, members, templateBindings, owner), members);
+}
+
+/** a member list's own integer `static constexpr` members bind for the members around them, over anything inherited (class scope
+ *  before namespace scope), so `SlowAnySizeArray<uint8, k>` reads the struct's `k`, not QPI's `Ch::k` through `using namespace QPI`. */
+function withMemberConstants(programAnalysis: ProgramAnalysis, templateBindings: TemplateBindings, members: Declaration[]): TemplateBindings {
+    let values = templateBindings.values;
+    for (const member of members) {
+        if (member.kind !== AstKind.VARIABLE) continue;
+        const variableDeclaration = member as VariableDecl;
+        if (!(variableDeclaration.isStatic || variableDeclaration.isConstexpr) || !variableDeclaration.initializer) continue;
+        try {
+            const value = programAnalysis.evalConstBig(variableDeclaration.initializer, { ...templateBindings, values });
+            if (values === templateBindings.values) values = new Map(templateBindings.values);
+            values.set(variableDeclaration.name, value);
+        } catch {
+            /* not an integer constant (a bool selector, an id) — not a dimension */
+        }
+    }
+    return values === templateBindings.values ? templateBindings : { ...templateBindings, values };
+}
+
+function localStructBindings(
+    programAnalysis: ProgramAnalysis,
+    members: Declaration[],
+    templateBindings: TemplateBindings,
+    owner?: StructDecl,
+): TemplateBindings {
     // Only when the owner's nesting was recorded. A struct nested in a class template is registered by
     // the template machinery, so its chain reads as file scope; those keep the inherited map.
     if (owner && programAnalysis.structScopeKnown.has(owner)) {
@@ -183,13 +211,21 @@ export function withLocalStructs(
                 ownStructs.set((member as StructDecl).name, member as StructDecl);
             }
         }
-        return {
+        // such a struct is no template, so the caller's values are not its own: it sees the constants of the structs around it,
+        // outermost first, and its own are laid over them. The contract's resolve program-wide and are left to that.
+        const enclosing: StructDecl[] = [];
+        for (let parent = programAnalysis.structParent.get(owner); parent && enclosing.length < 64; parent = programAnalysis.structParent.get(parent)) {
+            if (parent !== programAnalysis.contractStruct) enclosing.unshift(parent);
+        }
+        let scoped: TemplateBindings = {
             types: templateBindings.types,
-            values: templateBindings.values,
+            values: new Map(),
             structs: ownStructs,
             scopeIsKnown: true,
             scopeStructs: programAnalysis.structsVisibleIn(owner),
         };
+        for (const parent of enclosing) scoped = withMemberConstants(programAnalysis, scoped, parent.members);
+        return scoped;
     }
 
     let structs = templateBindings.structs;

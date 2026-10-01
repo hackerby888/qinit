@@ -1,5 +1,5 @@
 // Pure rendering of decoded state: values to text, container entries to rows. No I/O, so it is unit-testable without an RPC client.
-import { AbiTypeKind, type AbiType, type ContractIdl } from "@qinit/proto/contract-idl";
+import { AbiScalarSemantic, AbiTypeKind, type AbiType, type ContractIdl } from "@qinit/proto/contract-idl";
 
 // what a state field's container is, e.g. { kind: "hashmap", key: <uint64>, value: <uint64>, capacity: 8 } or { kind: "bitarray", capacity: 2 }
 export type StateContainerLayout =
@@ -177,6 +177,19 @@ export function linkedListValueLines(value: { elementIndex: number; value: unkno
 // `showAll` lifts the 32-item cap (`… +N more (--all)`); `topLevel` lets a one-field struct read as its bare value.
 export type AbiValueTextOptions = { showAll?: boolean; topLevel?: boolean };
 
+// QPI::DateAndTime's packed uint64 (qpi_date_time.h getYear … getMicrosecDuringMillisec) as "2026-10-01 03:31:12.345.678"
+export function dateAndTimeText(value: unknown): string {
+    if (typeof value !== "bigint" && typeof value !== "number") {
+        return valueText(value, false);
+    }
+    const packed = BigInt(value);
+    const field = (shift: bigint, mask: bigint) => Number((packed >> shift) & mask);
+    const pad = (part: number, width: number) => String(part).padStart(width, "0");
+    const date = `${pad(field(46n, 0xffffn), 4)}-${pad(field(42n, 0xfn), 2)}-${pad(field(37n, 0x1fn), 2)}`;
+    const time = `${pad(field(32n, 0x1fn), 2)}:${pad(field(26n, 0x3fn), 2)}:${pad(field(20n, 0x3fn), 2)}.${pad(field(10n, 0x3ffn), 3)}.${pad(field(0n, 0x3ffn), 3)}`;
+    return `${date} ${time}`;
+}
+
 // decoded abi value + its type -> display text: 1n as uint64 -> "1", [5, -6] as { sint32 x; sint32 y } -> "{x: 5, y: -6}", an id -> quoted, a BitArray -> index runs.
 // display only, not the `--in` encoding: "1uint64" comes from proto's input-format, and this never parses back.
 export function abiValueText(value: unknown, type: AbiType, { showAll = false, topLevel = false }: AbiValueTextOptions = {}): string {
@@ -235,6 +248,8 @@ export function abiValueText(value: unknown, type: AbiType, { showAll = false, t
                 showAll,
             ).join(", ")}}`;
         }
+        case AbiTypeKind.SCALAR:
+            return type.semantic === AbiScalarSemantic.DATE_AND_TIME ? dateAndTimeText(value) : valueText(value, showAll);
         default:
             return valueText(value, showAll);
     }
@@ -245,6 +260,9 @@ export function abiValueText(value: unknown, type: AbiType, { showAll = false, t
 export function scalarText(value: unknown, type: AbiType): string {
     if (typeof value === "string") {
         return value;
+    }
+    if (type.kind === AbiTypeKind.SCALAR && type.semantic === AbiScalarSemantic.DATE_AND_TIME) {
+        return dateAndTimeText(value);
     }
     return typeof value === "object" && value !== null ? abiValueText(value, type, { showAll: true, topLevel: true }) : String(value);
 }

@@ -4,11 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EngineServer } from "@qinit/engine/server";
-import { initK12 } from "@qinit/core";
+import { deriveIdentity, initK12 } from "@qinit/core";
 import { loadWasmFixture, loadWasmFixtureIdl } from "../../../../test-utils/wasm-fixtures";
 import { saveContractIdl } from "../../src/contracts/idl-file";
 
 const SLOT = 28;
+const SEED = "d".repeat(55);
 const cli = join(import.meta.dir, "../../src/index.tsx");
 
 beforeAll(async () => {
@@ -18,6 +19,7 @@ beforeAll(async () => {
 async function boot() {
     const server = new EngineServer();
     server.engine.deploy(SLOT, await loadWasmFixture("Counter"), "Counter");
+    server.engine.fund((await deriveIdentity(SEED)).identity, 50n);
     const handle = await server.start(0);
     const cwd = mkdtempSync(join(tmpdir(), "qinit-call-entry-"));
     saveContractIdl(SLOT, await loadWasmFixtureIdl("Counter"), join(cwd, "qinit.idl.json"));
@@ -79,6 +81,34 @@ test("an --out that disagrees with the IDL is refused in either direction", asyn
         const wide = await run("--fn", String(SLOT), "Get", "--out", "id");
         expect(wide.code).toBe(1);
         expect(wide.stdout).toContain("--out id reads 32 bytes; Counter.Get returns { uint64 } (8 bytes)");
+    } finally {
+        stop();
+    }
+}, 60_000);
+
+// once processed, a tx to an unregistered proc number ran nothing, so `--json` no longer calls it ok.
+test("a processed tx to an unregistered proc number is not ok", async () => {
+    const { run, stop } = await boot();
+    try {
+        const proc = await run("--proc", String(SLOT), "9", "--json");
+        expect(proc.code, proc.stdout).toBe(1);
+        const result = JSON.parse(proc.stdout.slice(proc.stdout.indexOf("{")));
+        expect(result.ok).toBe(false);
+        expect(result.error).toContain("no proc 9 on contract 28 (registered: 1): the transaction was processed and ran nothing");
+    } finally {
+        stop();
+    }
+}, 60_000);
+
+// with an amount the qu still moves to the contract, so calling that a failure would have a script pay again.
+test("a processed tx to an unregistered proc number that carries an amount is ok", async () => {
+    const { run, stop } = await boot();
+    try {
+        const proc = await run("--proc", String(SLOT), "9", "--amount", "7", "--seed", SEED, "--json");
+        expect(proc.code, proc.stdout).toBe(0);
+        const result = JSON.parse(proc.stdout.slice(proc.stdout.indexOf("{")));
+        expect(result.ok).toBe(true);
+        expect(result.tx).toBeTruthy();
     } finally {
         stop();
     }

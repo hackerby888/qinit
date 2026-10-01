@@ -34,6 +34,16 @@ test("identity codec: pubkey <-> 60-char identity round-trips", async () => {
     const flipped = idn.slice(0, 59) + (idn[59] === "A" ? "B" : "A");
     expect(() => identityToBytes(flipped)).toThrow(`identity checksum mismatch: the last 4 letters of ${flipped} do not match its key`);
     expect(() => identityToBytes("abc")).toThrow("Invalid identity");
+    // both refusals carry the library's code, so a server can tell the caller's input from its own failure.
+    for (const bad of [flipped, "abc"]) {
+        let code: unknown;
+        try {
+            identityToBytes(bad);
+        } catch (error) {
+            code = (error as { code?: string }).code;
+        }
+        expect(code).toBe("INVALID_IDENTITY");
+    }
 });
 
 test("contractIndexFromIdentity: decodes contract addresses, rejects everything else", async () => {

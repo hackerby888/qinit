@@ -1,8 +1,8 @@
 // The rendering limits themselves: where the item cap falls, how a single skipped bit reads, and what happens to shapes that carry no name.
 import { test, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
-import { AbiTypeKind, type AbiStruct, type AbiType } from "@qinit/proto/contract-idl";
-import { valueText, abiValueText, jsonText } from "../../src/trace/state-format";
+import { AbiScalarKind, AbiScalarSemantic, AbiTypeKind, type AbiStruct, type AbiType } from "@qinit/proto/contract-idl";
+import { valueText, abiValueText, jsonText, scalarText } from "../../src/trace/state-format";
 
 const MAX_ITEMS = 32;
 const SRC = `using namespace QPI;
@@ -61,4 +61,28 @@ test("a bigint survives the JSON rendering that would otherwise throw on it", ()
     expect(jsonText({ amount: 2n ** 70n, name: "x" })).toBe('{"amount":"1180591620717411303424","name":"x"}');
     expect(jsonText([1n, [2n]])).toBe('["1",["2"]]');
     expect(valueText({ nested: { amount: 5n } })).toBe('{"nested":{"amount":"5"}}');
+});
+
+// F254: a DateAndTime reads as the date it packs (qpi_date_time.h's bit layout); an untagged uint64 stays a number.
+test("a DateAndTime scalar renders as its date", () => {
+    const uint64: AbiType = { kind: AbiTypeKind.SCALAR, scalar: AbiScalarKind.UINT64, size: 8, align: 8, format: "uint64" };
+    const date: AbiType = { ...uint64, semantic: AbiScalarSemantic.DATE_AND_TIME } as AbiType;
+    const packed = (2024n << 46n) | (7n << 42n) | (4n << 37n) | (13n << 32n) | (45n << 26n) | (30n << 20n) | (250n << 10n) | 125n;
+    expect(abiValueText(packed, date)).toBe("2024-07-04 13:45:30.250.125");
+    expect(abiValueText(0n, date)).toBe("0000-00-00 00:00:00.000.000");
+    expect(abiValueText(packed, uint64)).toBe(String(packed));
+    const pair: AbiType = {
+        kind: AbiTypeKind.STRUCT,
+        size: 16,
+        align: 8,
+        format: "uint64, uint64",
+        fields: [
+            { name: "at", offset: 0, size: 8, type: date },
+            { name: "count", offset: 8, size: 8, type: uint64 },
+        ],
+    } as AbiStruct;
+    expect(abiValueText([packed, 3n], pair)).toBe("{at: 2024-07-04 13:45:30.250.125, count: 3}");
+    // `qinit state` prints a top-level field through scalarText
+    expect(scalarText(packed, date)).toBe("2024-07-04 13:45:30.250.125");
+    expect(scalarText(packed, uint64)).toBe(String(packed));
 });

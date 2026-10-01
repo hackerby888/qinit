@@ -96,7 +96,8 @@ export function callJsonResult(
         tick: facts?.tick ?? trace?.e.tick ?? null,
         tx: facts?.tx ?? null,
         out: facts?.outJson ?? trace?.view.outJson ?? trace?.view.outDecoded ?? null,
-        error: result?.err ?? null,
+        // a failure without a message of its own (a transaction the node never included) is named by its verdict, as the text form does.
+        error: result?.err ?? (result?.ok === false ? (result.detail ?? null) : null),
         ...(trapped ? { trap: trace?.e.trap ?? null } : {}),
         ...(warnings.length ? { warnings: [...warnings] } : {}),
         ...(trace
@@ -358,12 +359,14 @@ function CallOneShot({
                 // A number the node never registered: a fn read can only be a mistake, a proc is still a tx to send.
                 const registered = mergeContracts(sets).all.find((candidate) => candidate.index === idx);
                 const known = (mode === "fn" ? registered?.functions : registered?.procedures) ?? [];
+                let unregistered: string | undefined;
                 if (known.length && !known.some((candidate) => candidate.inputType === entry)) {
                     const message = `no ${mode} ${entry} on contract ${idx} (registered: ${known.map((candidate) => candidate.inputType).join(", ")})`;
                     if (mode === "fn") {
                         throw new Error(message);
                     }
                     addNote(`⚠ ${message} — sending the tx anyway`);
+                    unregistered = message;
                 }
                 // --args JSON encodes through the IDL schema; otherwise use raw --in format.
                 let input: Uint8Array;
@@ -568,7 +571,11 @@ function CallOneShot({
                                 : r.confirmed && !r.included
                                   ? "dropped — not included"
                                   : "broadcast · unconfirmed";
-                        const ok = !r.ok ? false : r.confirmed && !r.included ? false : true;
+                        // a processed tx to a number the node never registered ran nothing, unless it carried qu: that moved and the contract was told.
+                        // only the node's own list says so; a catalog entry for a contract core runs natively can be behind it.
+                        const listedByNode = sets.user.some((contract) => contract.index === idx);
+                        const ranNothing = unregistered !== undefined && detail === "processed" && amount === 0n && listedByNode;
+                        const ok = !r.ok ? false : r.confirmed && !r.included ? false : !ranNothing;
                         // Only a processed tx has a settled balance; a pre-inclusion read would be the silent-wrong value.
                         const info = detail === "processed" ? await contractInfo() : undefined;
                         setFacts({
@@ -588,7 +595,7 @@ function CallOneShot({
                                 ["tx", txs],
                                 ["tick", String(tick)],
                             ],
-                            err: (await nodeErr()) || (!r.ok ? r.message : undefined),
+                            err: (await nodeErr()) || (!r.ok ? r.message : undefined) || (ranNothing ? `${unregistered}: the transaction was processed and ran nothing` : undefined),
                         });
                         const after = detail === "processed" ? await feeReserve() : undefined;
                         if (after !== undefined && after <= 0n) {

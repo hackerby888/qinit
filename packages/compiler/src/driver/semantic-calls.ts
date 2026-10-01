@@ -139,17 +139,16 @@ function firstIdentifier(tokens: Token[] | undefined): string | undefined {
 }
 
 // PUBLIC/PRIVATE_PROCEDURE declare `__id_<proc> = (CONTRACT_INDEX << 22) | __LINE__`; __LINE__ is the raw-source line, which preprocessing does not preserve.
-const PROCEDURE_DECL = /^[ \t]*(?:PUBLIC|PRIVATE)_PROCEDURE(?:_WITH_LOCALS)?[ \t]*\([ \t]*([A-Za-z_]\w*)[ \t]*\)/;
+// An invocation split over lines takes the line of its closing parenthesis, as clang's __LINE__ does, so both compilers agree.
+const PROCEDURE_DECL = /^[ \t]*(?:PUBLIC|PRIVATE)_PROCEDURE(?:_WITH_LOCALS)?[ \t]*\(\s*([A-Za-z_]\w*)\s*\)/gm;
 
 export function collectProcedureDeclLines(source: string): Map<string, number> {
     const lines = new Map<string, number>();
 
-    source.split("\n").forEach((text, index) => {
-        const match = PROCEDURE_DECL.exec(text);
-        if (match) {
-            lines.set(match[1], index + 1);
-        }
-    });
+    for (const match of source.matchAll(PROCEDURE_DECL)) {
+        const end = match.index! + match[0].length;
+        lines.set(match[1], source.slice(0, end).split("\n").length);
+    }
 
     return lines;
 }

@@ -1338,8 +1338,10 @@ export class Contract {
 
         return {
             // oracle query/subscribe/read — the query/reply are opaque sized buffers (the contract owns the typing)
-            queryOracle: (ifaceIdx: number, queryOff: number, querySize: number, replySize: number, procId: number, timeout: number, fee: bigint) =>
-                this.host.queryOracle(
+            // traced before the call, as core's lhost does, so the frame lists it even when the inline notification runs inside it
+            queryOracle: (ifaceIdx: number, queryOff: number, querySize: number, replySize: number, procId: number, timeout: number, fee: bigint) => {
+                this.recHost("queryOracle", () => `iface=${ifaceIdx >>> 0}`);
+                return this.host.queryOracle(
                     this.slot,
                     ifaceIdx >>> 0,
                     u8().slice(queryOff, queryOff + querySize),
@@ -1348,7 +1350,8 @@ export class Contract {
                     timeout >>> 0,
                     fee,
                     callerFrame(),
-                ),
+                );
+            },
             subscribeOracle: (
                 ifaceIdx: number,
                 queryOff: number,
@@ -1359,8 +1362,9 @@ export class Contract {
                 period: number,
                 notifyPrev: number,
                 fee: bigint,
-            ) =>
-                this.host.subscribeOracle(
+            ) => {
+                this.recHost("subscribeOracle", () => `iface=${ifaceIdx >>> 0}`);
+                return this.host.subscribeOracle(
                     this.slot,
                     ifaceIdx >>> 0,
                     u8().slice(queryOff, queryOff + querySize),
@@ -1371,7 +1375,8 @@ export class Contract {
                     notifyPrev !== 0,
                     fee,
                     callerFrame(),
-                ),
+                );
+            },
             getOracleQuery: (queryId: bigint, outOff: number, size: number) => {
                 const q = this.host.getOracleQuery(queryId, size);
                 if (!q) {

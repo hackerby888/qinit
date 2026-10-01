@@ -448,7 +448,9 @@ export class EngineServer {
                     return json({ code: 404, message: "no engine route: " + path }, 404);
                 } catch (error) {
                     const message = String((error as Error)?.message ?? error);
-                    const status = error instanceof EngineFaultedError ? 503 : 500;
+                    // a malformed identity or a broken escape is the caller's input, not the node's failure
+                    const badInput = error instanceof URIError || (error as { code?: string })?.code === "INVALID_IDENTITY";
+                    const status = error instanceof EngineFaultedError ? 503 : badInput ? 400 : 500;
 
                     if (status === 503) {
                         this.ticker.stop();
