@@ -1,5 +1,5 @@
 // The oracle and OC records of a node's log stream, decoded: query status changes (14), subscriptions (15), OC invocation status changes (16),
-// and the fee transfers they come with — a contract's fee burned to the zero id, and a refused request's fee coming back from it.
+// and the fee each request is paid with — burned to the zero id right ahead of its record, or handed straight back when the request is refused.
 import {
     OC_INVOCATION_STATUS,
     ORACLE_QUERY_TYPE_CONTRACT_QUERY,
@@ -17,6 +17,7 @@ import type { NodeLogRecord } from "./node-logs";
 export type OracleLogEntry =
     | { tick: number; range: number; record: "query"; queryId: string; owner: "contract" | "subscription" | "user"; ownerId: number; interface: string; status: string }
     | { tick: number; range: number; record: "subscription"; subscriptionId: number; contract: number; interface: string; periodMs: number; firstQuery: string }
+    | { tick: number; range: number; record: "unsubscription"; subscriptionId: number; contract: number; interface: string }
     | { tick: number; range: number; record: "oc"; invocationId: string; contract: number; interfaceIndex: number; status: string }
     | { tick: number; range: number; record: "fee"; contract: number; amount: string; direction: "burned" | "refunded" };
 
@@ -35,9 +36,47 @@ function view(message: Uint8Array): DataView {
     return new DataView(message.buffer, message.byteOffset, message.byteLength);
 }
 
+type ZeroTransfer = { contract: number; amount: bigint; direction: "burned" | "refunded" };
+
+// A contract's transfer to or from the zero id: the shape of a fee and of its refund, and of a donation or a plain burn as well.
+function zeroTransfer(record: NodeLogRecord | undefined): ZeroTransfer | null {
+    if (record?.type !== QUBIC_LOG_TYPE.QU_TRANSFER || record.message.length < QuTransfer.OFFSETS.amount + 8) return null;
+    const at = QuTransfer.OFFSETS;
+    const source = record.message.subarray(at.sourcePublicKey, at.sourcePublicKey + 32);
+    const destination = record.message.subarray(at.destinationPublicKey, at.destinationPublicKey + 32);
+    const amount = view(record.message).getBigInt64(at.amount, true);
+    if (amount <= 0n) return null;
+    const burner = isZero(destination) ? contractSlot(source) : null;
+    const refunded = isZero(source) ? contractSlot(destination) : null;
+    if (burner !== null) return { contract: burner, amount, direction: "burned" };
+    return refunded !== null ? { contract: refunded, amount, direction: "refunded" } : null;
+}
+
+// The contract a record was paid for by: its own query, a subscription it opens, or an OC invocation.
+function payingContract(record: NodeLogRecord | undefined): number | null {
+    if (!record) return null;
+    const data = view(record.message);
+    if (record.type === QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE && record.message.length >= OracleQueryStatusChange.OFFSETS._terminator) {
+        const at = OracleQueryStatusChange.OFFSETS;
+        return record.message[at.type] === ORACLE_QUERY_TYPE_CONTRACT_QUERY ? data.getUint32(at.queryingEntity, true) : null;
+    }
+    if (record.type === QUBIC_LOG_TYPE.ORACLE_SUBSCRIBER_MESSAGE && record.message.length >= OracleSubscriberLogMessage.OFFSETS._terminator) {
+        const at = OracleSubscriberLogMessage.OFFSETS;
+        return data.getUint32(at.periodInMilliseconds, true) > 0 ? data.getUint32(at.contractIndex, true) : null;
+    }
+    if (record.type === QUBIC_LOG_TYPE.OC_INVOCATION_STATUS_CHANGE && record.message.length >= OcInvocationStatusChange.OFFSETS._terminator) {
+        return data.getUint32(OcInvocationStatusChange.OFFSETS.contractIndex, true);
+    }
+    return null;
+}
+
+const refunds = (burn: ZeroTransfer | null, refund: ZeroTransfer | null) =>
+    burn?.direction === "burned" && refund?.direction === "refunded" && burn.contract === refund.contract && burn.amount === refund.amount;
+
 export function oracleLogEntries(records: readonly NodeLogRecord[]): OracleLogEntry[] {
     const entries: OracleLogEntry[] = [];
-    for (const { tick, range, type, message } of records) {
+    for (const [index, record] of records.entries()) {
+        const { tick, range, type, message } = record;
         if (type === QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE && message.length >= OracleQueryStatusChange.OFFSETS._terminator) {
             const at = OracleQueryStatusChange.OFFSETS;
             const data = view(message);
@@ -56,16 +95,17 @@ export function oracleLogEntries(records: readonly NodeLogRecord[]): OracleLogEn
         } else if (type === QUBIC_LOG_TYPE.ORACLE_SUBSCRIBER_MESSAGE && message.length >= OracleSubscriberLogMessage.OFFSETS._terminator) {
             const at = OracleSubscriberLogMessage.OFFSETS;
             const data = view(message);
-            entries.push({
+            const subscriber = {
                 tick,
                 range,
-                record: "subscription",
                 subscriptionId: data.getInt32(at.subscriptionId, true),
                 contract: data.getUint32(at.contractIndex, true),
                 interface: interfaceName(data.getUint32(at.interfaceIndex, true)),
-                periodMs: data.getUint32(at.periodInMilliseconds, true),
-                firstQuery: String(data.getBigUint64(at.firstQueryDateAndTime, true)),
-            });
+            };
+            const periodMs = data.getUint32(at.periodInMilliseconds, true);
+            // both engines log an unsubscribe as a subscriber record with a period of zero
+            if (periodMs === 0) entries.push({ ...subscriber, record: "unsubscription" });
+            else entries.push({ ...subscriber, record: "subscription", periodMs, firstQuery: String(data.getBigUint64(at.firstQueryDateAndTime, true)) });
         } else if (type === QUBIC_LOG_TYPE.OC_INVOCATION_STATUS_CHANGE && message.length >= OcInvocationStatusChange.OFFSETS._terminator) {
             const at = OcInvocationStatusChange.OFFSETS;
             const data = view(message);
@@ -78,15 +118,15 @@ export function oracleLogEntries(records: readonly NodeLogRecord[]): OracleLogEn
                 interfaceIndex: data.getUint32(at.interfaceIndex, true),
                 status: nameOf(OC_INVOCATION_STATUS, message[at.status]),
             });
-        } else if (type === QUBIC_LOG_TYPE.QU_TRANSFER && message.length >= QuTransfer.OFFSETS.amount + 8) {
-            const at = QuTransfer.OFFSETS;
-            const source = message.subarray(at.sourcePublicKey, at.sourcePublicKey + 32);
-            const destination = message.subarray(at.destinationPublicKey, at.destinationPublicKey + 32);
-            const amount = view(message).getBigInt64(at.amount, true);
-            const burner = isZero(destination) ? contractSlot(source) : null;
-            const refunded = isZero(source) ? contractSlot(destination) : null;
-            if (amount > 0n && burner !== null) entries.push({ tick, range, record: "fee", contract: burner, amount: String(amount), direction: "burned" });
-            if (amount > 0n && refunded !== null) entries.push({ tick, range, record: "fee", contract: refunded, amount: String(amount), direction: "refunded" });
+        } else {
+            // a fee is the transfer right ahead of the record it pays for, in the same range; a refused request's comes straight back instead.
+            // any other transfer of this shape (a donation, a contract's own burn) belongs to neither engine and is left out.
+            const moved = zeroTransfer(record);
+            const beside = (other: NodeLogRecord | undefined) => (other?.tick === tick && other.range === range ? other : undefined);
+            const next = beside(records[index + 1]);
+            const paid = moved?.direction === "burned" && (payingContract(next) === moved.contract || refunds(moved, zeroTransfer(next)));
+            const returned = moved?.direction === "refunded" && refunds(zeroTransfer(beside(records[index - 1])), moved);
+            if (moved && (paid || returned)) entries.push({ tick, range, record: "fee", contract: moved.contract, amount: String(moved.amount), direction: moved.direction });
         }
     }
     return entries;
@@ -100,6 +140,8 @@ export function oracleLogText(entry: OracleLogEntry): string {
             return `query ${entry.queryId} · ${entry.interface} · ${entry.owner} ${entry.ownerId} → ${entry.status}`;
         case "subscription":
             return `subscription ${entry.subscriptionId} · ${entry.interface} · contract ${entry.contract} · every ${entry.periodMs} ms`;
+        case "unsubscription":
+            return `unsubscription ${entry.subscriptionId} · ${entry.interface} · contract ${entry.contract}`;
         case "oc":
             return `OC ${entry.invocationId} · contract ${entry.contract} → ${entry.status}`;
         case "fee":
