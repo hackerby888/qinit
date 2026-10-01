@@ -516,6 +516,36 @@ test("a reply resolved between ticks leaves its COMMITTED record before SUCCESS"
     ]);
 });
 
+// the epoch switch drops the query, so a commit still waiting for its tick has nothing left to describe.
+test("a commit deferred across an epoch switch is dropped with its query", async () => {
+    const logger = new QubicLogStore();
+    const sim = new QubicSimulator({ logStore: logger });
+    sim.tickDuration = 60_000;
+    sim.deploy(29, await wasm("OracleProbe"));
+    sim.fund(contractId(29), 1_000_000n);
+
+    const queryInput = new Uint8Array(112);
+    queryInput.set(new TextEncoder().encode("mock"), 0);
+    queryInput.set(new TextEncoder().encode("BTC"), 40);
+    queryInput.set(new TextEncoder().encode("USD"), 72);
+    new DataView(queryInput.buffer).setUint32(104, 180_000, true);
+
+    logger.begin(1, 0);
+    const queryId = new DataView(sim.procedure(29, 2, queryInput).buffer).getBigInt64(0, true);
+    logger.end();
+    logger.finalizeTick(1);
+    sim.currentTick = 1;
+
+    const reply = new Uint8Array(16);
+    new DataView(reply.buffer).setBigInt64(0, 42n, true);
+    new DataView(reply.buffer).setBigInt64(8, 1n, true);
+    expect(sim.resolveOracle(queryId, reply)).toBe(true);
+
+    sim.beginEpoch();
+    sim.advance();
+    expect(tickRecords(logger, sim.currentTick).filter((record) => record.type === QUBIC_LOG_TYPE.ORACLE_QUERY_STATUS_CHANGE)).toEqual([]);
+});
+
 // OracleProbe: procedure 2 queries a price, 3 subscribes, 4 unsubscribes. Price is oracle interface 0.
 test("oracle queries and subscribers leave core's status and subscriber records", async () => {
     const logger = new QubicLogStore();

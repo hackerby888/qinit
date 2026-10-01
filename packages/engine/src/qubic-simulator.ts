@@ -457,6 +457,7 @@ export class QubicSimulator {
         this.oc.beginEpoch();
         this.pendingOracleNotifications = [];
         this.heldOracleRevealTransactions = [];
+        this.deferredEngineLogs = [];
         this.logStore?.reset(initialTick);
         // a node boots on an epoch's first tick, which opens that epoch's log like any other.
         this.logStartOfEpoch(initialTick);
@@ -1355,6 +1356,7 @@ export class QubicSimulator {
         this.oc.beginEpoch();
         this.pendingOracleNotifications = [];
         this.heldOracleRevealTransactions = [];
+        this.deferredEngineLogs = [];
         const logTick = this.nextLogTick();
         this.logStore?.reset(logTick);
         this.logStartOfEpoch(logTick);
