@@ -7,7 +7,7 @@ import { ORACLE_INTERFACES } from "@qinit/engine/oracle-interfaces/registry";
 import { loadConfig, resolveRpc } from "../../config";
 import { Header, Spinner, KV, theme, termCols } from "../../ui";
 import { output, type CommandArguments } from "../../args";
-import { readTickLogRecords } from "../../ops/node-logs";
+import { openLogReader } from "../../ops/node-logs";
 import { interfaceName, oracleLogEntries, oracleLogText, type OracleLogEntry } from "../../ops/oracle-log";
 
 type PendingQuery = { queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array };
@@ -213,9 +213,11 @@ export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
                     }
                 } else if (o.sub === "log") {
                     // the oracle and OC records of a tick range, read from the node's log stream over its peer port
-                    const tick = (await rpc.tickInfo()).tick;
-                    const to = o.to ? Number(o.to) : tick;
-                    const from = o.arg ? Number(o.arg) : Math.max(0, to - LOG_DEFAULT_TICKS + 1);
+                    const info = await rpc.tickInfo();
+                    const to = o.to ? Number(o.to) : info.tick;
+                    // a node holds no log from before its epoch began and refuses such a tick, so the default range starts no earlier
+                    const epochStart = Number.isSafeInteger(info.initialTick) ? Math.min(Number(info.initialTick), to) : 0;
+                    const from = o.arg ? Number(o.arg) : Math.max(epochStart, to - LOG_DEFAULT_TICKS + 1);
                     if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || to < from) {
                         throw new Error(`log [<fromTick> [<toTick>]]: '${o.arg} ${o.to}' is not a tick range`);
                     }
@@ -224,8 +226,13 @@ export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
                     const port = o.peerPort ? Number(o.peerPort) : DEFAULT_PEER_PORT;
                     setBusy(`reading the log of ticks ${from}..${to} from ${host}:${port}`);
                     const entries: OracleLogEntry[] = [];
-                    for (let at = from; at <= to && !stopped; at++) {
-                        entries.push(...oracleLogEntries(await readTickLogRecords(host, port, at)));
+                    const reader = openLogReader(host, port);
+                    try {
+                        for (let at = from; at <= to && !stopped; at++) {
+                            entries.push(...oracleLogEntries(await reader.tick(at)));
+                        }
+                    } finally {
+                        reader.close();
                     }
                     factsRef.current = { log: entries };
                     setRows(
