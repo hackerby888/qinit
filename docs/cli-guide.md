@@ -735,7 +735,7 @@ saved as `clang` or `typescript`. Build, deploy, dev, test, gtest, `system`,
 and simulator startup resolve:
 
 ```text
---compiler -> saved compiler-backend -> clang
+--compiler -> saved compiler-backend -> typescript
 ```
 
 ### 7.4 `qinit build`
@@ -750,7 +750,7 @@ It resolves:
 | Output   | `--out` -> `dist/contracts`                                           |
 | Slot     | `--slot` -> config -> live registry plan -> offline hypothetical plan |
 | Core     | normal `resolveCoreDir()` chain                                       |
-| Compiler | `--compiler` -> saved choice -> clang                                 |
+| Compiler | `--compiler` -> saved choice -> typescript                            |
 
 Build never mutates the node. It resolves the complete source graph first:
 
@@ -1710,7 +1710,7 @@ carries 25 identities and would otherwise wrap far past the frame.
 The default runtime is selected by:
 
 ```text
---runtime -> saved runtime -> core
+--runtime -> saved runtime -> simulator
 ```
 
 The main orchestrator is [`commands/node/node-run.tsx`](../packages/cli/src/commands/node/node-run.tsx).

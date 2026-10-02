@@ -114,9 +114,9 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
                         "qinit test      # run tests/" +
                         name +
                         ".test.ts against the dev node through the generated client\n" +
-                        "qinit gtest --compiler typescript   # run tests/" +
+                        "qinit gtest     # run tests/" +
                         name +
-                        ".test.cpp on an isolated node (TS compiler)\n" +
+                        ".test.cpp on an isolated node\n" +
                         "qinit call      # interactive: pick contract -> fn/proc\n```\n\n" +
                         "Config in `qinit.json` (contractName, contract, coreDir, rpc). Slot is auto-allocated by contract name.\n" +
                         "`qinit gtest` needs a core-lite checkout (`test/contract_testing.h`): pass `--core-dir PATH` or set `QINIT_CORE`.\n",

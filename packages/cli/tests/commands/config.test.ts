@@ -90,7 +90,7 @@ test("theme store: round-trip", () => {
 test("runtime store: default undefined, round-trip, ignore unknown value", () => {
     const configRoot = isolate();
     expect(savedRuntime()).toBeUndefined();
-    expect(resolveRuntime()).toBe("core");
+    expect(resolveRuntime()).toBe("simulator");
     setSavedRuntime("simulator");
     writeFileSync(join(configRoot, "qinit", "node-backend"), "core\n");
     expect(savedRuntime()).toBe("simulator");
@@ -104,7 +104,7 @@ test("runtime store: default undefined, round-trip, ignore unknown value", () =>
 test("compiler backend store: default undefined, round-trip, ignore unknown value", () => {
     isolate();
     expect(savedCompilerBackend()).toBeUndefined();
-    expect(resolveCompilerBackend()).toBe("clang");
+    expect(resolveCompilerBackend()).toBe("typescript");
     setSavedCompilerBackend("typescript");
     expect(savedCompilerBackend()).toBe("typescript");
     expect(resolveCompilerBackend()).toBe("typescript");

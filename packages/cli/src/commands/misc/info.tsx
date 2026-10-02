@@ -3,7 +3,7 @@ import { Box, useApp } from "ink";
 import { readCurrent, wasiSdkPaths } from "@qinit/core";
 import { compilerInfo } from "@qinit/compiler/browser";
 import { output, type CommandArguments } from "../../args";
-import { loadConfig, resolveCoreDir, savedCompilerBackend, savedRuntime, resolveRpc } from "../../config";
+import { DEFAULT_COMPILER_BACKEND, DEFAULT_RUNTIME, loadConfig, resolveCoreDir, savedCompilerBackend, savedRuntime, resolveRpc } from "../../config";
 import { nodeStatus, versionDrift } from "../../ops/node";
 import { Header, KV, Panel, Spinner, theme } from "../../ui";
 import { VERSION } from "../../version";
@@ -47,14 +47,14 @@ async function collectSetup(rpcOverride?: string): Promise<Setup> {
     return {
         qinit: { version: VERSION, binary: process.execPath },
         compiler: {
-            backend: chosen(savedCompilerBackend(), "clang"),
+            backend: chosen(savedCompilerBackend(), DEFAULT_COMPILER_BACKEND),
             wasiSdk: wasiSdkPaths()?.clang ?? "not cached — run qinit setup",
             protocolVersion: compilerInfo.protocolVersion,
             snapshotHash: compilerInfo.snapshotHash,
             coreCommit: compilerInfo.coreCommit,
         },
         runtime: {
-            runtime: chosen(savedRuntime(), "core"),
+            runtime: chosen(savedRuntime(), DEFAULT_RUNTIME),
             rpc,
             nodeVersion: current?.nodeVersion ?? "—",
             nodeBinary: current?.node ?? "—",

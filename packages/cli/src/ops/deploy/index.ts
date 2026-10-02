@@ -4,7 +4,7 @@ import { buildContractWithClang, type ContractBuildResult, type ContractIdl } fr
 import { loadQpiHeader } from "@qinit/compiler";
 import { LiteRpc, k12Hex, type DeployOutcome, type NodeBackendIdentity } from "@qinit/core";
 import { encodeDeploy, LITE_TX, resolveDeploymentSlot, TX_TICK_OFFSET } from "@qinit/proto";
-import { savedCompilerBackend, type CompilerBackend } from "../../config";
+import { DEFAULT_COMPILER_BACKEND, savedCompilerBackend, type CompilerBackend } from "../../config";
 import { buildContractWithTypeScript } from "../typescript-build";
 import { saveContractIdl } from "../../contracts/idl-file";
 import { resolveNodeCallees } from "../../contracts/callees";
@@ -147,7 +147,7 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
         }),
     );
 
-    const compiler: CompilerBackend = options.compiler ?? savedCompilerBackend() ?? "clang";
+    const compiler: CompilerBackend = options.compiler ?? savedCompilerBackend() ?? DEFAULT_COMPILER_BACKEND;
     const outDir = options.outDir ?? resolve("dist/contracts");
     if (options.artifact) {
         emit({ topic: "compiler", note: "prebuilt artifact (exact bytes)" });

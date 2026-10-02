@@ -1,4 +1,4 @@
-import { NODE_RUNTIMES, savedRuntime, setSavedRuntime, type NodeRuntime } from "../../config";
+import { DEFAULT_RUNTIME, NODE_RUNTIMES, savedRuntime, setSavedRuntime, type NodeRuntime } from "../../config";
 import type { CommandArguments } from "../../args";
 import { BackendPicker } from "./backend-picker";
 
@@ -15,7 +15,7 @@ export function RuntimeCmd({ commandArgs }: { commandArgs: CommandArguments }) {
             label="runtime"
             backends={NODE_RUNTIMES}
             descriptions={DESC}
-            current={savedRuntime() ?? "core"}
+            current={savedRuntime() ?? DEFAULT_RUNTIME}
             width={12}
             save={setSavedRuntime}
         />

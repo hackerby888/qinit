@@ -140,6 +140,7 @@ export function setSavedTheme(name: string): void {
 
 export type NodeRuntime = "core" | "simulator";
 export const NODE_RUNTIMES: NodeRuntime[] = ["core", "simulator"];
+export const DEFAULT_RUNTIME: NodeRuntime = "simulator";
 
 export function runtimeStorePath(): string {
     return join(configDir(), "runtime");
@@ -162,7 +163,7 @@ export function setSavedRuntime(runtime: NodeRuntime): void {
 
 export function resolveRuntime(requested?: string): NodeRuntime {
     if (requested === undefined) {
-        return savedRuntime() ?? "core";
+        return savedRuntime() ?? DEFAULT_RUNTIME;
     }
     if (requested === "core" || requested === "simulator") {
         return requested;
@@ -172,6 +173,7 @@ export function resolveRuntime(requested?: string): NodeRuntime {
 
 export type CompilerBackend = "clang" | "typescript";
 export const COMPILER_BACKENDS: CompilerBackend[] = ["clang", "typescript"];
+export const DEFAULT_COMPILER_BACKEND: CompilerBackend = "typescript";
 
 export function compilerBackendStorePath(): string {
     return join(configDir(), "compiler-backend");
@@ -194,7 +196,7 @@ export function setSavedCompilerBackend(backend: CompilerBackend): void {
 
 export function resolveCompilerBackend(requested?: string): CompilerBackend {
     if (requested === undefined) {
-        return savedCompilerBackend() ?? "clang";
+        return savedCompilerBackend() ?? DEFAULT_COMPILER_BACKEND;
     }
     if (requested === "clang" || requested === "typescript") {
         return requested;

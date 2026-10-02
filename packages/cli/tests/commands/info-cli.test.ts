@@ -21,8 +21,8 @@ test("info --json reports the setup as one object, with no node running", async 
     expect(typeof setup.compiler.protocolVersion).toBe("number");
     expect(setup.compiler.snapshotHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(setup.compiler.coreCommit).toMatch(/^[0-9a-f]{40}$/);
-    expect(["clang", "typescript", "clang (default)"]).toContain(setup.compiler.backend);
-    expect(["core", "simulator", "core (default)"]).toContain(setup.runtime.runtime);
+    expect(["clang", "typescript", "typescript (default)"]).toContain(setup.compiler.backend);
+    expect(["core", "simulator", "simulator (default)"]).toContain(setup.runtime.runtime);
 
     // Nothing is listening on port 1, so the probe has to degrade rather than hang or throw.
     expect(setup.runtime.node).toBe("not reachable");
