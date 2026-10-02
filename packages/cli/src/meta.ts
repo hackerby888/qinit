@@ -134,7 +134,7 @@ const commandMeta = {
         ],
         examples: [
             "qinit oracle pending",
-            "qinit oracle resolve 172596578652000256 --reply '123456, 1000'",
+            "qinit oracle resolve 172596578652000256 --reply '123456sint64, 1000sint64'",
             "qinit oracle serve --rules oracle.json",
             "qinit oracle log 2740 2760",
         ],
@@ -281,7 +281,7 @@ const commandMeta = {
             booleanOption("fn", "make a read-only call"),
             booleanOption("proc", "send a signed call and wait for it"),
             stringOption("args", "<json>", "JSON input"),
-            stringOption("in", '"<values>"', 'input values, e.g. "0, 100" (id: 0, 60 A-Z chars, or 64 hex); typed as "0id, 100uint64" when the entry has no schema'),
+            stringOption("in", '"<values>"', 'input values, e.g. "0id, 100uint64" (id: 0, 60 A-Z chars, or 64 hex); the type may be omitted when the entry\'s schema is known'),
             stringOption("out", "<type>", "output type"),
             stringOption("amount", "<n>", "transfer amount"),
             booleanOption("trace", "show state changes and contract calls"),
@@ -293,9 +293,9 @@ const commandMeta = {
         ],
         examples: [
             "qinit call # interactive mode",
-            'qinit call --proc Mytoken Mint --in "0, 100"',
-            "qinit call --fn   Mytoken BalanceOf --in 0",
-            'qinit call --fn   31 1 --in "0id" --out uint64 # no schema: values carry their type',
+            'qinit call --proc Mytoken Mint --in "0id, 100uint64"',
+            "qinit call --fn   Mytoken BalanceOf --in 0id",
+            'qinit call --proc Mytoken Mint --in "0, 100" # types optional with a schema',
         ],
     },
     seed: {

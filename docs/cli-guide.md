@@ -1057,11 +1057,11 @@ One-shot mode:
 5. Resolves the entry by numeric input type or case-insensitive name.
 
 `--args <json>` uses the IDL's structured ABI type. `--in` uses Qinit's value
-language: one value per field, comma-separated. With an IDL a value needs no
-type (`--in "0, 100"`): each bare token takes the type of the field it lands in,
-and a typed token must still match that field. Without an IDL every value is
-spelled as its number plus its type, so a numeric entry can be called with raw
-values; a named entry cannot.
+language: one value per field, comma-separated, each spelled as its number plus
+its type (`--in "0id, 100uint64"`). With an IDL the type may be omitted
+(`--in "0, 100"`): each bare token takes the type of the field it lands in, and
+a typed token must still match that field. Without an IDL every value needs its
+type, so a numeric entry can be called with raw values; a named entry cannot.
 
 | kind   | spelling                                    | example                                                    |
 | ------ | ------------------------------------------- | ---------------------------------------------------------- |

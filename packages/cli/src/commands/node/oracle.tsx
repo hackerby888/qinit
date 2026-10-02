@@ -35,7 +35,7 @@ function replyTypeOf(oracleInterface: (typeof ORACLE_INTERFACES)[number]): AbiTy
     return { ...replyType, fields: replyType.fields.map((field, index) => ({ ...field, name: names[index] })) };
 }
 
-// "123456, 1000" -> reply bytes, checked against the interface's own reply layout.
+// "123456sint64, 1000sint64" -> reply bytes, checked against the interface's own reply layout.
 export async function encodeReply(interfaceIndex: number, replyText: string, replyHex: string | undefined): Promise<Uint8Array> {
     const oracleInterface = interfaceOf(interfaceIndex);
     const replyType = replyTypeOf(oracleInterface);
@@ -58,7 +58,7 @@ export async function encodeReply(interfaceIndex: number, replyText: string, rep
     }
 }
 
-// a rules file maps an interface name to the reply text used for every query on it, e.g. {"Price": "123456, 1000"}
+// a rules file maps an interface name to the reply text used for every query on it, e.g. {"Price": "123456sint64, 1000sint64"}
 function loadRules(path: string): Record<string, string> {
     const rules = JSON.parse(readFileSync(path, "utf8")) as Record<string, string>;
     for (const [name, replyText] of Object.entries(rules)) {

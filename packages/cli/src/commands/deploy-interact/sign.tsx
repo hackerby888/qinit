@@ -132,7 +132,7 @@ export function Sign({ commandArgs }: { commandArgs: CommandArguments }) {
             </Box>
             <Box marginTop={1}>
                 <Text dimColor wrap="wrap">
-                    {`Pass the signature as the hex string for an Array<sint8, 64> field, with the signer as the id qpi.signatureValidity() checks against: --in "<hex>, <identity>"`}
+                    {`Pass the signature as the hex string for an Array<sint8, 64> field, with the signer as the id qpi.signatureValidity() checks against: --in "<hex>, <identity>id"`}
                 </Text>
             </Box>
         </Box>
