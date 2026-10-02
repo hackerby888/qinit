@@ -204,7 +204,6 @@ describe("CALL_SIG agrees with framework.ts", () => {
             entries: [],
             sysprocs: [],
             userFunctionsWat: ";; no user functions",
-            gtest: true,
         });
         const defined = new Map<string, { params: string[]; res: string }>();
         const re = /\(func (\$[a-zA-Z0-9_]+)((?:\s*\(param(?:\s+\$[a-zA-Z0-9_.]+)?(?:\s+(?:i32|i64))+\))*)\s*(?:\(result (i32|i64)\))?/g;

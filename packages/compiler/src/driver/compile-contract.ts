@@ -130,7 +130,6 @@ function generateContractWat(
         calleeTranslationUnits: calleeContext.calleeTranslationUnits,
         sharedMemoryBase: options.sharedMemoryBaseOffsetBytes,
         metadataOutput: metadata,
-        gtestMode: false,
     });
 }
 

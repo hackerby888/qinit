@@ -3,7 +3,6 @@ import type { FunctionEmissionContext } from "../types";
 import { tryEmitAggregateAssignment } from "./aggregate-assignment";
 import type { AssignmentExpression } from "./assignment-types";
 import { tryEmitScalarAssignment } from "./scalar-assignment";
-import { tryEmitTestHarnessAssignment } from "../gtest/harness-assignment";
 import { tryEmitOverloadedAssignment } from "./overloaded-assignment";
 import { tryEmitUint128Assignment } from "./uint128-assignment";
 
@@ -11,10 +10,6 @@ export { compoundToBinary, narrowLocalValue, newValueTmp } from "./assignment-he
 export type { AssignmentExpression, AssignmentTarget } from "./assignment-types";
 
 export function emitAssignment(context: FunctionEmissionContext, expression: AssignmentExpression): void {
-    if (tryEmitTestHarnessAssignment(context, expression)) {
-        return;
-    }
-
     const target = context.lowering.resolveExpressionAddress(context, expression.left);
     if (target?.readOnly) {
         context.programAnalysis.error(`cannot assign to read-only '${describeShape(expression.left)}': ${target.readOnly}`, expression.span);

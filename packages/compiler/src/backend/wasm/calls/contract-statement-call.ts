@@ -5,10 +5,6 @@ import type { CallExpression } from "./call-expression";
 import { qpiWrapperMethod } from "./call-shape";
 
 export function tryEmitContractStatementCall(context: FunctionEmissionContext, expression: CallExpression): boolean {
-    if (expression.callee.kind === AstKind.MEMBER_ACCESS && context.lowering.emitInlineStructStatement(context, expression)) {
-        return true;
-    }
-
     if (context.proxyClass && context.lowering.emitProxySiblingCall(context, expression, false) !== null) {
         return true;
     }

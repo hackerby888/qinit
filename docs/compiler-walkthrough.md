@@ -748,7 +748,6 @@ generateWasmModule({
     calleeTranslationUnits,
     sharedMemoryBase: sharedMemoryBaseOffsetBytes,
     metadataOutput: metadata,
-    gtestMode: false,
 });
 ```
 

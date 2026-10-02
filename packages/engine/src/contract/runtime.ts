@@ -392,7 +392,6 @@ export class Contract {
     everInitialized = false;
 
     private extMem?: WebAssembly.Memory;
-    private extraImports?: WebAssembly.Imports;
 
     get sharedMem(): boolean {
         return !!this.extMem;
@@ -403,10 +402,8 @@ export class Contract {
         public host: HostServices,
         wasmModule: WebAssembly.Module,
         externalMemory?: WebAssembly.Memory,
-        extraImports?: WebAssembly.Imports,
     ) {
         this.extMem = externalMemory;
-        this.extraImports = extraImports;
 
         if (externalMemory) {
             for (const imported of WebAssembly.Module.imports(wasmModule)) {
@@ -463,7 +460,7 @@ export class Contract {
         return this.arenaEnd - this.ioBase;
     }
 
-    static load(bytes: Uint8Array, slot: number, host: HostServices, externalMemory?: WebAssembly.Memory, extraImports?: WebAssembly.Imports): Contract {
+    static load(bytes: Uint8Array, slot: number, host: HostServices, externalMemory?: WebAssembly.Memory): Contract {
         validateContractIndexSignature(bytes);
         const wasmModule = new WebAssembly.Module(bytes as BufferSource);
         const hasLegacyArena = WebAssembly.Module.exports(wasmModule).some((entry) => entry.name === "arena_top");
@@ -472,7 +469,7 @@ export class Contract {
             throw new Error("legacy arena_top export is not supported");
         }
 
-        return new Contract(slot, host, wasmModule, externalMemory, extraImports);
+        return new Contract(slot, host, wasmModule, externalMemory);
     }
 
     // Fresh views each use — memory.grow detaches the underlying ArrayBuffer, so never hold a view across a dispatch.
@@ -1528,7 +1525,6 @@ export class Contract {
             lhost,
             env: envImports,
             wasi_snapshot_preview1: wasiImports,
-            ...(this.extraImports ?? {}),
         } as unknown as WebAssembly.Imports;
     }
 }

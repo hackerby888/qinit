@@ -254,9 +254,8 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
         const ci = castInfo(expression);
         if (ci) {
             const inner = resolveExpressionAddress(context, ci.operand);
-            const materialized = !inner && context.programAnalysis.gtestMode ? context.lowering.emitAddress(context, ci.operand) : null;
-            if (!inner && !materialized) return null;
-            const address = inner?.addr ?? materialized!;
+            if (!inner) return null;
+            const address = inner.addr;
             const templateBindings = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
             // A cast to T* produces a pointer value at the same wasm32 address; keep the wrapper so `+ n`, subscripting and unary `*` scale by sizeof(T).
             if (ci.type.kind === AstKind.POINTER) {
@@ -280,12 +279,11 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
         const ci = castInfo(expression.argument);
         if (ci && ci.type.kind === AstKind.POINTER) {
             const inner = resolveExpressionAddress(context, ci.operand);
-            const materialized = !inner && context.programAnalysis.gtestMode ? context.lowering.emitAddress(context, ci.operand) : null;
-            if (inner || materialized) {
+            if (inner) {
                 const templateBindings = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
                 const type = stripPtrRefConst(ci.type);
                 return {
-                    addr: inner?.addr ?? materialized!,
+                    addr: inner.addr,
                     type: type,
                     size: context.programAnalysis.sizeOfType(type, templateBindings),
                     layout: context.programAnalysis.layoutOfType(type, templateBindings),

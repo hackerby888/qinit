@@ -25,7 +25,7 @@ export function emitModule(spec: ModuleSpecification): string {
     return [
         "(module",
         "  ;; qinit-compiler generated module",
-        emitImports(spec.gtest, spec.lhostAbi),
+        emitImports(spec.lhostAbi),
         spec.memBase !== undefined
             ? `  (import "env" "memory" (memory ${capacity.pages}))`
             : `  (memory (export "memory") ${capacity.pages} ${capacity.pages})`,

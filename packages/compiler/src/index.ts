@@ -1,11 +1,10 @@
 // Stable public surface for @qinit/compiler — the in-process TypeScript backend, paired with buildContractWithClang. The compiler lives under ./driver.
 import { readFileSync } from "node:fs";
 import { compileContract } from "./driver/compile-contract";
-import { compileGtest } from "./driver/gtest";
 import { parseToAst } from "./driver/parse-ast";
 import type { ParseAstResult } from "./driver/parse-ast";
 import { loadQpiHeader } from "./driver/header";
-import type { CompileOptions, CompileResult, GtestCompileResult } from "./driver/types";
+import type { CompileOptions, CompileResult } from "./driver/types";
 
 export { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "./driver/defaults";
 
@@ -48,10 +47,6 @@ export async function compileContractWithTypeScript(options: TypeScriptCompileOp
     return compileContract(resolveOptions(options));
 }
 
-export async function compileGtestWithTypeScript(options: TypeScriptCompileOptions & { testSource: string }): Promise<GtestCompileResult> {
-    return compileGtest({ ...resolveOptions(options), testSource: options.testSource });
-}
-
 // Parsing needs no slot or contract name, so this keeps the driver's looser shape rather than CompileOptions.
 export function parseToAstWithTypeScript(options: {
     source: string;
@@ -72,4 +67,4 @@ export type {
     WasmFunctionSignature,
     WasmInspectionDiagnostic,
 } from "./driver/wasm-inspection";
-export type { CompileOptions, CompileResult, CompileDiagnostic, ContractIdl, GtestCompileResult, GtestDiagnostic, GtestProgram } from "./driver/types";
+export type { CompileOptions, CompileResult, CompileDiagnostic, ContractIdl } from "./driver/types";

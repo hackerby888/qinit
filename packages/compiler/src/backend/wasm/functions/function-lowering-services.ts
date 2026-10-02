@@ -14,7 +14,7 @@ import { emitAggHelperCall, emitHelperCall, lookupHelper, pickHelperOverload } f
 import { emitProposalProxyAddr, emitProposalProxyCall, emitProxySiblingCall } from "../calls/proxy";
 import { callCompiled, emitAssetIter, emitContainerCall, emitTemplateContainerCall } from "../calls/containers";
 import { emitAddress } from "../memory/address-emitter";
-import { emitInlineStructMethod, emitInlineStructStatement, emitInlineStructValue, inlineMethodInfo, tryInlineStructMethod } from "./inline-struct-methods";
+import { emitInlineStructMethod, inlineMethodInfo, tryInlineStructMethod } from "./inline-struct-methods";
 import { emitCallValueIr } from "../calls/value-call";
 import { emitInterContract } from "../calls/inter-contract";
 import { emitThisCall } from "../calls/this-call";
@@ -49,8 +49,6 @@ export const FUNCTION_LOWERING_SERVICES: FunctionLoweringServices = {
     emitHelperFunction,
     emitIncrementOrDecrement,
     emitInlineStructMethod,
-    emitInlineStructStatement,
-    emitInlineStructValue,
     emitInterContract,
     emitProposalProxyAddr,
     emitProposalProxyCall,

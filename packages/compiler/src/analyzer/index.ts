@@ -181,7 +181,6 @@ function analyzeCompiler(
             callees: compileOptions.callees,
             calleeStructs: calleeContext.contractStructs,
             calleeTranslationUnits: calleeContext.calleeTranslationUnits,
-            gtestMode: false,
             toleratesUnresolvedCalleeTypes: true,
         });
         validateContainerCalls(prepared);

@@ -26,7 +26,6 @@ export interface ModuleGenerationRequest {
     calleeTranslationUnits?: CalleeTranslationUnit[];
     sharedMemoryBase?: number;
     metadataOutput?: GeneratedContractMetadata;
-    gtestMode: boolean;
     procedureDeclLines?: Map<string, number>;
 }
 
@@ -39,7 +38,6 @@ export function generateWasmModule(request: ModuleGenerationRequest): string {
         callees: request.callees,
         calleeStructs: request.calleeStructs,
         calleeTranslationUnits: request.calleeTranslationUnits,
-        gtestMode: request.gtestMode,
         procedureDeclLines: request.procedureDeclLines,
     });
 
@@ -112,7 +110,6 @@ export function generateWasmModule(request: ModuleGenerationRequest): string {
         userFunctionsWat: userFunctions.join("\n"),
         migrate: migrationEmission.specification,
         memBase: request.sharedMemoryBase,
-        gtest: request.gtestMode,
         capabilities: [...programAnalysis.capabilities],
         lhostAbi,
         assetEnumerationRecord: programAnalysis.assetEnumerationRecord,

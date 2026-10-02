@@ -113,17 +113,6 @@ const I64 = WatNodeType.I64;
 
 export const CALL_SIG: Record<string, WatCallSignature> = {
     ...LHOST_CALL_SIG,
-    // private TS gtest runner host
-    $qt_invoke: sig([I32, I32, I32, I32, I32, I64, I32], I32),
-    $qt_query: sig([I32, I32, I32, I32, I32, I32], I32),
-    $qt_fund: sig([I32, I64], WatNodeType.VOID),
-    $qt_balance: sig([I32], I64),
-    $qt_state: sig([I32, I32, I32], I32),
-    $qt_system: sig([I32, I32], I32),
-    $qt_set_epoch: sig([I32], WatNodeType.VOID),
-    $qt_set_tick: sig([I32], WatNodeType.VOID),
-    $qt_construction_epoch: sig([I32], I32),
-    $qt_fail: sig([I32, I32], WatNodeType.VOID),
 
     // memory + runtime plumbing
     $setMem: sig([I32, I32, I32], WatNodeType.VOID),

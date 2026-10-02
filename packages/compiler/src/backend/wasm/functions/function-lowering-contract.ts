@@ -22,8 +22,6 @@ export interface FunctionLoweringServices {
     emitHelperFunction: typeof import("./function-emitter").emitHelperFunction;
     emitIncrementOrDecrement: typeof import("../expressions/discarded-expression").emitIncrementOrDecrement;
     emitInlineStructMethod: typeof import("./inline-struct-methods").emitInlineStructMethod;
-    emitInlineStructStatement: typeof import("./inline-struct-methods").emitInlineStructStatement;
-    emitInlineStructValue: typeof import("./inline-struct-methods").emitInlineStructValue;
     emitInterContract: typeof import("../calls/inter-contract").emitInterContract;
     emitProposalProxyAddr: typeof import("../calls/proxy").emitProposalProxyAddr;
     emitProposalProxyCall: typeof import("../calls/proxy").emitProposalProxyCall;

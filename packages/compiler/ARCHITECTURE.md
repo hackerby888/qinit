@@ -87,7 +87,6 @@ enforces this, and four more rules that keep the tree honest:
 | Where are calls dispatched?                       | `src/backend/wasm/calls/dispatcher.ts`                    |
 | Where are QPI calls lowered?                      | `src/backend/wasm/calls/qpi.ts`                           |
 | Where are library calls lowered?                  | `src/backend/wasm/calls/library-call.ts`                  |
-| Where is gtest harness code lowered?              | `src/backend/wasm/gtest/`                                 |
 | Where are addresses resolved?                     | `src/backend/wasm/memory/address-resolution.ts`           |
 | Where are loads and stores emitted?               | `src/backend/wasm/memory/memory-operations.ts`            |
 | Where is the contract module assembled?           | `src/backend/wasm/module/module-generator.ts`             |
@@ -124,9 +123,6 @@ those nodes as WAT text.
 `backend/wasm/memory` owns address calculation, construction, loads, and stores.
 
 `backend/wasm/calls` owns call classification and specialized call lowering.
-
-`backend/wasm/gtest` owns the harness-only call and assignment lowering, kept out of the
-production paths above.
 
 `backend/wasm/module` owns declaration registration and final contract module assembly.
 

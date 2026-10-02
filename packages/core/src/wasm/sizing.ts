@@ -19,9 +19,6 @@ export const DEFAULT_ARENA_BYTES = 1024 * 1024 * 1024;
 /** the `io_size()` a core node requires before it arms a module: the three buffers plus the full default arena. */
 export const CORE_IO_CAPACITY_BYTES = IO_BUFFER_BYTES + DEFAULT_ARENA_BYTES;
 
-/** Arena for gtest builds, where several modules are packed into one address space. */
-export const DEFAULT_GTEST_ARENA_BYTES = 16 * 1024 * 1024;
-
 /** Write-journal budget for undo entries. Capacity is also clamped to the blocks a state actually has. */
 export const DEFAULT_JOURNAL_CAP_BYTES = 64 * 1024 * 1024;
 

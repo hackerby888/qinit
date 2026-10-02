@@ -61,7 +61,6 @@ export class ContractRegistry {
         wasm: Uint8Array,
         host: HostServices,
         extMem?: WebAssembly.Memory,
-        extraImports?: WebAssembly.Imports,
         initialize = true,
         initialState?: Uint8Array,
         minIoBytes?: number,
@@ -75,7 +74,7 @@ export class ContractRegistry {
         const prevState = initialState ?? residentState;
         // core keeps a redeployed slot's bytes and still owes it the INITIALIZE its first deploy never reached.
         const owedInitialize = !initialState && stillPending !== undefined && stillPending.oldState === null;
-        const c = Contract.load(wasm, slot, host, extMem, extraImports);
+        const c = Contract.load(wasm, slot, host, extMem);
 
         // core refuses a module whose io region cannot hold its engine carve; a node that mirrors core names the same minimum, in core's words.
         if (minIoBytes !== undefined && c.ioBytes < minIoBytes) {

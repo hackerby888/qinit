@@ -16,8 +16,6 @@ export interface CompileOptions {
         source: string;
         slot?: number;
     }>;
-    testSource?: string;
-    testPath?: string;
     qpiHeader?: string;
     sharedMemoryBaseOffsetBytes?: number;
     onPhase?: (phase: string) => void | Promise<void>;
@@ -34,22 +32,5 @@ export interface CompileResult {
     timings?: Record<string, number>;
 }
 
-export interface GtestProgram {
-    version: 2;
-    contract: string;
-    mainSlot: number;
-    runnerSlot: number;
-    mainConstructionEpoch: number;
-    tests: Array<{ name: string; inputType: number }>;
-}
-
 // The element type of CompileResult.diagnostics — the single name both entry points publish.
 export type CompileDiagnostic = ParserDiagnostic;
-export type GtestDiagnostic = ParserDiagnostic;
-
-export interface GtestCompileResult {
-    wasm?: Uint8Array;
-    program?: GtestProgram;
-    diagnostics: GtestDiagnostic[];
-    idl?: ContractIdl;
-}

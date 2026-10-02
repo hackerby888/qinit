@@ -1,11 +1,10 @@
 // Browser entry for @qinit/compiler: same exported names as the root entry, but the QPI header comes from the generated snapshot — no filesystem paths apply.
-import type { CompileOptions, CompileResult, GtestCompileResult } from "./driver/types";
+import type { CompileOptions, CompileResult } from "./driver/types";
 import { compileContract } from "./driver/compile-contract";
-import { compileGtest } from "./driver/gtest";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "./generated/qpi-snapshot";
 
 export * from "./shared/enums";
-export type { CompileOptions, CompileResult, CompileDiagnostic, ContractIdl, GtestCompileResult, GtestProgram } from "./driver/types";
+export type { CompileOptions, CompileResult, CompileDiagnostic, ContractIdl } from "./driver/types";
 export { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "./driver/wasm-inspection";
 export type { WasmModuleInspection, WasmModuleInspectionOptions, WasmInspectionDiagnostic } from "./driver/wasm-inspection";
 
@@ -43,8 +42,4 @@ function browserOptions(options: BrowserCompileOptions): CompileOptions {
 
 export async function compileContractWithTypeScript(options: BrowserCompileOptions): Promise<CompileResult> {
     return compileContract(browserOptions(options));
-}
-
-export async function compileGtestWithTypeScript(options: BrowserCompileOptions & { testSource: string }): Promise<GtestCompileResult> {
-    return compileGtest({ ...browserOptions(options), testSource: options.testSource });
 }

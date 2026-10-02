@@ -210,10 +210,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         const instance = await WebAssembly.instantiate(module, { lhost });
         expect((instance.exports.state_addr as CallableFunction)()).toBeGreaterThan(0);
 
-        const framework = readSourceTree("../../src/backend/wasm/framework", import.meta.url);
         const memory = readSourceTree("../../src/backend/wasm/memory", import.meta.url);
-        expect(framework).not.toContain('"qtest" "randomId"');
-        expect(framework).not.toContain("$qt_random_id");
         expect(memory).not.toMatch(/calleeName\s*===\s*["'](?:QPI::)?id::randomValue["']/);
     });
 });

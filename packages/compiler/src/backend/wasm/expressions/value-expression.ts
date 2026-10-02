@@ -19,19 +19,6 @@ function castTypeName(context: FunctionEmissionContext, type: TypeSpec | undefin
 }
 export function lowerValueExpression(context: FunctionEmissionContext, expression: Expression): watIr.WatNode {
     if (
-        context.programAnalysis.gtestMode &&
-        expression.kind === AstKind.MEMBER_ACCESS &&
-        expression.member === "constructionEpoch" &&
-        expression.object.kind === AstKind.SUBSCRIPT &&
-        expression.object.object.kind === AstKind.IDENTIFIER &&
-        expression.object.object.name === "contractDescriptions"
-    ) {
-        return watIr.operation(
-            "i64.extend_i32_u",
-            watIr.functionCall("$qt_construction_epoch", watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.object.index))),
-        );
-    }
-    if (
         expression.kind === AstKind.MEMBER_ACCESS &&
         expression.member === "ptr" &&
         expression.object.kind === AstKind.IDENTIFIER &&
@@ -184,10 +171,8 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             context.programAnalysis.warn(`unsupported subscript value`, (expression as any).span?.line ?? 0);
             return watIr.i64Constant(0);
         }
-        case AstKind.CALL: {
-            const inline = context.lowering.emitInlineStructValue(context, expression);
-            return inline ?? context.lowering.emitCallValueIr(context, expression);
-        }
+        case AstKind.CALL:
+            return context.lowering.emitCallValueIr(context, expression);
         case AstKind.TEMPLATE_CALL: {
             if (expression.callee.kind === AstKind.IDENTIFIER) {
                 const name = expression.callee.name;

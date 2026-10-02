@@ -1076,7 +1076,6 @@ export class QubicSimulator {
                         wasm,
                         this.host,
                         externalMemory,
-                        undefined,
                         options.initialize ?? true,
                         options.initialState,
                         options.minIoBytes,
@@ -1102,21 +1101,6 @@ export class QubicSimulator {
                 }
 
                 return contract;
-            },
-            { contractErrorsOnly: true },
-        );
-    }
-
-    deployWithImports(slot: number, wasm: Uint8Array, imports: WebAssembly.Imports): Contract {
-        return this.runOperation(
-            "deploy",
-            () => {
-                this.logStore?.begin(this.nextLogTick(), LOG_SC_INITIALIZE);
-                try {
-                    return this.registry.deploy(slot, wasm, this.host, undefined, imports);
-                } finally {
-                    this.logStore?.end();
-                }
             },
             { contractErrorsOnly: true },
         );

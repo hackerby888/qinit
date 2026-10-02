@@ -1,24 +1,10 @@
 import { emitLhostImports, type LhostAbiSpec } from "../lhost";
 import type { Layout } from "./framework-types";
 
-export function emitImports(gtest = false, lhostAbi?: LhostAbiSpec): string {
+export function emitImports(lhostAbi?: LhostAbiSpec): string {
     return `  ;; ---- lhost imports ----
 ${emitLhostImports(lhostAbi)}
-${
-    gtest
-        ? `  ;; ---- private TS gtest host imports ----
-  (import "qtest" "invoke" (func $qt_invoke (param i32 i32 i32 i32 i32 i64 i32) (result i32)))
-  (import "qtest" "query" (func $qt_query (param i32 i32 i32 i32 i32 i32) (result i32)))
-  (import "qtest" "fund" (func $qt_fund (param i32 i64)))
-  (import "qtest" "balance" (func $qt_balance (param i32) (result i64)))
-  (import "qtest" "state" (func $qt_state (param i32 i32 i32) (result i32)))
-  (import "qtest" "system" (func $qt_system (param i32 i32) (result i32)))
-  (import "qtest" "setEpoch" (func $qt_set_epoch (param i32)))
-  (import "qtest" "setTick" (func $qt_set_tick (param i32)))
-  (import "qtest" "constructionEpoch" (func $qt_construction_epoch (param i32) (result i32)))
-  (import "qtest" "fail" (func $qt_fail (param i32 i32)))`
-        : ""
-}`;
+`;
 }
 
 export function emitGlobals(capacity: Layout): string {

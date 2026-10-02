@@ -45,13 +45,12 @@ export interface PrepareContractModuleRequest {
     callees?: ContractIdl[];
     calleeStructs?: Map<string, StructDecl>;
     calleeTranslationUnits?: CalleeTranslationUnit[];
-    gtestMode: boolean;
     procedureDeclLines?: Map<string, number>;
     toleratesUnresolvedCalleeTypes?: boolean;
 }
 
 export function prepareContractModule(request: PrepareContractModuleRequest): PreparedContractModule {
-    const programAnalysis = createModuleProgramAnalysis(request.semanticAnalysis, request.gtestMode, request.callees, request.calleeStructs);
+    const programAnalysis = createModuleProgramAnalysis(request.semanticAnalysis, request.callees, request.calleeStructs);
     programAnalysis.toleratesUnresolvedCalleeTypes = request.toleratesUnresolvedCalleeTypes ?? false;
     const lhostAbi = request.libraryIndex ? registerLibraryMetadata(programAnalysis, request.libraryIndex) : undefined;
     const contextLayout = contextLayoutFromCodegen(programAnalysis);
@@ -113,12 +112,10 @@ export function prepareContractModule(request: PrepareContractModuleRequest): Pr
 
 export function createModuleProgramAnalysis(
     semanticAnalysis: SemanticAnalyzer,
-    gtestMode: boolean,
     callees: ContractIdl[] | undefined,
     calleeStructs: Map<string, StructDecl> | undefined,
 ): ProgramAnalysis {
     const programAnalysis = new ProgramAnalysis(semanticAnalysis);
-    programAnalysis.gtestMode = gtestMode;
 
     for (const callee of callees ?? []) {
         programAnalysis.callees.set(callee.name, resolveCalleeIdl(callee));

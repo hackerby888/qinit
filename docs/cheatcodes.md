@@ -70,10 +70,8 @@ subtree.
 | `CC_UNPRANK`  | Restores the frame's own dispatched caller and reward. A prank never outlives its frame, so an unpaired `CC_PRANK` cannot reach a later call.                                                                                                                                      |
 | every mutator | Refused (`-3`) in any function frame, including a function another contract calls. Allowed in procedures, system procedures, `INITIALIZE` and `MIGRATE`.                                                                                                                           |
 
-`runContractTesting` makes every call a root dispatch. `runCompiledGtest` runs a test's steps inside the
-runner's own procedure, so a warp made in one step is still in effect in the next steps of that test.
-`fixtures/QpiDual.h` `Cheat` checks every row above, and `ci-qpi-dual-engine.ts` runs it on both compilers and
-both runtimes.
+`runContractTesting` makes every call a root dispatch. `fixtures/QpiDual.h` `Cheat` checks every row above,
+and `ci-qpi-dual-engine.ts` runs it on both compilers and both runtimes.
 
 ## 3. Strings cost nothing
 

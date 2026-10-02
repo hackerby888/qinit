@@ -1,8 +1,7 @@
-import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
+import { AstKind, type WatValueType } from "../../../shared/enums";
 import { classifyMethodParam } from "../calls/containers";
 import { FunctionEmissionContext, ResolvedAddress, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, Statement, FunctionDecl } from "../../../ast";
-import * as watIr from "../wat-ir";
 import { addrIr } from "../memory/memory-operations";
 import { constQualifiedTarget, rejectMutatingCallOnReadOnly } from "../memory/address-resolution";
 // Resolve reference-returning inline member calls as addresses.
@@ -51,43 +50,6 @@ export function inlineMethodInfo(
     ) as FunctionDecl | undefined;
     return fn ? { object, fn } : null;
 }
-export function emitInlineStructValue(
-    context: FunctionEmissionContext,
-    expression: Expression & {
-        kind: AstKind.CALL;
-    },
-): watIr.WatNode | null {
-    if (!context.programAnalysis.gtestMode) return null;
-    const resolved = inlineMethodInfo(context, expression);
-    if (
-        !resolved ||
-        context.programAnalysis.isVoidType(resolved.fn.returnType) ||
-        context.programAnalysis.isAggregateType(context.programAnalysis.derefType(resolved.fn.returnType))
-    )
-        return null;
-    const result = context.lowering.allocateTemporaryLocalName(context);
-    context.localVars.set(result, {
-        wasmType: WatNodeType.I64,
-        type: context.programAnalysis.derefType(resolved.fn.returnType),
-    });
-    context.lines.push(`    ${context.lowering.setLocal(context, result, watIr.i64Constant(0))}`);
-    emitInlineStructMethod(context, resolved.object, resolved.fn, expression.callArguments, {
-        retValue: result,
-    });
-    return watIr.localGet(result, WatNodeType.I64);
-}
-export function emitInlineStructStatement(
-    context: FunctionEmissionContext,
-    expression: Expression & {
-        kind: AstKind.CALL;
-    },
-): boolean {
-    if (!context.programAnalysis.gtestMode) return false;
-    const resolved = inlineMethodInfo(context, expression);
-    if (!resolved) return false;
-    emitInlineStructMethod(context, resolved.object, resolved.fn, expression.callArguments);
-    return true;
-}
 export function renameInlineLocals(body: Statement, suffix: string): Statement {
     const names = new Map<string, string>();
     const collect = (value: unknown): void => {
@@ -122,11 +84,6 @@ export function emitInlineStructMethod(
     objNode: ResolvedAddress,
     fn: FunctionDecl,
     callArguments: Expression[],
-    result: {
-        retAddr?: string;
-        retSize?: number;
-        retValue?: string;
-    } = {},
 ): string {
     const self = context.lowering.allocateTemporaryLocalName(context);
     context.lines.push(`    ${context.lowering.setLocal(context, self, addrIr(objNode.addr))}`);
@@ -172,7 +129,6 @@ export function emitInlineStructMethod(
         retAggSize: context.retAggSize,
         retType: context.retType,
         inlineReturnLabel: context.inlineReturnLabel,
-        inlineValueLocal: context.inlineValueLocal,
         retTypeName: context.retTypeName,
     };
     context.thisLayout = objNode.layout ?? undefined;
@@ -181,10 +137,9 @@ export function emitInlineStructMethod(
     context.params = params;
     context.inlineMethod = true;
     context.retIsValue = false;
-    context.retAddr = result.retAddr;
-    context.retAggSize = result.retSize;
+    context.retAddr = undefined;
+    context.retAggSize = undefined;
     context.retType = context.programAnalysis.derefType(fn.returnType);
-    context.inlineValueLocal = result.retValue;
     context.retTypeName = fn.returnType.kind === AstKind.NAME ? fn.returnType.name : undefined;
     const returnLabel = `$inline_return_${context.loopCount++}`;
     context.inlineReturnLabel = returnLabel;

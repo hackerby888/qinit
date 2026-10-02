@@ -24,11 +24,6 @@ export function emitCallValueIr(
         context.programAnalysis.warn(`unsupported __builtin_offsetof`, expression.span.line);
         return watIr.i64Constant(0);
     }
-    if (context.programAnalysis.gtestMode && expression.callee.kind === AstKind.IDENTIFIER && expression.callee.name === "getBalance") {
-        const who = expression.callArguments[0] ? context.lowering.emitAddress(context, expression.callArguments[0]) : null;
-        if (!who) throw new Error("gtest getBalance account must be addressable");
-        return watIr.functionCall("$qt_balance", addrIr(who));
-    }
     const primitive =
         expression.callee.kind === AstKind.IDENTIFIER || expression.callee.kind === AstKind.QUALIFIED_NAME
             ? platformPrimitive(expression.callee.name)
