@@ -201,10 +201,24 @@ function boundMemberType(type: TypeSpec, templateBindings: TemplateBindings, dep
     }
 
     if (type.kind === AstKind.TEMPLATE_INSTANCE) {
-        return { ...type, callArguments: type.callArguments.map((argument) => boundMemberType(argument, templateBindings, depth + 1)) };
+        return { ...type, callArguments: type.callArguments.map((argument) => boundMemberArgument(argument, templateBindings, depth)) };
     }
 
     return type;
+}
+
+/** A value argument named by a constant this member list binds (its own static constexpr) is recorded as that value, as resolveInScope does. */
+function boundMemberArgument(argument: TypeSpec, templateBindings: TemplateBindings, depth: number): TypeSpec {
+    if (argument.kind === AstKind.NAME && !templateBindings.types.has(argument.name)) {
+        const value = templateBindings.values.get(argument.name);
+        if (value !== undefined) {
+            return {
+                kind: AstKind.EXPR_VALUE,
+                expression: { kind: AstKind.INT_LITERAL, value: value.toString(), span: argument.span ?? { start: 0, end: 0, line: 0, column: 0 } },
+            } as TypeSpec;
+        }
+    }
+    return boundMemberType(argument, templateBindings, depth + 1);
 }
 
 export function layoutOfMembers(

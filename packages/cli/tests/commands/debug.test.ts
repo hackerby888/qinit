@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
 import type { DebugEntry } from "@qinit/core";
-import { formatTraceAge, idlCacheKey, mergeTraceEntries, traceSelectionIndex, visibleForTarget } from "../../src/commands/deploy-interact/debug";
+import {
+    estimateTraceAgeMs,
+    withTickSample,
+    formatEstimatedAge,
+    formatTraceAge,
+    idlCacheKey,
+    mergeTraceEntries,
+    traceSelectionIndex,
+    visibleForTarget,
+} from "../../src/commands/deploy-interact/debug";
 
 const frame = (fields: Partial<DebugEntry>): DebugEntry =>
     ({ seq: 0, tick: 1, index: 29, entry: 1, kind: 1, ok: true, hostCalls: [], logs: [], cheats: [], ...fields }) as DebugEntry;
@@ -93,4 +102,54 @@ test("debug idl cache key follows a redeploy into the same slot", () => {
     expect(idlCacheKey(reordered)).toBe(idlCacheKey(before));
     expect(idlCacheKey(redeployed)).not.toBe(idlCacheKey(before));
     expect(idlCacheKey([{ index: 29 }] as any)).toBe("29:");
+});
+
+// F260: the simulator keeps no tick data for a tick without transactions — where every delivered oracle notification lands — so its row is aged
+// by the node's pace instead of showing no time at all.
+test("debug ages a row with no tick data by the node's pace", () => {
+    const first = { tick: 2700, at: 10_000 };
+    const last = { tick: 2760, at: 70_000 }; // 60 ticks in 60 s
+
+    expect(estimateTraceAgeMs(2750, [first, last], 70_000)).toBe(10_000);
+    expect(estimateTraceAgeMs(2750, [first, last], 72_500)).toBe(12_500);
+    expect(estimateTraceAgeMs(2760, [first, last], 70_000)).toBe(0);
+    expect(estimateTraceAgeMs(2640, [{ tick: 2700, at: 0 }, { tick: 2710, at: 1_000 }], 1_000)).toBe(7_000); // 100 ms a tick
+
+    // no pace yet, a single sample, or a row newer than the last sample: no estimate
+    expect(estimateTraceAgeMs(2750, [], 70_000)).toBeUndefined();
+    expect(estimateTraceAgeMs(2750, [last], 70_000)).toBeUndefined();
+    expect(estimateTraceAgeMs(2761, [first, last], 70_000)).toBeUndefined();
+
+    expect(formatEstimatedAge()).toBe("—");
+    expect(formatEstimatedAge(1_000)).toBe("now");
+    expect(formatEstimatedAge(30_000)).toBe("~30 sec ago");
+    expect(formatEstimatedAge(59_000)).toBe("~59 sec ago");
+    expect(formatEstimatedAge(12 * 60_000)).toBe("~12 min ago");
+});
+
+// the pace was the mean since the first sample of the session, so an idle hour made a two-tick-old row read minutes old
+test("debug's pace is not moved by a stall, a burst of advanced ticks, or a poll on the same tick", () => {
+    let samples: { tick: number; at: number }[] = [];
+    let at = 0;
+    const sample = (tick: number, elapsedMs: number) => {
+        at += elapsedMs;
+        samples = withTickSample(samples, { tick, at });
+    };
+
+    for (let tick = 100; tick <= 105; tick++) sample(tick, 1_000);
+    sample(105, 1_000); // a poll that found the tick unchanged is no step
+    sample(106, 3_600_000); // an hour idle
+    sample(107, 1_000);
+    expect(estimateTraceAgeMs(105, samples, at)).toBe(2_000);
+
+    sample(1_107, 1_000); // `tick advance 1000`
+    sample(1_108, 1_000);
+    expect(estimateTraceAgeMs(1_106, samples, at + 500)).toBe(2_500);
+
+    // only the last few steps count, and a node that restarted starts over
+    for (let tick = 1_109; tick <= 1_130; tick++) sample(tick, 250);
+    expect(samples.length).toBe(8);
+    expect(estimateTraceAgeMs(1_126, samples, at)).toBe(1_000);
+    sample(3, 1_000);
+    expect(samples).toEqual([{ tick: 3, at }]);
 });

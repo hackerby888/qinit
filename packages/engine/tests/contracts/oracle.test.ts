@@ -448,3 +448,27 @@ test("an inline notification is traced as a child of the call that raised it", a
     const child = entries.find((frame) => frame.seq === query!.children![0]);
     expect(child).toMatchObject({ index: SLOT, kind: CONTRACT_ENTRY_KIND.PROCEDURE, entry, inSize: 16 + 16 });
 });
+
+// a redeploy that drops the notification's entry leaves the query naming nothing; core runs nothing for it, so no frame is recorded here either
+test("a reply to an entry the redeployed contract no longer has runs nothing", async () => {
+    const sim = await deployProbe();
+    sim.setDebug(true);
+    const queryId = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(120_000)));
+
+    // OracleInline declares its notification on another line, so the probe's entry number is gone after the redeploy
+    sim.deploy(SLOT, await wasm("OracleInline"));
+    expect(sim.resolveOracle(queryId, priceReply(5n, 1n))).toBe(true);
+    const before = sim.getTrace().entries.length;
+    sim.advance();
+    const notified = sim.getTrace().entries.slice(before).filter((frame) => frame.index === SLOT && frame.kind === CONTRACT_ENTRY_KIND.PROCEDURE);
+    expect(notified).toHaveLength(0);
+});
+
+// core's trace lists the oracle host call on the frame that made it (lhost_registry.h: "queryOracle", "iface=<index>"); so does the simulator's
+test("a query's frame lists the queryOracle host call as core's does", async () => {
+    const sim = await deployProbe();
+    sim.setDebug(true);
+    sim.procedure(SLOT, QUERY, priceInput(120_000));
+    const frame = sim.getTrace().entries.filter((entry) => entry.index === SLOT && entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE && entry.entry === QUERY).pop()!;
+    expect(frame.hostCalls.map(({ name, detail }) => ({ name, detail }))).toContainEqual({ name: "queryOracle", detail: "iface=0" });
+});

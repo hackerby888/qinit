@@ -252,6 +252,13 @@ export function resolveConstInScope(
         if (programAnalysis.enumConst.has(key) || programAnalysis.constexprInit.has(key)) {
             return programAnalysis.resolveConst(key, templateBindings);
         }
+        // a nested struct's static member named relative to the enclosing scope (`ChainId::ethereum` inside OI::EvmLogRead) is found through
+        // its struct, as the fully qualified spelling is; never through the bare tail, which may name something else
+        const separator = key.lastIndexOf("::");
+        if (name.includes("::") && separator > 0) {
+            const member = programAnalysis.evalQualifiedConst(key.slice(0, separator), key.slice(separator + 2), templateBindings);
+            if (member !== null) return member;
+        }
     }
     return null;
 }

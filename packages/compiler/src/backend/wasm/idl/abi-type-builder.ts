@@ -1,6 +1,7 @@
 // Maps a resolved TypeSpec or struct layout onto the IDL's AbiType tree, including QPI containers.
 import {
     AbiScalarKind,
+    AbiScalarSemantic,
     AbiTypeKind,
     formatAbiType,
     type AbiArray,
@@ -101,7 +102,8 @@ export class AbiTypeBuilder {
         }
 
         if (unqualifiedName === "DateAndTime") {
-            return this.scalar(AbiScalarKind.UINT64, 8, 8);
+            // still a uint64 on the wire; the tag lets a reader show the date it packs
+            return { ...this.scalar(AbiScalarKind.UINT64, 8, 8), semantic: AbiScalarSemantic.DATE_AND_TIME };
         }
 
         const enumUnderlying = this.programAnalysis.enumUnderlying.get(type.name) ?? this.programAnalysis.enumUnderlying.get(unqualifiedName);

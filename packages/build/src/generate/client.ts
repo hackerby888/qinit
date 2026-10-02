@@ -121,6 +121,8 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
             throw new Error(`${forbidden} cannot be used in public contract entry '${entry.name}'`);
         }
     }
+    // a notification is dispatched by the node with an oracle reply; a client method would only let a user forge one.
+    const procedures = idl.procedures.filter((entry) => !entry.notification);
 
     const lines: string[] = [];
 
@@ -132,7 +134,7 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
                 JSON.stringify({
                     name: idl.name,
                     functions: idl.functions.map((entry) => [entry.name, entry.inputType, entry.input, entry.output]),
-                    procedures: idl.procedures.map((entry) => [entry.name, entry.inputType, entry.input, entry.output]),
+                    procedures: procedures.map((entry) => [entry.name, entry.inputType, entry.input, entry.output]),
                 }),
             ),
         ),
@@ -143,7 +145,7 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
     lines.push(`export const QINIT_IDL_DIGEST = ${JSON.stringify(idlDigest)};`);
     const runtimeSymbols = ["DEFAULT_RPC_BASE", "LiteRpc"];
     if (idl.functions.length) runtimeSymbols.push("callFunction");
-    if (idl.procedures.length) runtimeSymbols.push("invokeProcedure");
+    if (procedures.length) runtimeSymbols.push("invokeProcedure");
 
     if (options?.runtimeImport) {
         lines.push(`import { ${runtimeSymbols.join(", ")} } from "${options.runtimeImport}";`);
@@ -161,12 +163,12 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         lines.push(`const ${schemaName(entry.name, "function", "input")} = ${JSON.stringify(entry.input)} as any;`);
         lines.push(`const ${schemaName(entry.name, "function", "output")} = ${JSON.stringify(entry.output)} as any;`);
     }
-    for (const entry of idl.procedures) {
+    for (const entry of procedures) {
         lines.push(`const ${schemaName(entry.name, "procedure", "input")} = ${JSON.stringify(entry.input)} as any;`);
         lines.push(`const ${schemaName(entry.name, "procedure", "output")} = ${JSON.stringify(entry.output)} as any;`);
     }
 
-    if (idl.procedures.length) {
+    if (procedures.length) {
         // structural copies of the node's trace and fault records: the bundled runtime exports no types.
         lines.push("");
         lines.push(`export type QinitTraceEntry = {`);
@@ -201,12 +203,12 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         lines.push(interfaceSource(`${entry.name}_input`, entry.input, true));
         lines.push(interfaceSource(`${entry.name}_output`, entry.output));
     }
-    for (const entry of idl.procedures) {
+    for (const entry of procedures) {
         lines.push(interfaceSource(`${entry.name}_input`, entry.input, true));
         lines.push(interfaceSource(`${entry.name}_output`, entry.output));
     }
 
-    for (const entry of idl.procedures.filter((procedure) => hasFields(procedure.output))) {
+    for (const entry of procedures.filter((procedure) => hasFields(procedure.output))) {
         lines.push("");
         lines.push(`function ${outputMapperName(entry.name)}(r: unknown): ${entry.name}_output {`);
         lines.push(`  ${outputMap(entry.output)}`);
@@ -243,7 +245,7 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
     }
 
     const optsType = "{ seed?: string; amount?: number | bigint; confirm?: boolean }";
-    for (const entry of idl.procedures) {
+    for (const entry of procedures) {
         const inputRequired = hasFields(entry.input);
         // An empty-input procedure accepts both `Name(opts)` and `Name({}, opts)`: with only `(opts)`, a uniform `Name({}, { amount })` dropped the payment.
         const parameters = inputRequired

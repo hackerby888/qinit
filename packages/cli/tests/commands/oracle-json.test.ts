@@ -34,3 +34,16 @@ test("a failure keeps every key, with the error set", () => {
         error: "query 1 is not waiting for a reply",
     });
 });
+
+// a text row used to be cut in the middle at 80 columns, losing the query's leading bytes or even the "query" label
+test("a pending row fits the width KV gives it, keeping the query's leading bytes", async () => {
+    const { pendingRows } = await import("../../src/commands/node/oracle");
+    const query = new Uint8Array(288);
+    query.set([0x01, 0x02, 0x03]);
+    for (const queryId of [8385923649536n, 176952852311183360n]) {
+        const [[label, value]] = pendingRows([{ queryId, slot: 31, interfaceIndex: 4, query }], 80);
+        expect(value.length).toBeLessThanOrEqual(80 - label.length - 8);
+        expect(value).toStartWith("QubicLogRead  slot 31  query 010203");
+        expect(value).toEndWith("… (288 B)");
+    }
+});

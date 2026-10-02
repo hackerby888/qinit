@@ -19,6 +19,7 @@ import { validateContainerCalls } from "../backend/wasm/module/container-body-va
 import { buildContractIdl } from "../backend/wasm/idl";
 import { analyzeQpiPolicy, detectQpiContractName } from "./source-policy";
 import { compareDiagnostics } from "./rules/fixes";
+import { nonPublicCalleeMemberDiagnostics } from "./rules/protected-members";
 
 export { analyzeQpiPolicy, QPI_BANNED_KEYWORDS, USER_CONTRACT_RULES } from "./source-policy";
 export { analyzeCheatcodes, cheatArgumentRanges, stripCheatcodes, CHEAT_NAMES } from "./cheatcodes";
@@ -87,6 +88,7 @@ export function analyzeContract(options: AnalyzeContractOptions): SourceAnalysis
 
     try {
         diagnostics.push(...analyzeQpiPolicy(options.source, compilerResult.registrations, compilerResult.idl, calls, compilerResult.calleeTypeOwners));
+        diagnostics.push(...nonPublicCalleeMemberDiagnostics(options.source, options.calleeSources ?? [], getQpiMacros(normalizedOptions.qpiHeader)));
     } catch (error: any) {
         diagnostics.push(internalDiagnostic(error));
     }

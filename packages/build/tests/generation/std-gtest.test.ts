@@ -25,3 +25,12 @@ test("gtest generator reads v3 entry arrays and input types", () => {
     expect(output).toContain("TEST(Counter, Read)");
     expect(output).toContain("TEST(Counter, Write)");
 });
+
+test("a notification procedure gets no wrapper and no TEST", () => {
+    const idl = extractIdl(source, "Counter");
+    idl.procedures.find((entry) => entry.name === "Write")!.notification = true;
+    const scaffold = genStdGtest(idl, "Counter");
+    expect(scaffold).toContain("TEST(Counter, Read)");
+    expect(scaffold).not.toContain("TEST(Counter, Write)");
+    expect(scaffold).not.toContain("invokeUserProcedure");
+});

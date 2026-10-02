@@ -215,3 +215,17 @@ test("call JSON carries warnings only when there are some", () => {
     expect(warned.warnings).toEqual(["⚠ signer X has no balance on this node"]);
     expect(Object.keys(callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc" }, facts, null))).not.toContain("warnings");
 });
+
+// a transaction the node never included has no message of its own; the verdict the text form prints is the only reason there is.
+test("call JSON names a dropped transaction in its error", () => {
+    const facts = { contract: "Counter", slot: 29, entry: "Inc", tick: 82400332, tx: "rtnevtuf" };
+    const dropped = { ok: false, label: "Counter.Inc", detail: "dropped — not included", rows: [["tick", "82400332"]] as [string, string][] };
+    const result = callJsonResult("proc", "Counter", "Inc", dropped, facts, null);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("dropped — not included");
+    // a failure with a message of its own keeps it
+    expect(callJsonResult("proc", "Counter", "Inc", { ...dropped, detail: "FAIL code=3", err: "rejected" }, facts, null).error).toBe("rejected");
+    // and a call that went through has no error
+    expect(callJsonResult("proc", "Counter", "Inc", { ok: true, label: "Counter.Inc", detail: "broadcast · unconfirmed" }, facts, null).error).toBeNull();
+});

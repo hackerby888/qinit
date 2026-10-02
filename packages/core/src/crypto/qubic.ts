@@ -66,7 +66,7 @@ export function identityToBytes(identity: string): Uint8Array {
     } catch (error) {
         // sixty letters that the library still refuses can only fail their checksum; its own message blames the length.
         if (/^[A-Z]{60}$/.test(identity) && (error as { code?: string })?.code === "INVALID_IDENTITY") {
-            throw new Error(`identity checksum mismatch: the last 4 letters of ${identity} do not match its key`);
+            throw Object.assign(new Error(`identity checksum mismatch: the last 4 letters of ${identity} do not match its key`), { code: "INVALID_IDENTITY" });
         }
         throw error;
     }

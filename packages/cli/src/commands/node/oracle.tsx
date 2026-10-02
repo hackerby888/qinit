@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { readFileSync } from "node:fs";
-import { LiteRpc } from "@qinit/core";
+import { DEFAULT_PEER_PORT, LiteRpc } from "@qinit/core";
 import { abiTypeFromFormat, AbiTypeKind, assertInputSize, encodeInputFormatAs, ORACLE_STATUS, zeroInputFormat, type AbiType } from "@qinit/proto";
 import { ORACLE_INTERFACES } from "@qinit/engine/oracle-interfaces/registry";
 import { loadConfig, resolveRpc } from "../../config";
-import { Header, Spinner, KV, theme } from "../../ui";
+import { Header, Spinner, KV, theme, termCols } from "../../ui";
 import { output, type CommandArguments } from "../../args";
+import { openLogReader } from "../../ops/node-logs";
+import { interfaceName, oracleLogEntries, oracleLogText, type OracleLogEntry } from "../../ops/oracle-log";
 
 type PendingQuery = { queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array };
 
@@ -34,12 +36,13 @@ function replyTypeOf(oracleInterface: (typeof ORACLE_INTERFACES)[number]): AbiTy
 }
 
 // "123456sint64, 1000sint64" -> reply bytes, checked against the interface's own reply layout.
-export async function encodeReply(interfaceIndex: number, replyText: string, replyHex: string): Promise<Uint8Array> {
+export async function encodeReply(interfaceIndex: number, replyText: string, replyHex: string | undefined): Promise<Uint8Array> {
     const oracleInterface = interfaceOf(interfaceIndex);
     const replyType = replyTypeOf(oracleInterface);
 
-    if (replyHex) {
-        const hex = replyHex.replace(/^0x/, "");
+    // given at all, even empty, the answer is hex: '' is a zero-byte reply, not an empty text reply
+    if (replyHex !== undefined) {
+        const hex = replyHex.replace(/^0x/i, "");
         if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length % 2) throw new Error(`--reply-hex '${replyHex}' is not whole hex bytes`);
         const bytes = Uint8Array.from(Buffer.from(hex, "hex"));
         assertInputSize(replyType, bytes, `${oracleInterface.name} reply`);
@@ -65,18 +68,24 @@ function loadRules(path: string): Record<string, string> {
     return rules;
 }
 
-function pendingRows(queries: PendingQuery[]): [string, string][] {
+// the query preview takes only the room KV leaves for a value, so KV never has to cut the row in the middle
+export function pendingRows(queries: PendingQuery[], columns = termCols()): [string, string][] {
     if (!queries.length) return [["pending", "none"]];
 
-    return queries.map((query) => [
-        `#${query.queryId}`,
-        `${interfaceOf(query.interfaceIndex).name}  slot ${query.slot}  query ${Buffer.from(query.query.subarray(0, 12)).toString("hex")}… (${query.query.length} B)`,
-    ]);
+    const labelWidth = Math.max(...queries.map((query) => `#${query.queryId}`.length));
+    const budget = Math.max(12, columns - labelWidth - 8);
+    return queries.map((query) => {
+        const head = `${interfaceOf(query.interfaceIndex).name}  slot ${query.slot}  query `;
+        const tail = `… (${query.query.length} B)`;
+        const bytes = Math.max(0, Math.min(12, Math.floor((budget - head.length - tail.length) / 2)));
+        return [`#${query.queryId}`, `${head}${Buffer.from(query.query.subarray(0, bytes)).toString("hex")}${tail}`];
+    });
 }
 
 export type OracleFacts = {
     pending?: { queryId: string; interface: string; interfaceIndex: number; slot: number; query: string }[];
     resolved?: { queryId: string; interface: string; status: string; reply: string | null };
+    log?: OracleLogEntry[];
 };
 
 // --json returns the data behind the rows: ids as decimal strings, query and reply bytes as full hex.
@@ -86,6 +95,8 @@ export function oracleJsonResult(action: string, facts: OracleFacts | null, erro
         action,
         pending: facts?.pending ?? null,
         resolved: facts?.resolved ?? null,
+        // only `log` reports records, so the other actions keep their envelope
+        ...(action === "log" ? { log: facts?.log ?? null } : {}),
         error: error || null,
     };
 }
@@ -100,15 +111,47 @@ export function pendingFacts(queries: PendingQuery[]): OracleFacts["pending"] {
     }));
 }
 
+// one pass of `serve`: answer every pending query a rule or --reply covers. A query whose reply cannot be encoded is reported once
+// and remembered in `skipped`, so one bad query does not end the others; a failed request is the node's trouble and is not remembered.
+export async function servePending(
+    rpc: Pick<LiteRpc, "oraclePending" | "oracleResolve">,
+    answer: { rules: Record<string, string> | null; reply: string; replyHex: string | undefined },
+    skipped: Set<bigint>,
+): Promise<string[]> {
+    const lines: string[] = [];
+    for (const query of await rpc.oraclePending()) {
+        if (skipped.has(query.queryId)) continue;
+        // a node built from newer headers can ask on an interface this registry lacks: it is named by number and refused by encodeReply
+        const name = interfaceName(query.interfaceIndex);
+        const replyText = answer.rules ? answer.rules[name] : answer.reply;
+        if (!replyText && (answer.rules || answer.replyHex === undefined)) continue;
+
+        let reply: Uint8Array;
+        try {
+            // a rule is reply text; `undefined` keeps it from reading as an empty --reply-hex
+            reply = await encodeReply(query.interfaceIndex, replyText ?? "", answer.rules ? undefined : answer.replyHex);
+        } catch (e: any) {
+            skipped.add(query.queryId);
+            lines.push(`#${query.queryId} ${name} skipped: ${String(e?.message ?? e)}`);
+            continue;
+        }
+        const result = await rpc.oracleResolve(query.queryId, reply, ORACLE_STATUS.SUCCESS);
+        lines.push(`#${query.queryId} ${name} ${result.ok ? "answered" : "refused"}`);
+    }
+    return lines;
+}
+
 export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
     const o = {
         rpc: commandArgs.get("rpc"),
         reply: commandArgs.get("reply") ?? "",
-        replyHex: commandArgs.get("reply-hex") ?? "",
+        replyHex: commandArgs.get("reply-hex"),
         status: commandArgs.get("status") ?? "success",
         rules: commandArgs.get("rules") ?? "",
         sub: commandArgs.positionals[0] ?? "pending",
         arg: commandArgs.positionals[1] ?? "",
+        to: commandArgs.positionals[2] ?? "",
+        peerPort: commandArgs.get("peer-port"),
     };
     const rpcBaseUrl = resolveRpc(o.rpc, loadConfig());
     const { exit } = useApp();
@@ -159,23 +202,46 @@ export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
                     ]);
                 } else if (o.sub === "serve") {
                     const rules = o.rules ? loadRules(o.rules) : null;
-                    if (!rules && !o.reply && !o.replyHex) throw new Error("serve needs --rules <file> or a --reply to answer every query with");
+                    if (!rules && !o.reply && o.replyHex === undefined) throw new Error("serve needs --rules <file> or a --reply to answer every query with");
                     setBusy("answering oracle queries — ctrl-c to stop");
 
+                    const skipped = new Set<bigint>();
                     while (!stopped) {
-                        for (const query of await rpc.oraclePending()) {
-                            const oracleInterface = interfaceOf(query.interfaceIndex);
-                            const replyText = rules ? rules[oracleInterface.name] : o.reply;
-                            if (!replyText && !(!rules && o.replyHex)) continue;
-
-                            const reply = await encodeReply(query.interfaceIndex, replyText ?? "", rules ? "" : o.replyHex);
-                            const result = await rpc.oracleResolve(query.queryId, reply, ORACLE_STATUS.SUCCESS);
-                            setServed((lines) => [...lines.slice(-8), `#${query.queryId} ${oracleInterface.name} ${result.ok ? "answered" : "refused"}`]);
-                        }
+                        const lines = await servePending(rpc, { rules, reply: o.reply, replyHex: o.replyHex }, skipped);
+                        if (lines.length) setServed((shown) => [...shown, ...lines].slice(-9));
                         await new Promise((resolve) => setTimeout(resolve, SERVE_POLL_MS));
                     }
+                } else if (o.sub === "log") {
+                    // the oracle and OC records of a tick range, read from the node's log stream over its peer port
+                    const info = await rpc.tickInfo();
+                    const to = o.to ? Number(o.to) : info.tick;
+                    // a node holds no log from before its epoch began and refuses such a tick, so the default range starts no earlier
+                    const epochStart = Number.isSafeInteger(info.initialTick) ? Math.min(Number(info.initialTick), to) : 0;
+                    const from = o.arg ? Number(o.arg) : Math.max(epochStart, to - LOG_DEFAULT_TICKS + 1);
+                    if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || to < from) {
+                        throw new Error(`log [<fromTick> [<toTick>]]: '${o.arg} ${o.to}' is not a tick range`);
+                    }
+                    if (to - from + 1 > LOG_MAX_TICKS) throw new Error(`log reads at most ${LOG_MAX_TICKS} ticks at a time (asked ${to - from + 1})`);
+                    const host = new URL(rpcBaseUrl).hostname.replace(/^\[|\]$/g, "");
+                    const port = o.peerPort ? Number(o.peerPort) : DEFAULT_PEER_PORT;
+                    setBusy(`reading the log of ticks ${from}..${to} from ${host}:${port}`);
+                    const entries: OracleLogEntry[] = [];
+                    const reader = openLogReader(host, port);
+                    try {
+                        for (let at = from; at <= to && !stopped; at++) {
+                            entries.push(...oracleLogEntries(await reader.tick(at)));
+                        }
+                    } finally {
+                        reader.close();
+                    }
+                    factsRef.current = { log: entries };
+                    setRows(
+                        entries.length
+                            ? entries.map((entry): [string, string] => [`${entry.tick} r${entry.range}`, oracleLogText(entry)])
+                            : [["log", `no oracle or OC records in ticks ${from}..${to}`]],
+                    );
                 } else {
-                    throw new Error(`unknown subcommand '${o.sub}' (use: pending | resolve <queryId> | serve)`);
+                    throw new Error(`unknown subcommand '${o.sub}' (use: pending | resolve <queryId> | serve | log [<fromTick> [<toTick>]])`);
                 }
             } catch (e: any) {
                 setErr(String(e?.message ?? e));
@@ -218,3 +284,6 @@ export function Oracle({ commandArgs }: { commandArgs: CommandArguments }) {
 }
 
 const SERVE_POLL_MS = 500;
+// `log` without a range reads the last ticks up to the current one
+const LOG_DEFAULT_TICKS = 30;
+const LOG_MAX_TICKS = 2_000;

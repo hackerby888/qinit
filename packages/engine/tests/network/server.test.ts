@@ -180,6 +180,23 @@ test("the funded-seed faucet account is pre-funded", async () => {
     }
 });
 
+// a mistyped identity is the caller's input: 400 with the reason, not a 500 from the node
+test("a balance request for a malformed identity or a wrong checksum is a 400", async () => {
+    const { base, stop } = await serve();
+    try {
+        const { identity } = await deriveIdentity(TESTNET_FUNDED_SEEDS[0]);
+        const wrongChecksum = identity.slice(0, 59) + (identity[59] === "A" ? "B" : "A");
+        const checksum = await fetch(`${base}/live/v1/balances/${wrongChecksum}`);
+        expect(checksum.status).toBe(400);
+        expect((await checksum.json()).message).toContain("checksum");
+        expect((await fetch(`${base}/live/v1/balances/not-an-identity`)).status).toBe(400);
+        // a broken escape is the caller's input too
+        expect((await fetch(`${base}/live/v1/balances/%E0%A4%A`)).status).toBe(400);
+    } finally {
+        stop();
+    }
+});
+
 test("querySmartContract runs a Counter function over HTTP", async () => {
     const { base, stop } = await serve(async (e) => {
         e.deploy(28, await wasm("Counter"));
@@ -312,6 +329,19 @@ test("/live/v1/querySmartContract answers a function abort with core's 500 envel
         expect(await (await fetch(`${base}/live/v1/dev/fault`)).json()).toBeNull();
     } finally {
         stop();
+    }
+});
+
+// with fees off a contract reads the legacy constant from qpi.queryFeeReserve; reporting 0 made the CLI refuse every call as "dormant"
+test("/live/v1/dyn-registry reports what queryFeeReserve answers when fees are off", async () => {
+    const server = new EngineServer(new VirtualNode({ fees: "off" }));
+    server.engine.deploy(28, await wasm("Counter"), "Counter");
+    const handle = await server.start(0);
+    try {
+        const registry = (await (await fetch(handle.rpcBaseUrl + "/live/v1/dyn-registry")).json()) as { contracts: { index: number; feeReserve?: string }[] };
+        expect(registry.contracts.find((entry) => entry.index === 28)!.feeReserve).toBe("1000000");
+    } finally {
+        handle.stop();
     }
 });
 

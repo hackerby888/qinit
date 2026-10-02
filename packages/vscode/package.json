@@ -1,7 +1,7 @@
 {
     "name": "qpi-vscode",
     "displayName": "Qubic QPI",
-    "description": "Standalone IntelliSense and QPI diagnostics for Qubic smart contracts.",
+    "description": "Code completion and QPI diagnostics for Qubic contracts.",
     "version": "0.1.0",
     "private": true,
     "publisher": "qinit",
@@ -10,6 +10,22 @@
         "type": "git",
         "url": "https://github.com/hackerby888/qinit.git"
     },
+    "homepage": "https://github.com/hackerby888/qinit/tree/main/packages/vscode#readme",
+    "bugs": {
+        "url": "https://github.com/hackerby888/qinit/issues"
+    },
+    "icon": "icon.png",
+    "galleryBanner": {
+        "color": "#000000",
+        "theme": "dark"
+    },
+    "keywords": [
+        "qubic",
+        "qpi",
+        "c++",
+        "clangd",
+        "diagnostics"
+    ],
     "engines": {
         "vscode": "^1.85.0"
     },

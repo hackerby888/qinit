@@ -54,6 +54,7 @@ export class ProgramAnalysis {
     structScope: Map<StructDecl, string> = new Map(); // struct → the scope prefix it was declared in
     structParent: Map<StructDecl, StructDecl> = new Map(); // struct → its lexically enclosing struct; absent means file or namespace scope
     structScopeKnown: Set<StructDecl> = new Set(); // structs whose nesting was recorded, so structParent's silence really does mean file scope
+    contractStruct?: StructDecl; // the contract itself, whose constants are already program constants and keep their names in a diagnostic
     structsVisible: Map<StructDecl, Map<string, StructDecl>> = new Map(); // struct → the struct names its body can see, cached
     typedefs: Map<string, TypeSpec> = new Map(); // typedef aliases
     typedefScope: Map<string, string> = new Map(); // typedef alias → the scope prefix it was declared in

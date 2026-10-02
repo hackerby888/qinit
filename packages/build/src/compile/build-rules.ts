@@ -25,6 +25,8 @@ export const BUILD_GATE_RULES: readonly BuildGateRule[] = [
     { title: "public-complex-type", scope: "all", matches: (d) => d.code === "qpi/public-complex-type" },
     // Core's verifier refuses another contract's types in a public input/output; qinit's own check names the owner.
     { title: "public-callee-type", scope: "all", matches: (d) => d.code === "qpi/public-callee-type" },
+    // clang refuses a callee's member declared after a PRIVATE_* macro ("is a protected member"); the TypeScript backend reads no access.
+    { title: "non-public-callee-member", scope: "all", matches: (d) => d.code === "qpi/non-public-callee-member" },
     // Both compilers reject a log or a mutating cheat inside a function before either builds it.
     { title: "log-in-function", scope: "all", matches: (d) => d.code === "qpi/log-in-function" },
     { title: "cheat-in-function", scope: "all", matches: (d) => d.code === "cheat/mutator-in-function" },

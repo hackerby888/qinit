@@ -1,6 +1,6 @@
 # Qubic QPI
 
-Standalone VS Code language support for Qubic smart contracts.
+Standalone language support for Qubic QPI contracts.
 
 ## Features
 
@@ -8,21 +8,15 @@ Standalone VS Code language support for Qubic smart contracts.
 - Live compiler, QPI rule, and IDL diagnostics
 - IDL hover for registered functions and procedures
 - Quick fixes for supported QPI violations
-- IntelliSense for `contract_testing.h` test files
-- Automatic cross-contract IntelliSense from the configured Main contract and `contracts/**/*.h`
+- Completion and diagnostics for `contract_testing.h` test files
+- Automatic cross-contract completion from the configured Main contract and `contracts/**/*.h`
 
 The extension bundles the Qinit compiler frontend and ships its pinned QPI and C++ headers. Qinit,
 core-lite, a node, and the WASI compiler are not required.
 
 ## Install
 
-With the Qinit CLI, `qinit ext install` downloads the latest build and installs it in VS Code,
-Cursor, Windsurf, or VSCodium. Without it, download `qpi-vscode.vsix` from the
-[latest build](https://github.com/hackerby888/qinit/releases/tag/qinit-vscode-latest) and install it:
-
-```sh
-code --install-extension qpi-vscode.vsix
-```
+Install it from the Marketplace, or run `qinit ext install` with the Qinit CLI.
 
 The clangd extension is installed as a dependency. It may offer to download clangd once if the
 language server is not already available.
@@ -46,7 +40,7 @@ slots, and never deployed. `coreDir` selects the Core headers and slot layout; c
 WASI sysroot bundled with the extension.
 
 The extension creates `.clangd` when the folder does not already own one. Existing `.clangd` and
-explicit Microsoft C/C++ settings are preserved.
+explicit C/C++ extension settings are preserved.
 
 ## Scope
 
