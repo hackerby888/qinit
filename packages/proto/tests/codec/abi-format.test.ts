@@ -771,6 +771,21 @@ test("a 0x token is hex, never zero repeated", async () => {
     expect(await encodeInputFormatAs(named(["n", arr(u16, 4)]), "[4; 0 x4]")).toEqual(new Uint8Array(8));
 });
 
+// only a token that is hex and nothing else is kept whole: a 0x-prefixed id or m256i with a repeat marker repeated before bare values existed, and still does.
+test("a 0x-prefixed id or m256i still takes a repeat, typed or bare, on both roads", async () => {
+    const key = "ab".repeat(32);
+    const ids = named(["ids", arr(id, 3)], ["digests", arr(m256i, 2)]);
+    const spelled = `[3; ${key}id, ${key}id, ${key}id], [2; ${key}m256i, ${key}m256i]`;
+    const expected = await encodeInputFormatAs(ids, spelled);
+
+    for (const marker of [" x", "x", " ×", "×", " *", "*"]) {
+        const repeated = `[3; 0x${key}id${marker}3], [2; 0x${key}m256i${marker}2]`;
+        expect(await encodeInputFormatAs(ids, repeated)).toEqual(expected);
+        expect(await encodeInputFormat(repeated)).toEqual(expected);
+        expect(await encodeInputFormatAs(ids, `[3; 0x${key}${marker}3], [2; 0x${key}${marker}2]`)).toEqual(expected);
+    }
+});
+
 test("the schema road keeps the repeat shorthand, zero ids, and physical bit-array words", async () => {
     const four = named(["n", arr(u32, 4)], ["who", id], ["bits", ba(128)]);
     const words = "[2; 1uint64, 18446744073709551615uint64]";

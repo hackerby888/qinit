@@ -226,12 +226,14 @@ function writeBytes(view: DataView, offset: number, bytes: Uint8Array): void {
 }
 
 
-// Expand `<token> ×N` using ×, *, or x as the multiplier; spaces are optional. A 0x… token is hex, never a repeat of 0.
+// Expand `<token> ×N` using ×, *, or x as the multiplier; spaces are optional.
+// A token that is nothing but 0x and hex digits is a hex value, never 0 repeated: "0x12" stays whole, "0xab…id x3" still repeats.
 const REPEAT_RE = /^(.+?)\s*[×*x]\s*(\d+)$/;
+const WHOLE_HEX_RE = /^0x[0-9a-f]*$/i;
 function expandReps(parts: string[]): string[] {
     const out: string[] = [];
     for (const p of parts) {
-        const m = /^0x/i.test(p) ? null : p.match(REPEAT_RE);
+        const m = WHOLE_HEX_RE.test(p.trim()) ? null : p.match(REPEAT_RE);
         if (m) {
             const tok = m[1].trim();
             const n = parseInt(m[2], 10);
