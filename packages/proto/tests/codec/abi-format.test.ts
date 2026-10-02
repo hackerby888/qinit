@@ -725,7 +725,50 @@ test("hex and exponent spellings are named on both roads", async () => {
     await expect(encodeInputFormatAs(one, "0x10uint64")).rejects.toThrow("hex is not accepted, write '0x10uint64' in decimal");
     await expect(encodeInputFormat("0x10uint64")).rejects.toThrow("hex is not accepted, write '0x10uint64' in decimal");
     await expect(encodeInputFormatAs(one, "1e3uint64")).rejects.toThrow("exponent notation is not accepted, write '1e3uint64' in full");
-    await expect(encodeInputFormatAs(one, "5UINT64")).rejects.toThrow("cannot parse value token");
+    await expect(encodeInputFormatAs(one, "5UINT64")).rejects.toThrow("input.v is uint64, got '5UINT64'");
+    await expect(encodeInputFormatAs(one, "0x10")).rejects.toThrow("hex is not accepted, write '0x10' in decimal");
+    await expect(encodeInputFormatAs(one, "1e3")).rejects.toThrow("exponent notation is not accepted, write '1e3' in full");
+});
+
+test("with a schema a value needs no type: each bare token takes the type of its field", async () => {
+    const bare = "1, {2, 3}, " + IDENTITY + ", [2; 4, 5], 1, -7, 340282366920938463463374607431768211455, [1; 5uint64]";
+    const spelled =
+        "1uint8, {2uint8, 3uint64}, " + IDENTITY + "id, [2; 4uint64, 5uint64], 1bit, -7sint16, 340282366920938463463374607431768211455uint128, [1; 5uint64]";
+    expect(await encodeInputFormatAs(MIRROR, bare)).toEqual(await encodeInputFormatAs(MIRROR, spelled));
+    expect(await encodeInputFormatAs(MIRROR, `{${bare}}`)).toEqual(await encodeInputFormatAs(MIRROR, spelled));
+
+    // bare and typed tokens mix, and a typed one is still held to its field
+    const pair = named(["a", u8], ["b", u64]);
+    expect(await encodeInputFormatAs(pair, "1, 2uint64")).toEqual(await encodeInputFormat("1uint8, 2uint64"));
+    expect(await encodeInputFormatAs(pair, "12, 100")).toEqual(await encodeInputFormat("12uint8, 100uint64"));
+    await expect(encodeInputFormatAs(pair, "1, 2uint32")).rejects.toThrow("input.b is uint64, got '2uint32'");
+    await expect(encodeInputFormatAs(pair, "256, 1")).rejects.toThrow("uint8 out of range: 256");
+    await expect(encodeInputFormatAs(pair, "-1, 1")).rejects.toThrow("uint8 out of range: -1");
+    await expect(encodeInputFormatAs(pair, "one, 1")).rejects.toThrow("input.a is uint8, got 'one'");
+    await expect(encodeInputFormatAs(pair, "1")).rejects.toThrow("input has 2 field(s), got 1 value(s)");
+
+    // without a schema nothing says what a bare value is
+    await expect(encodeInputFormat("1, 2")).rejects.toThrow("cannot parse value token '1' (expected <number><type>, e.g. 5uint64)");
+});
+
+test("a bare id, m256i and byte array take the spellings their typed forms take", async () => {
+    const keyed = named(["who", id], ["digest", m256i], ["signature", arr(i8, 4)], ["n", arr(u32, 4)]);
+    const key = "ab".repeat(32);
+    const typed = await encodeInputFormatAs(keyed, `${key}id, ${key}m256i, [4; -1sint8, 2sint8, 3sint8, 4sint8], [4; 9uint32x4]`);
+
+    expect(await encodeInputFormatAs(keyed, `${key}, 0x${key}, ff020304, [4; 9 x4]`)).toEqual(typed);
+    expect(await encodeInputFormatAs(keyed, `0, 0, 0x00000000, [9, 9, 9, 9]`)).toEqual(await encodeInputFormatAs(keyed, "0id, 0m256i, [4; 0sint8x4], [4; 9uint32x4]"));
+    await expect(encodeInputFormatAs(keyed, `${key}, ${key}, ff0203, [4; 9 x4]`)).rejects.toThrow("expected 4-byte hex, got 3");
+    await expect(encodeInputFormatAs(keyed, `nobody, ${key}, ff020304, [4; 9 x4]`)).rejects.toThrow("id must be 0, a 60-char identity (A-Z) or a 64-hex pubkey, got 'nobody'");
+    await expect(encodeInputFormatAs(keyed, `${key}, ${key}, ff020304, 0a0b0c0d`)).rejects.toThrow("input.n is an array of 4, got '0a0b0c0d'");
+});
+
+test("a 0x token is hex, never zero repeated", async () => {
+    const digest = named(["digest", m256i]);
+    const digits = "0x" + "12".repeat(32);
+    expect(hex(await encodeInputFormatAs(digest, digits))).toBe("12".repeat(32));
+    await expect(encodeInputFormatAs(named(["n", arr(u8, 4)]), "[4; 0x4]")).rejects.toThrow("array of 4 needs 4 values, got 1");
+    expect(await encodeInputFormatAs(named(["n", arr(u16, 4)]), "[4; 0 x4]")).toEqual(new Uint8Array(8));
 });
 
 test("the schema road keeps the repeat shorthand, zero ids, and physical bit-array words", async () => {

@@ -414,7 +414,7 @@ export function CallInteractive({ rpcBaseUrl, onRun }: { rpcBaseUrl: string; onR
             <Box flexDirection="column">
                 <SchemaBox kind="input" name={`${entryLabel(entry)}_input`} type={entry.input} />
                 <TextPrompt
-                    label={`input values, e.g. 5uint64, 0id · [N; …] arrays · ×N repeats${entry.kind === "fn" ? "  (empty = none)" : ""}`}
+                    label={`input values, e.g. ${entry.input ? "5, 0" : "5uint64, 0id"} · [N; …] arrays · ×N repeats${entry.kind === "fn" ? "  (empty = none)" : ""}`}
                     initial={draft.input ?? ""}
                     placeholder={zeroSample(entry) ?? undefined}
                     complete={completerFor(structFields, true)}

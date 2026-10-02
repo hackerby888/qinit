@@ -157,11 +157,11 @@ export function Cheat() {
                 <D>non-interactive, --in takes the values:</D>
                 <Text>
                     {"  "}
-                    <C>{`qinit call --proc Mytoken 1 --in "0id, 100uint64"`}</C>
+                    <C>{`qinit call --proc Mytoken Mint --in "0, 100"`}</C>
                 </Text>
                 <Text>
                     {"  "}
-                    <C>{`qinit call --fn   Mytoken 1 --in "0id" --out uint64`}</C>
+                    <C>{`qinit call --fn   Mytoken BalanceOf --in 0`}</C>
                 </Text>
                 <D>
                     {"  "}(JSON also works: --args {`'{"to":"<ID>","amount":100}'`})
@@ -170,13 +170,14 @@ export function Cheat() {
 
             <Panel title="4 · input / output formats" color={theme.accent}>
                 <Text bold>input</Text>
-                <D> value+type per field, comma-separated:</D>
-                <Fmt k="scalar" ex="5uint64, -7sint32, 1bit, 0uint128" />
-                <Fmt k="id" ex="0id" note="0 = NULL_ID, else 60 A-Z chars or 64 hex, then id" />
-                <Fmt k="m256i" ex="0m256i" note="0 or 64 hex, then m256i" />
-                <Fmt k="struct" ex="{ 5uint64, 1bit }" />
-                <Fmt k="array" ex="[4; 1uint64, 2uint64, 3uint64, 4uint64]" />
-                <Fmt k="" ex="[4; 0uint64 ×4]" note="×N repeats a value" />
+                <D> one value per field, comma-separated:</D>
+                <Fmt k="scalar" ex="5, -7, 1" />
+                <Fmt k="id" ex="0" note="0 = NULL_ID, else 60 A-Z chars or 64 hex" />
+                <Fmt k="m256i" ex="0" note="0 or 64 hex" />
+                <Fmt k="struct" ex="{ 5, 1 }" />
+                <Fmt k="array" ex="[4; 1, 2, 3, 4]" />
+                <Fmt k="" ex="[4; 0 ×4]" note="×N repeats a value" />
+                <Fmt k="typed" ex="5uint64, 0id, 0m256i" note="needed only when the entry has no schema" />
                 <Fmt k="json" ex={`--args '{"to":"<ID>","amount":100}'`} note="optional alt, keyed by field name" />
                 <Box marginTop={1}>
                     <Text bold>output</Text>

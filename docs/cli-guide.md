@@ -1056,10 +1056,12 @@ One-shot mode:
 4. Otherwise derives IDL from available contract source.
 5. Resolves the entry by numeric input type or case-insensitive name.
 
-`--args <json>` uses the IDL's structured ABI type. `--in` uses Qinit's raw
-value language: one value per field, comma-separated, each spelled as its
-number plus its type. A numeric entry can be called without IDL if raw values
-are provided; a named entry cannot.
+`--args <json>` uses the IDL's structured ABI type. `--in` uses Qinit's value
+language: one value per field, comma-separated. With an IDL a value needs no
+type (`--in "0, 100"`): each bare token takes the type of the field it lands in,
+and a typed token must still match that field. Without an IDL every value is
+spelled as its number plus its type, so a numeric entry can be called with raw
+values; a named entry cannot.
 
 | kind   | spelling                                    | example                                                    |
 | ------ | ------------------------------------------- | ---------------------------------------------------------- |
@@ -1079,8 +1081,8 @@ missing ones at once (`missing 48 input fields: dst2, …`); a bare string where
 A 60-letter identity whose last four letters do not match its key is reported as
 a checksum mismatch, not as the wrong length.
 
-An `Array<uint8, N>` or `Array<sint8, N>` in `--args` and generated clients also
-takes one hex string of exactly `N` bytes, so a `qinit sign` signature pastes as-is
+An `Array<uint8, N>` or `Array<sint8, N>` in `--args`, a schema-checked `--in`
+and generated clients also takes one hex string of exactly `N` bytes, so a `qinit sign` signature pastes as-is
 (`"signature": "0dc5…0e00"`); bytes above `0x7f` land as negative `sint8`s.
 
 For `BitArray<N>`, typed `--args` and generated clients use an exact-length JSON

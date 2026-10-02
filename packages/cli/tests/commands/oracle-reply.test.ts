@@ -12,6 +12,10 @@ test("a price reply encodes from value text", async () => {
     expect([view.getBigInt64(0, true), view.getBigInt64(8, true)]).toEqual([123456n, 1000n]);
 });
 
+test("a reply needs no types, the interface supplies them", async () => {
+    expect(await encodeReply(PRICE, "123456, -1000", undefined)).toEqual(await encodeReply(PRICE, "123456sint64, -1000sint64", undefined));
+});
+
 test("a mis-spelled member names the field and shows the shape to copy", async () => {
     expect(encodeReply(PRICE, "1000uint64, 10uint64", undefined)).rejects.toThrow("input.numerator is sint64");
     expect(encodeReply(PRICE, "1000uint64, 10uint64", undefined)).rejects.toThrow("Price reply looks like: 0sint64, 0sint64");

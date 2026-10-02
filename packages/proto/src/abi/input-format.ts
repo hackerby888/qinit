@@ -226,12 +226,12 @@ function writeBytes(view: DataView, offset: number, bytes: Uint8Array): void {
 }
 
 
-// Expand `<token> ×N` using ×, *, or x as the multiplier; spaces are optional.
+// Expand `<token> ×N` using ×, *, or x as the multiplier; spaces are optional. A 0x… token is hex, never a repeat of 0.
 const REPEAT_RE = /^(.+?)\s*[×*x]\s*(\d+)$/;
 function expandReps(parts: string[]): string[] {
     const out: string[] = [];
     for (const p of parts) {
-        const m = p.match(REPEAT_RE);
+        const m = /^0x/i.test(p) ? null : p.match(REPEAT_RE);
         if (m) {
             const tok = m[1].trim();
             const n = parseInt(m[2], 10);
@@ -375,10 +375,15 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
     for (const x of buf) out.push(x);
 }
 
-// A <number><type> token. Hex and exponent spellings are named outright: the generic regex would split '0x10uint64' at the 'x' and blame an unknown type.
-function scalarToken(tok: string): { numStr: string; type: string } {
+// Hex and exponent spellings are named outright: the generic regex would split '0x10uint64' at the 'x' and blame an unknown type.
+function rejectNumberSpelling(tok: string): void {
     if (/^-?0x/i.test(tok)) throw new Error(`hex is not accepted, write '${tok}' in decimal`);
     if (/^-?\d+e\d/i.test(tok)) throw new Error(`exponent notation is not accepted, write '${tok}' in full`);
+}
+
+// A <number><type> token.
+function scalarToken(tok: string): { numStr: string; type: string } {
+    rejectNumberSpelling(tok);
     const m = tok.match(/^(-?\d+)([a-z0-9]+)$/);
     if (!m) throw new Error(`cannot parse value token '${tok}' (expected <number><type>, e.g. 5uint64)`);
     const [, numStr, type] = m;
@@ -574,11 +579,12 @@ export async function encodeInputFormat(inputFormat: string): Promise<Uint8Array
 
 // --in against the IDL: every token checked against the field it lands in
 // e.g. "1uint8, [2; 1uint64, 2uint64]" -> a struct of { type: "uint8", text: "1" } and { kind: "array", count: 2, items }; count is null without "N;", raw keeps the spelling for errors
+// a value spelled without its type, e.g. "5", has type null and takes the type of the field it lands in
 export type InputFormatStruct = { kind: "struct"; items: InputFormatNode[]; raw: string };
 export type InputFormatNode =
     InputFormatStruct | 
     { kind: "array"; count: number | null; items: InputFormatNode[]; raw: string } | 
-    { kind: "scalar"; type: string; text: string; raw: string };
+    { kind: "scalar"; type: string | null; text: string; raw: string };
 
 const WIDE_SUFFIXES = ["m256i", "uint128", "sint128", "id"];
 
@@ -613,8 +619,11 @@ function parseInputToken(tok: string): InputFormatNode {
     if (suffix) {
         return { kind: "scalar", type: suffix, text: tok.slice(0, -suffix.length).trim(), raw: tok };
     }
-    const { numStr, type } = scalarToken(assetToken(tok));
-    return { kind: "scalar", type, text: numStr, raw: tok };
+    const typed = assetToken(tok).match(/^(-?\d+)([a-z0-9]+)$/);
+    if (typed && SCALAR_SIZE[typed[2]]) {
+        return { kind: "scalar", type: typed[2], text: typed[1], raw: tok };
+    }
+    return { kind: "scalar", type: null, text: tok, raw: tok };
 }
 
 // Value text -> bytes checked against an entry's schema and written at its offsets, e.g. "1uint32" for a uint64 field is refused.
@@ -637,10 +646,10 @@ function unwrapInputBraces(root: InputFormatStruct, type: AbiStruct): InputForma
 async function writeInputNode(view: DataView, offset: number, type: AbiType, node: InputFormatNode, path: string): Promise<void> {
     switch (type.kind) {
         case AbiTypeKind.SCALAR: {
-            if (node.kind !== "scalar" || node.type !== type.scalar) {
+            if (node.kind !== "scalar" || (node.type !== null && node.type !== type.scalar)) {
                 throw new Error(`${path} is ${type.scalar}, got '${node.raw}'`);
             }
-            await encodeAbiScalar(view, offset, type.scalar, inputScalarValue(node));
+            await encodeAbiScalar(view, offset, type.scalar, node.type === null ? bareScalarValue(type.scalar, node.text, path) : inputScalarValue(node));
             return;
         }
         case AbiTypeKind.STRUCT: {
@@ -661,6 +670,10 @@ async function writeInputNode(view: DataView, offset: number, type: AbiType, nod
             return;
         }
         case AbiTypeKind.ARRAY: {
+            if (node.kind === "scalar" && node.type === null && type.element.kind === AbiTypeKind.SCALAR && BYTE_SCALARS.has(type.element.scalar)) {
+                writeBytes(view, offset, byteArrayHex(formatAbiType(type), type.count, node.text));
+                return;
+            }
             if (node.kind !== "array") {
                 throw new Error(`${path} is an array of ${type.count}, got '${node.raw}'`);
             }
@@ -689,8 +702,16 @@ async function writeRawInputNode(view: DataView, offset: number, type: AbiType, 
     writeBytes(view, offset, new Uint8Array(out));
 }
 
+// a bare id or m256i is read by the scalar writer as it stands; a bare integer is plain decimal, the same as its typed spelling
+function bareScalarValue(scalar: AbiScalarKind, text: string, path: string): string {
+    if (scalar === AbiScalarKind.ID || scalar === AbiScalarKind.M256I) return text;
+    rejectNumberSpelling(text);
+    if (!/^-?\d+$/.test(text)) throw new Error(`${path} is ${scalar}, got '${text}'`);
+    return text;
+}
+
 // The typed scalar writer takes the JSON spellings, where a zero id or m256i is spelled out in full.
-function inputScalarValue(node: InputFormatNode & { kind: "scalar" }): string {
+function inputScalarValue(node: { type: string | null; text: string }): string {
     if ((node.type === "id" || node.type === "m256i") && node.text === "0") return "0".repeat(64);
     return node.text;
 }
