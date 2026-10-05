@@ -150,7 +150,7 @@ describe.skipIf(!HAS_CORE)("QPI LOG_* lowering", () => {
 
         const strict = await compileContractWithTypeScript(options);
         const rejected = strict.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
-        expect(rejected.map((d) => d.message)).toContain("__qinit_log_error payload must open with a 4-byte word reserved for the contract index");
+        expect(rejected.map((d) => d.message)).toContain("LOG_ERROR payload must open with a 4-byte word reserved for the contract index");
 
         const relaxed = await compileContractWithTypeScript({ ...options, strict: false });
         expect(relaxed.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toEqual([]);

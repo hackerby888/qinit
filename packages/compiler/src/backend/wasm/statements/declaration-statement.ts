@@ -83,7 +83,7 @@ export function emitDeclarationStatement(context: FunctionEmissionContext, state
                     context.refLocals.set(variableDeclaration.name, refType);
                     context.lines.push(`    ${context.lowering.setLocal(context, variableDeclaration.name, addrIr(addr))}`);
                 } else {
-                    context.programAnalysis.warn(`unsupported reference initializer for '${variableDeclaration.name}'`, statement.span.line);
+                    context.programAnalysis.warn(`unsupported reference initializer for '${variableDeclaration.name}'`, variableDeclaration.initializer.span ?? statement.span);
                 }
             }
             return;

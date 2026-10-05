@@ -210,7 +210,7 @@ function validateUniqueRegistrationKeys(registrations: ContractRegistration[], p
         if (previousName) {
             programAnalysis.error(
                 `${registrationKindName(registration.kind)} input type ${registration.inputType} is registered twice ('${previousName}' and '${registration.fnName}')`,
-                0,
+                registration.line,
             );
         }
 

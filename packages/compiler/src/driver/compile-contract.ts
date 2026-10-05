@@ -164,7 +164,8 @@ const UNKNOWN_SPAN = { start: 0, end: 0, line: 0, column: 0 };
 function appendCompilerError(diagnostics: ParserDiagnostic[], stage: string, error: any, preprocessed?: PreprocessedContractSource): void {
     const diagnostic: ParserDiagnostic = {
         severity: DiagnosticSeverity.ERROR,
-        message: `${stage}: ${error.message}`,
+        // an error that names its own source span is the developer's mistake; the stage only labels a failure with nowhere to point.
+        message: error?.span ? error.message : `${stage}: ${error.message}`,
         span: error?.span ?? UNKNOWN_SPAN,
     };
 

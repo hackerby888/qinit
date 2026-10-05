@@ -380,7 +380,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         const source = LOGGING_SOURCE.replace("sint8 _terminator;", "sint8 end;");
         const findings = compilerDiagnostics(source);
 
-        expect(findings.map((item) => item.message)).toEqual(["__qinit_log_info payload struct must contain _terminator"]);
+        expect(findings.map((item) => item.message)).toEqual(["LOG_INFO payload struct must contain _terminator"]);
         expect(findings[0].severity).toBe(DiagnosticSeverity.ERROR);
         expect(findings[0].span.line).toBe(LOG_CALL_LINE);
     });
@@ -389,7 +389,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         const source = LOGGING_SOURCE.replace("uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator;", "uint32 value; sint8 _terminator;");
         const findings = compilerDiagnostics(source);
 
-        expect(findings.map((item) => item.message)).toEqual(["__qinit_log_info payload _terminator offset must be at least 8 bytes"]);
+        expect(findings.map((item) => item.message)).toEqual(["LOG_INFO payload _terminator offset must be at least 8 bytes"]);
         expect(findings[0].span.line).toBe(LOG_CALL_LINE);
     });
 
@@ -397,7 +397,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         const source = LOGGING_SOURCE.replace("sint8 _terminator;", "sint8 _terminator; uint64 checksum;");
         const findings = compilerDiagnostics(source);
 
-        expect(findings.map((item) => item.message)).toEqual(["__qinit_log_info payload _terminator must be the last field; a field after it is never logged"]);
+        expect(findings.map((item) => item.message)).toEqual(["LOG_INFO payload _terminator must be the last field; a field after it is never logged"]);
         expect(findings[0].severity).toBe(DiagnosticSeverity.ERROR);
         expect(findings[0].span.line).toBe(LOG_CALL_LINE);
     });
@@ -420,7 +420,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Emit, 1); }
 };`;
-        const after = "__qinit_log_info payload _terminator must be the last field; a field after it is never logged";
+        const after = "LOG_INFO payload _terminator must be the last field; a field after it is never logged";
 
         for (const call of ["LOG_INFO(locals.inner.emitMessage);", "LOG_INFO(state.mut().scratch.inner.emitMessage);"]) {
             const findings = compilerDiagnostics(nested.replace("PAYLOAD_CALL", call));
@@ -581,7 +581,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     test("a scalar payload is reported as a non-struct", () => {
         const source = LOGGING_SOURCE.replace("LOG_INFO(locals.message);", "LOG_INFO(input.value);");
 
-        expect(compilerDiagnostics(source).map((item) => item.message)).toEqual(["__qinit_log_info payload must be a struct"]);
+        expect(compilerDiagnostics(source).map((item) => item.message)).toEqual(["LOG_INFO payload must be a struct"]);
     });
 
     test("an unresolvable payload stays silent rather than guessing", () => {
@@ -595,7 +595,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         const source = LOGGING_SOURCE.replace("uint32 _contractIndex; uint32 _type;", "uint64 counter;");
         const findings = compilerDiagnostics(source);
 
-        expect(findings.map((item) => item.message)).toEqual(["__qinit_log_info payload must open with a 4-byte word reserved for the contract index"]);
+        expect(findings.map((item) => item.message)).toEqual(["LOG_INFO payload must open with a 4-byte word reserved for the contract index"]);
         expect(findings[0].severity).toBe(DiagnosticSeverity.WARNING);
         expect(findings[0].code).toBe("compiler/fidelity");
         expect(findings[0].span.line).toBe(LOG_CALL_LINE);
@@ -690,7 +690,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 });
 
 describe("LOG_* call context", () => {
-    const UNREACHABLE = "__qinit_log_info is not available in a function; " + "logs are paired with a transaction";
+    const UNREACHABLE = "LOG_INFO is not available in a function; " + "logs are paired with a transaction";
 
     // Each case swaps one entry body into the same contract so only the log's context differs.
     function contractLogging(entries: string): string {

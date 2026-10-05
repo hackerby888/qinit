@@ -2,7 +2,7 @@ import { AstKind, LogPayloadDefect } from "../../../shared/enums";
 import type { ProgramAnalysis } from "../../../semantics/program-analysis";
 import type { StructLayout } from "../../../semantics/types";
 import type { Expression, FunctionDecl, Statement, TypeSpec } from "../../../ast";
-import { isKnownScalarType, LOG_INTRINSIC_LEVELS, logPayloadDefect, logPayloadMessage } from "../abi/log-payload";
+import { isKnownScalarType, LOG_INTRINSIC_LEVELS, logMacroName, logPayloadDefect, logPayloadMessage } from "../abi/log-payload";
 import { SYSPROC_IO } from "../abi/tables";
 import { isStateAccessor } from "../memory/address-resolution";
 import type { PreparedContractModule } from "./module-analysis";
@@ -145,7 +145,7 @@ function checkLogStatement(programAnalysis: ProgramAnalysis, roots: PayloadRoots
     }
 
     if (unreachable) {
-        programAnalysis.error(`${call.callee.name} is not available in a function; logs are paired with a transaction`, argument.span ?? statement.span);
+        programAnalysis.error(`${logMacroName(call.callee.name)} is not available in a function; logs are paired with a transaction`, argument.span ?? statement.span);
         return;
     }
 

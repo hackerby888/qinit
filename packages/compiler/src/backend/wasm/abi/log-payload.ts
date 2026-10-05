@@ -69,7 +69,14 @@ function headerWordIsReserved(layout: StructLayout): boolean {
     return found;
 }
 
-export function logPayloadMessage(callName: string, defect: LogPayloadDefect): string {
+// `__qinit_log_info` is what LOG_INFO expands to; a message names the macro the developer wrote.
+export function logMacroName(intrinsicName: string): string {
+    const prefix = "__qinit_log_";
+    return intrinsicName.startsWith(prefix) ? `LOG_${intrinsicName.slice(prefix.length).toUpperCase()}` : intrinsicName;
+}
+
+export function logPayloadMessage(intrinsicName: string, defect: LogPayloadDefect): string {
+    const callName = logMacroName(intrinsicName);
     switch (defect) {
         case LogPayloadDefect.NOT_A_STRUCT:
             return `${callName} payload must be a struct`;
