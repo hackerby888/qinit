@@ -627,9 +627,14 @@ export class VirtualNode implements NodeTransport {
 
             const epochLastTick = this.epochInfo().epochLastTick;
             if (scheduledTick <= this.sim.currentTick || scheduledTick > epochLastTick) {
+                // on the epoch's last tick the window is empty; "41..40" explains nothing.
+                const window =
+                    this.sim.currentTick >= epochLastTick
+                        ? `cannot be scheduled: epoch ${this.sim.currentEpoch} ends at tick ${epochLastTick}; advance into the next epoch first`
+                        : `is outside ${this.sim.currentTick + 1}..${epochLastTick}`;
                 return {
                     ok: false,
-                    message: `transaction tick ${scheduledTick} is outside ${this.sim.currentTick + 1}..${epochLastTick}`,
+                    message: `transaction tick ${scheduledTick} ${window}`,
                 };
             }
 

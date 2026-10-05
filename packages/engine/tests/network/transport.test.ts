@@ -653,3 +653,22 @@ test("a post-fault broadcast is not blamed for an earlier fault", async () => {
     await expect(engine.broadcastTx(wrapTx(0, new Uint8Array(0)))).rejects.toThrow();
     expect(engine.sim.faultInfo()?.txId).toBeUndefined();
 });
+
+test("a transaction on the epoch's last tick is told the epoch ended, not handed an empty range", async () => {
+    const engine = await VirtualNode.create({ mempool: false, epochLength: 5 });
+    await engine.seedFaucet();
+    const { epochLastTick, epoch } = engine.epochInfo();
+    const send = async (tick: number) => (await engine.broadcastTx((await buildSignedTx(SEED, { destination: contractAddress(28), amount: 0, tick, inputType: 0, payload: new Uint8Array(0) })).bytes)).message;
+
+    // one tick before the end the window still holds a tick, so the range is the answer.
+    engine.advanceTick(epochLastTick - 1 - engine.sim.currentTick);
+    expect(await send(epochLastTick + 3)).toBe(`transaction tick ${epochLastTick + 3} is outside ${epochLastTick}..${epochLastTick}`);
+
+    // the epoch's last tick and the one after it both belong to the old epoch; the switch comes with the next advance.
+    engine.advanceTick(1);
+    expect(await send(epochLastTick + 1)).toBe(`transaction tick ${epochLastTick + 1} cannot be scheduled: epoch ${epoch} ends at tick ${epochLastTick}; advance into the next epoch first`);
+
+    engine.advanceEpoch();
+    expect(engine.epochInfo().epoch).toBe(epoch + 1);
+    expect(await send(engine.sim.currentTick + 1)).toBeUndefined();
+});
