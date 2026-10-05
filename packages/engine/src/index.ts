@@ -9,6 +9,7 @@ export type { TickRecord } from "./qubic-simulator";
 export type { EngineFaultInfo } from "@qinit/core";
 export { runContractTesting } from "./gtest";
 export type { TestResult } from "./gtest";
+export { MAX_AMOUNT } from "./ledger/assets";
 export type { AssetSnapshot } from "./ledger/assets";
 export { VirtualNode } from "./transport";
 export type { VirtualNodeOptions } from "./transport";

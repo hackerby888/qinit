@@ -33,6 +33,8 @@ export {
     layoutOf,
 } from "./abi";
 export { decodeLog, loggedSizeOf } from "./decode-log";
+export { stateCarryoverRejection } from "./state-carryover";
+export type { StateLayoutView } from "./state-carryover";
 export type { DecodedLog } from "./decode-log";
 export type { InputFormatNode, InputFormatStruct, TypeNode } from "./abi";
 export { callFunction, invokeProcedure, sendTransfer, contractAddress, resolveDeploymentSlot, traceChildren, traceDescendants } from "./call";

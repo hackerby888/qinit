@@ -23,6 +23,13 @@ test("an inserted field without MIGRATE is refused, naming both layouts and the 
     expect(rejection).toContain("--allow-state-carryover");
 });
 
+test("a host without a node to restart names its own way out", () => {
+    const rejection = stateCarryoverRejection("Box", idl(24, "uint64, uint64, uint64"), idl(32, "uint64, uint32, uint64, uint64"), "or reset the chain");
+
+    expect(rejection).toEndWith("Add a MIGRATE handler, or reset the chain.");
+    expect(rejection).not.toContain("--allow-state-carryover");
+});
+
 test("a same-size layout with different field types is still a change", () => {
     expect(stateCarryoverRejection("Box", idl(16, "uint64, uint64"), idl(16, "sint64, uint64"))).not.toBeNull();
 });

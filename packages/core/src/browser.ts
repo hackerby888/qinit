@@ -27,6 +27,7 @@ export type { SignedTx, TxInput } from "./crypto/tx";
 export { TESTNET_FUNDED_SEEDS, DEFAULT_FUNDED_SEED } from "./crypto/testnet-seeds";
 
 export { LiteRpc, RpcTimeoutError, ADVANCE_TICK_TIMEOUT_MS, ADVANCE_EPOCH_TIMEOUT_MS, RPC_TIMEOUT_MS } from "./net/rpc/client";
+export { assertLine, describeContractError, withHexAbortCode } from "./net/rpc/fault-text";
 export type {
     TickInfo,
     EngineFaultInfo,

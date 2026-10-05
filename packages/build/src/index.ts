@@ -8,7 +8,7 @@ export type { TypeScriptBuildOptions, TypeScriptCalleeBuildOptions } from "./com
 export { extractIdl } from "./compile/idl";
 export type { CalleeSource, ContractIdl } from "./compile/idl";
 export { verifyContract, verifyRejection, resolveVerifyTool } from "./compile/verify";
-export { BUILD_GATE_RULES, buildGateRejection, buildGateViolations, buildGateWarnings, buildRulesEnabled } from "./compile/build-rules";
+export { BUILD_GATE_RULES, buildGateDiagnostics, buildGateRejection, buildGateViolations, buildGateWarnings, buildRulesEnabled } from "./compile/build-rules";
 export type { BuildGateContext, BuildGateRule, ContractKind } from "./compile/build-rules";
 export type { VerifyResult } from "./compile/verify";
 export { buildSnapshot } from "./compile/snapshot";

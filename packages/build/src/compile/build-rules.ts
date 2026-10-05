@@ -1,6 +1,5 @@
 // The build gate every backend runs on the analyzer's findings: one rule table, each scoped to user contracts or to all — core's contracts build here too.
-import { USER_CONTRACT_RULES, type SourceAnalysisDiagnostic } from "@qinit/compiler/analyzer";
-import { LOG_AMBIGUITY_HINT, LOG_HEADER_WORD_HINT } from "@qinit/compiler";
+import { LOG_AMBIGUITY_HINT, LOG_HEADER_WORD_HINT, USER_CONTRACT_RULES, type SourceAnalysisDiagnostic } from "@qinit/compiler/analyzer";
 
 export type ContractKind = "user" | "system";
 
@@ -51,7 +50,9 @@ export const BUILD_WARN_RULES: readonly BuildGateRule[] = [
 
 /** QINIT_BUILD_RULES=off switches the user-scope rules off everywhere a flag cannot reach (dev, test, CI). */
 export function buildRulesEnabled(): boolean {
-    return !/^(0|off|false|no)$/i.test(process.env.QINIT_BUILD_RULES?.trim() ?? "");
+    // a browser has no process; the rules stay on there.
+    const setting = typeof process === "undefined" ? undefined : process.env.QINIT_BUILD_RULES;
+    return !/^(0|off|false|no)$/i.test(setting?.trim() ?? "");
 }
 
 function resolveContext(context: BuildGateContext): Required<BuildGateContext> {
@@ -62,18 +63,23 @@ function resolveContext(context: BuildGateContext): Required<BuildGateContext> {
     };
 }
 
-function select(table: readonly BuildGateRule[], diagnostics: readonly SourceAnalysisDiagnostic[], resolved: Required<BuildGateContext>): string[] {
+function select(table: readonly BuildGateRule[], diagnostics: readonly SourceAnalysisDiagnostic[], resolved: Required<BuildGateContext>): SourceAnalysisDiagnostic[] {
     const rules = table.filter((rule) => rule.scope === "all" || (rule.scope === resolved.contractKind && resolved.buildRules));
-    return diagnostics.filter((diagnostic) => rules.some((rule) => rule.matches(diagnostic, resolved))).map(describe);
+    return diagnostics.filter((diagnostic) => rules.some((rule) => rule.matches(diagnostic, resolved)));
+}
+
+/** The refused diagnostics themselves, for a host that marks them in an editor rather than printing lines. */
+export function buildGateDiagnostics(diagnostics: readonly SourceAnalysisDiagnostic[], context: BuildGateContext = {}): SourceAnalysisDiagnostic[] {
+    return select(BUILD_GATE_RULES, diagnostics, resolveContext(context));
 }
 
 export function buildGateViolations(diagnostics: readonly SourceAnalysisDiagnostic[], context: BuildGateContext = {}): string[] {
-    return select(BUILD_GATE_RULES, diagnostics, resolveContext(context));
+    return buildGateDiagnostics(diagnostics, context).map(describe);
 }
 
 /** the non-fatal half, reported on a successful build. */
 export function buildGateWarnings(diagnostics: readonly SourceAnalysisDiagnostic[], context: BuildGateContext = {}): string[] {
-    return select(BUILD_WARN_RULES, diagnostics, resolveContext(context));
+    return select(BUILD_WARN_RULES, diagnostics, resolveContext(context)).map(describe);
 }
 
 // A rejection in the build result's own shape, so neither backend needs a second error path.

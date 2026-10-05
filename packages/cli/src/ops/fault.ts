@@ -1,7 +1,9 @@
 // A node that halted on a contract trap keeps answering reads, so every command that would report a stale tick has to ask for the fault and say so.
 import { CONTRACT_ENTRY_KIND } from "@qinit/engine";
-import { WASM_TRAP_ERROR_CODE, type EngineFaultInfo, type LiteRpc } from "@qinit/core";
+import { describeContractError, type EngineFaultInfo, type LiteRpc } from "@qinit/core";
 import { loadContracts, mergeContracts } from "../contracts/registry";
+
+export { describeContractError };
 
 const ENTRY_LABEL: Record<number, string> = {
     [CONTRACT_ENTRY_KIND.FUNCTION]: "fn",
@@ -21,28 +23,6 @@ export async function readFault(rpc: Pick<LiteRpc, "faultInfo">): Promise<Engine
         }
         throw error;
     }
-}
-
-// abort(3422552174) is how both runtimes spell a cheatcode abort; the hex form is what the developer reads a line number out of, so show both.
-function withHexAbortCode(message: string): string {
-    return message.replace(/abort\((\d+)\)/g, (whole, digits: string) => {
-        const code = Number(digits);
-        return Number.isSafeInteger(code) ? `abort(0x${code.toString(16).toUpperCase()})` : whole;
-    });
-}
-
-const TRAP_CODE_TEXT = new RegExp(`abort\\(0x${WASM_TRAP_ERROR_CODE.toString(16).toUpperCase()}\\)|\\b${WASM_TRAP_ERROR_CODE}\\b`, "g");
-// Core reports a function failure as the bare error code; a code in the assert range is a line number.
-const BARE_ASSERT_CODE = /(smart contract function: )(\d+)$/;
-const ASSERT_CODE_BASE = 0xcc000000;
-
-/** A contract error line with its codes spelled the way a developer reads them. */
-export function describeContractError(message: string): string {
-    const named = message.replace(BARE_ASSERT_CODE, (whole, prefix: string, digits: string) => {
-        const code = Number(digits);
-        return code >= ASSERT_CODE_BASE && code <= ASSERT_CODE_BASE + 0xffffff ? `${prefix}abort(${code})` : whole;
-    });
-    return withHexAbortCode(named).replace(TRAP_CODE_TEXT, "wasm trap");
 }
 
 /** The fault line with the slot resolved to a contract name, when the registry still answers. */
