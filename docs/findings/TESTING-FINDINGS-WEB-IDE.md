@@ -615,7 +615,7 @@ Fixed in Qinit-web `4765c0a`: a second contract file of one stem is refused on c
 | W-s13 | "+ capture session" tooltip and hint say "run some procedures" but the button is enabled as soon as the contract is deployed | `p8a` | fixed, `52818f0` |
 | W-s14 | the test runner has no `it`, `afterAll`, `.not`, `toThrow`, `console.info`; before a build it fails with "(runner) Ledger is not defined" instead of "Compile & Run first" | `p4a` | fixed, `52818f0` |
 | W-s15 | an un-awaited rejected call in a test leaves an uncaught page error while the suite stays green | `p4a` | fixed, `52818f0` |
-| W-s16 | during a 60 s stuck call every call button is disabled and there is no cancel | `p3c` | fixed, `3cde260` (■ stop after 2 s) |
+| W-s16 | during a 60 s stuck call every call button is disabled and there is no cancel | `p3c` | fixed, `3cde260` (■ stop after 2 s) and `30d6533` (the restart after a stop or a timeout replayed the session through the contract that hung: a minute's wait, then an empty node; it now falls back to genesis within seconds and says so) |
 | W-s17 | renaming a deployed contract's file leaves the old name in DEPLOYED for the rest of the session; the new name deploys beside it | `p7b` | fixed, `4765c0a` |
 | W-s18 | explorer names: spaces and non-ASCII letters are dropped without notice (`my token.h` → `mytoken.h`, `über.h` → `ber.h`) | `p9c` | fixed, `4765c0a` (notice) |
 | W-s19 | import accepts `..` path segments, an empty name and duplicate names; a corrupt `ide.projects.index` shows "0 projects" with the records still in storage | `p9a`, `p9b` | fixed, `b4a2495` |
