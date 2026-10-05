@@ -68,7 +68,7 @@ function select(table: readonly BuildGateRule[], diagnostics: readonly SourceAna
     return diagnostics.filter((diagnostic) => rules.some((rule) => rule.matches(diagnostic, resolved)));
 }
 
-/** The refused diagnostics themselves, for a host that marks them in an editor rather than printing lines. */
+/** the refused diagnostics themselves, for a host that marks them in an editor rather than printing lines. */
 export function buildGateDiagnostics(diagnostics: readonly SourceAnalysisDiagnostic[], context: BuildGateContext = {}): SourceAnalysisDiagnostic[] {
     return select(BUILD_GATE_RULES, diagnostics, resolveContext(context));
 }

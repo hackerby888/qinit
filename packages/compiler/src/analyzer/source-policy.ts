@@ -52,7 +52,7 @@ const UNQUALIFIED_MATH: Record<string, { code: string; message: string }> = {
 // Rule codes that apply to user contracts only; core's own contracts are exempt (they are built by Qinit too).
 export const USER_CONTRACT_RULES: ReadonlySet<string> = new Set(Object.values(UNQUALIFIED_MATH).map((rule) => rule.code));
 
-// Codes core's native verifier refuses too. A host that cannot run that tool (a browser) fails the build on these instead of warning.
+// codes core's native verifier refuses too. A host that cannot run that tool (a browser) fails the build on these instead of warning.
 export const VERIFIER_RULES: ReadonlySet<string> = new Set([
     "qpi/no-float",
     "qpi/no-union",
@@ -71,7 +71,7 @@ export const VERIFIER_RULES: ReadonlySet<string> = new Set([
     "qpi/stack-local",
 ]);
 
-// The verifier reserves only names that start with `__`; the lint rule also warns on one in the middle.
+// the verifier reserves only names that start with `__`; the lint rule also warns on one in the middle.
 export function verifierViolations(diagnostics: readonly SourceAnalysisDiagnostic[], source: string): SourceAnalysisDiagnostic[] {
     return diagnostics.filter((item) => VERIFIER_RULES.has(item.code) && (item.code !== "qpi/no-dunder" || source.startsWith("__", item.span.start)));
 }

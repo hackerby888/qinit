@@ -1,4 +1,4 @@
-// How a contract failure is spelled for a developer; node-free, so a browser host words a fault the same way the CLI does.
+// how a contract failure is spelled for a developer; node-free, so a browser host words a fault the same way the CLI does.
 import { WASM_TRAP_ERROR_CODE } from "../../wasm/lhost-abi";
 
 const ASSERT_CODE_BASE = 0xcc000000;
@@ -24,7 +24,7 @@ export function describeContractError(message: string): string {
     return withHexAbortCode(named).replace(TRAP_CODE_TEXT, "wasm trap");
 }
 
-/** The source line a failed CC_ASSERT names, when the message carries an abort code from that range. */
+/** the source line a failed CC_ASSERT names, when the message carries an abort code from that range. */
 export function assertLine(message: string): number | undefined {
     const match = /abort\((0x[0-9a-f]+|\d+)\)/i.exec(message);
     if (!match) {

@@ -1,4 +1,4 @@
-// How an abort code reads to a developer, on any host: hex for the code, a source line for an assert.
+// how an abort code reads to a developer, on any host: hex for the code, a source line for an assert.
 import { expect, test } from "bun:test";
 import { assertLine, describeContractError, WASM_TRAP_ERROR_CODE } from "../../src";
 

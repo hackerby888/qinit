@@ -1,4 +1,4 @@
-// The layout fields a redeploy check reads; a full ContractIdl satisfies it, and so does a host's trimmed view.
+// the layout fields a redeploy check reads; a full ContractIdl satisfies it, and so does a host's trimmed view.
 export interface StateLayoutView {
     state?: { size: number; format: string };
     migration?: { oldState: { size: number } };
