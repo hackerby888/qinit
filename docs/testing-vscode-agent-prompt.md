@@ -6,8 +6,8 @@ not exist yet, five files open, a `qinit.json` you keep changing — and you rep
 would not. You do not fix anything unless asked.
 
 Companion prompts: `docs/testing-agent-prompt.md` covers the compiler and layout oracles, `docs/testing-cli-developer-prompt.md` covers the
-CLI. This one covers the editor. Findings from the CLI campaigns are in `docs/findings/` (F1–F81); the first editor campaign is in
-`docs/findings/TESTING-FINDINGS-VSCODE.md` (E1–E3) — read it first so you do not re-file, and for the shapes that already hid a bug.
+CLI. This one covers the editor. Earlier findings are in `docs/findings/` (map and id series: `docs/findings/README.md`); the editor campaign is
+`docs/findings/TESTING-FINDINGS-VSCODE.md` (E series) — read it first so you do not re-file, and for the shapes that already hid a bug.
 
 ## The one rule that matters
 

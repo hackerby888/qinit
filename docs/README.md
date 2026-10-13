@@ -15,6 +15,7 @@ Sections are numbered, so jump with `grep -n '^## ' docs/<file>.md` rather than 
 | [browser-packaging.md](./browser-packaging.md)       | `@qinit/compiler/browser`: what the bundle embeds, snapshot ownership, local build, verification                                                                         | Changing the browser entry or regenerating the QPI snapshot                    | Compiler internals; CLI behavior                                   |
 | [testing-vscode-agent-prompt.md](./testing-vscode-agent-prompt.md) | The campaign prompt for exploratory testing of the QPI VS Code extension against a real headless editor: oracles, harness mechanics, probe families | Sending an agent at the extension, or extending `packages/vscode/test-integration` | The compiler and CLI campaigns (their own prompts) |
 | [testing-oracle-oc-agent-prompt.md](./testing-oracle-oc-agent-prompt.md) | The campaign prompt for hand-driven testing of oracle queries, subscriptions, notifications and OC invocations across both compilers and both runtimes, with a source-built node, a fix-and-verify phase, and a resumable work directory | Sending an agent at `qinit oracle` and the contracts that use it | The compiler, CLI, state and editor campaigns (their own prompts) |
+| [findings/README.md](./findings/README.md) | The test-campaign ledgers: which file holds which id series (F, S, E, W), what each campaign put under test, and how each file marks a fix | Asking whether a behaviour is a known finding, or filing one | The repros themselves, which stay in the ledgers |
 
 ## Where to look
 
@@ -38,6 +39,7 @@ Sections are numbered, so jump with `grep -n '^## ' docs/<file>.md` rather than 
 | Which tests should I run for this change?                                     | cli-guide §17                                        |
 | I am adding a command / option, or changing deploy, decoding, or node startup | cli-guide §18                                        |
 | Is this behavior a bug or a known wart?                                       | cli-guide §19 (sharp edges)                          |
+| Was this already found by a test campaign? Which ledger has it?         | findings/README.md                                   |
 | What differs in the compiled binary versus `bun run dev`?                     | cli-guide §20                                        |
 | Which compiler stage owns this?                                               | compiler-walkthrough §1–25                           |
 | Why is my `CC_PRINT` not showing? What removes cheatcodes before Core?        | cheatcodes §2, §5                                    |

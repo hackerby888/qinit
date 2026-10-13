@@ -82,38 +82,10 @@ against qpi.h, or arithmetic on paper). Cover, in this order:
 
 ## Known and fixed — do not re-file
 
-Ledger as of 2026-09-05 (`41aff6ce`), five campaigns, F1–F63. Findings live in
-`~/Projects/qcounter-qinit/Counter/TESTING-FINDINGS{,-2,-3,-4,-5}.md`; F10, F18, F31 were never filed.
-
-Fixed on `main`: F2 64-bit `--args` (`d082de0e`), F3 unregistered entry and F4 `--out` mismatch
-(`4974a56b`), F11 TypeScript backend skipping the protocol gate (`d9534f4f`), F13 callee `CC_PRINT`
-(`316b3dc2`/`a34e1b03`), F14 tick-info envelope (`aad3a50e`), F17 `gen` slot (`655bb3f7`), F20 signed
-`div` (`316b3dc2`), F26/F41 unfunded signer (`06ede6a7`), F28 `qinit test` scaffold (`899938fe`), F29
-explorer transfers (`8eca6263`), F32/F38 halt reporting (`7facee30`), F34 double epoch advance
-(`e216b8f2`/`d260f9eb`), F35 busy node (`b0c7cc9c`), F36 callee `CC_ASSERT` (`bf2deb7a`), F37 callee trap
-(`412887bf`), F44 epoch emission (targeted), F46 fee-reserve dormancy (`a609ab02`, simulator; core needs
-a node built from core-lite `b2e03720` or later — no release carries it yet), F47 `--json` data
-(`acb6b263`; the `--trace` state rows are still text), F48 padding leaf (`e24c187e`), F50 `_terminator`
-(`28c43000`), F51 `--amount` bigint (`b3620b63`), F52 `--in` per-token schema (`30a613e6`), F53 log
-`_type` (`cd6ffd3b`). Fixed in core-lite: F12 (node `qinit-v0.0.44`), F42 SIGSEGV (`qinit-v0.0.47`).
-
-Still open, worth extending rather than repeating: F1 negative `--in` literals (`--in=` works), F5 trace
-vs `LOG_PAUSE`, F6 `--json` has no `cheats`, F7 one-field struct (design), F8 bare container in
-`CC_PRINT`, F9 nested containers have no `--container` index (a state whose only containers are nested
-reports `outside 1..0`), F15 silent layout change without MIGRATE, F16 migrate row has no timestamp, F19
-no execution limit, F21 `sadd` saturation (upstream), F22 `--json` proc nulls `out` without `--trace`,
-F23/F25 explorer/debug outside a TTY, F24 `--json` ignored (seed, runtime, compiler, system, gen, doctor,
-clean, integrate), F27 `--amount` on `--fn`, F30 restart discards everything (and a backend switch does it
-silently), F33 huge diff render, F39 QX fees differ per runtime, F40 289 s procedure wedges core, F43 trap
-text per runtime, F45 `CC_ASSERT` guard vanishes in `--production` (and in `strip` and `integrate`,
-all silent), F49 Collection removal renders as an update, F54 `debug` selection drift.
-
-Campaign 5 (F55–F64, all open): F55 `--amount` over the signer's balance → `✓ processed`, nothing ran,
-`moneyFlew:false` dropped (the gen client shows it); F56 `doctor` blind to headers/node drift; F57
-`ls --json` has no `ok`/`error` envelope; F58 `clean` size follows symlinks and labels MiB as MB; F59
-scaffolded `gtest` passes with zero assertions; F60 `qinit test` blames callee ordering for a full slot
-window and mid-elides every error row; F61 gtest scaffold `in{}` fails on `uint128`; F62 `tick show` /
-`epoch show` advertised but rejected; F63 one-off `info --json` document missing sections (2/2 in one harness, 0/13 outside); F64 a CLI killed mid-upload leaves the node refusing every deploy until restart (no session expiry in core-lite `deployment.h`).
+Every earlier finding is in `docs/findings/` (map and id series: `docs/findings/README.md`); read the
+CLI ledgers before filing, and extend an existing id instead of re-filing it. Commits name the id they
+close, so `git log --oneline --grep='\bF41\b'` says whether a finding was fixed. F10, F18, F31 were
+never filed.
 
 ## Untouched last time — start here
 
