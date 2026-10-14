@@ -55,6 +55,7 @@ const LINKED_DEPENDENCIES: Record<string, string[]> = {
     Pulse: ["RANDOM", "RL", "QRP", "QTF", "QX"],
     Nostromo: ["QX"],
     QTREAT: ["QX", "QBAY", "RANDOM"],
+    Qusino: ["RANDOM"],
 };
 
 const INTER_CONTRACT_CALL = /(?:INVOKE|CALL)_OTHER_CONTRACT_(?:PROCEDURE|FUNCTION)\s*\(\s*([A-Za-z_]\w*)/g;
