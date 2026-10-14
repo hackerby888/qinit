@@ -1,9 +1,12 @@
 // the dual-engine scripts read native log records through this client; here it reads the simulator's own peer server, where the expected bytes are known.
 import { expect, test } from "bun:test";
+import { createServer } from "node:net";
+import type { AddressInfo } from "node:net";
 import { CUSTOM_MESSAGE_OP, QUBIC_LOG_TYPE } from "@qinit/proto";
 import { readTickLogs } from "../../../../scripts/live-node/peer-log-reader";
 import { LOG_SC_BEGIN_TICK } from "../../src/logging/qubic-log-store";
 import { PeerServer } from "../../src/peer-server";
+import { endResponse, readHeader } from "../../src/protocol/peer-codec";
 import { initK12 } from "../../src/support/k12";
 import { VirtualNode } from "../../src/transport";
 import { contractId } from "../support/helpers";
@@ -34,5 +37,41 @@ test("a tick's records come back in log order with their range and exact payload
         expect(await readTickLogs("127.0.0.1", port, tick + 50)).toEqual([]);
     } finally {
         stop();
+    }
+});
+
+// a core node drops a request whose packet hash collides in its dejavu bitmap; a server that swallows the first requests stands in for that drop.
+async function swallowingServer(answerFrom: number): Promise<{ port: number; dejavus: number[]; close: () => void }> {
+    const dejavus: number[] = [];
+    const server = createServer((socket) => {
+        socket.once("data", (chunk: Buffer) => {
+            const header = readHeader(new Uint8Array(chunk), 0);
+            if (!header) {
+                return;
+            }
+            dejavus.push(header.dejavu);
+            if (dejavus.length >= answerFrom) {
+                socket.write(endResponse(header.dejavu));
+            }
+        });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+
+    return { port: (server.address() as AddressInfo).port, dejavus, close: () => server.close() };
+}
+
+test("a swallowed request is retried with a fresh dejavu, and a node that never answers is reported after the last attempt", async () => {
+    const second = await swallowingServer(2);
+    const never = await swallowingServer(Number.POSITIVE_INFINITY);
+    try {
+        expect(await readTickLogs("127.0.0.1", second.port, 7, 200)).toEqual([]);
+        expect(second.dejavus).toHaveLength(2);
+        expect(second.dejavus[0]).not.toBe(second.dejavus[1]);
+
+        await expect(readTickLogs("127.0.0.1", never.port, 7, 100)).rejects.toThrow(/no response to peer request 50 from 127\.0\.0\.1:\d+ in 100 ms/);
+        expect(never.dejavus).toHaveLength(3);
+    } finally {
+        second.close();
+        never.close();
     }
 });

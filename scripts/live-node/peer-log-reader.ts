@@ -13,9 +13,27 @@ export interface TickLogRecord {
 
 const PASSCODE_BYTES = 32;
 const RESPONSE_TIMEOUT_MS = 15_000;
+const ATTEMPTS = 3;
+
+class PeerSilence extends Error {}
+
+// a core node hashes every packet into its dejavu bitmap and drops one whose bit is already set, so about 0.5% of fresh requests on a lite node get no reply;
+// a retry carries a new dejavu and so a new hash. the same silence covers an epoch transition, during which the node consumes requests unprocessed.
+async function request(host: string, port: number, type: number, payload: Uint8Array, responseType: number, timeoutMs: number): Promise<Uint8Array | null> {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await requestOnce(host, port, type, payload, responseType, timeoutMs);
+        } catch (error) {
+            if (!(error instanceof PeerSilence) || attempt === ATTEMPTS) {
+                throw error;
+            }
+            console.error(`${error.message}, attempt ${attempt} of ${ATTEMPTS}; retrying with a fresh dejavu`);
+        }
+    }
+}
 
 // one request per connection; the node's opening peer exchange and any other traffic is skipped by type and dejavu.
-function request(host: string, port: number, type: number, payload: Uint8Array, responseType: number): Promise<Uint8Array | null> {
+function requestOnce(host: string, port: number, type: number, payload: Uint8Array, responseType: number, timeoutMs: number): Promise<Uint8Array | null> {
     const dejavu = 1 + Math.floor(Math.random() * 0x7ffffffe);
 
     return new Promise((resolve, reject) => {
@@ -30,7 +48,7 @@ function request(host: string, port: number, type: number, payload: Uint8Array, 
                 resolve(result);
             }
         };
-        const timer = setTimeout(() => finish(null, new Error(`no response to peer request ${type} from ${host}:${port}`)), RESPONSE_TIMEOUT_MS);
+        const timer = setTimeout(() => finish(null, new PeerSilence(`no response to peer request ${type} from ${host}:${port} in ${timeoutMs} ms`)), timeoutMs);
 
         socket.on("connect", () => socket.write(frame(type, payload, dejavu)));
         socket.on("error", (error) => finish(null, error));
@@ -68,10 +86,10 @@ function passcodePayload(size: number): { payload: Uint8Array; view: DataView } 
 }
 
 /** every log record of one tick, in log-id order, each tagged with the tick-local range it was written under. */
-export async function readTickLogs(host: string, port: number, tick: number): Promise<TickLogRecord[]> {
+export async function readTickLogs(host: string, port: number, tick: number, timeoutMs = RESPONSE_TIMEOUT_MS): Promise<TickLogRecord[]> {
     const ranges = passcodePayload(PASSCODE_BYTES + 8);
     ranges.view.setUint32(PASSCODE_BYTES, tick, true);
-    const rangeTable = await request(host, port, MSG.REQUEST_ALL_LOG_ID_RANGES_FROM_TX, ranges.payload, MSG.RESPOND_ALL_LOG_ID_RANGES_FROM_TX);
+    const rangeTable = await request(host, port, MSG.REQUEST_ALL_LOG_ID_RANGES_FROM_TX, ranges.payload, MSG.RESPOND_ALL_LOG_ID_RANGES_FROM_TX, timeoutMs);
     if (!rangeTable) {
         return [];
     }
@@ -91,7 +109,7 @@ export async function readTickLogs(host: string, port: number, tick: number): Pr
         const logs = passcodePayload(PASSCODE_BYTES + 16);
         logs.view.setBigUint64(PASSCODE_BYTES, fromLogId, true);
         logs.view.setBigUint64(PASSCODE_BYTES + 8, fromLogId + length - 1n, true);
-        const bytes = await request(host, port, MSG.REQUEST_LOG, logs.payload, MSG.RESPOND_LOG);
+        const bytes = await request(host, port, MSG.REQUEST_LOG, logs.payload, MSG.RESPOND_LOG, timeoutMs);
         if (!bytes) {
             throw new Error(`${host}:${port} has no records for log ids ${fromLogId}..${fromLogId + length - 1n}`);
         }
