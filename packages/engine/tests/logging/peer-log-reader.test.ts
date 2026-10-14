@@ -1,7 +1,7 @@
 // the dual-engine scripts read native log records through this client; here it reads the simulator's own peer server, where the expected bytes are known.
 import { expect, test } from "bun:test";
 import { createServer } from "node:net";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import { CUSTOM_MESSAGE_OP, QUBIC_LOG_TYPE } from "@qinit/proto";
 import { readTickLogs } from "../../../../scripts/live-node/peer-log-reader";
 import { LOG_SC_BEGIN_TICK } from "../../src/logging/qubic-log-store";
@@ -41,9 +41,13 @@ test("a tick's records come back in log order with their range and exact payload
 });
 
 // a core node drops a request whose packet hash collides in its dejavu bitmap; a server that swallows the first requests stands in for that drop.
-async function swallowingServer(answerFrom: number): Promise<{ port: number; dejavus: number[]; close: () => void }> {
+async function swallowingServer(answerFrom: number): Promise<{ port: number; dejavus: number[]; close: () => Promise<void> }> {
     const dejavus: number[] = [];
+    const sockets = new Set<Socket>();
     const server = createServer((socket) => {
+        sockets.add(socket);
+        socket.on("error", () => {});
+        socket.on("close", () => sockets.delete(socket));
         socket.once("data", (chunk: Buffer) => {
             const header = readHeader(new Uint8Array(chunk), 0);
             if (!header) {
@@ -57,7 +61,13 @@ async function swallowingServer(answerFrom: number): Promise<{ port: number; dej
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
 
-    return { port: (server.address() as AddressInfo).port, dejavus, close: () => server.close() };
+    // a swallowed request leaves its socket open on purpose, so the server only closes once those are destroyed.
+    const close = async () => {
+        for (const socket of sockets) socket.destroy();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+    };
+
+    return { port: (server.address() as AddressInfo).port, dejavus, close };
 }
 
 test("a swallowed request is retried with a fresh dejavu, and a node that never answers is reported after the last attempt", async () => {
@@ -71,7 +81,7 @@ test("a swallowed request is retried with a fresh dejavu, and a node that never 
         await expect(readTickLogs("127.0.0.1", never.port, 7, 100)).rejects.toThrow(/no response to peer request 50 from 127\.0\.0\.1:\d+ in 100 ms/);
         expect(never.dejavus).toHaveLength(3);
     } finally {
-        second.close();
-        never.close();
+        await second.close();
+        await never.close();
     }
 });
