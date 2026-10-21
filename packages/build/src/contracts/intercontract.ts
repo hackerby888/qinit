@@ -102,8 +102,10 @@ export type DynCallees = Record<string, { header: string; slot: number }>;
 
 function indexDefines(parsed: ParsedContractDefinitionSource): string {
     let output = "// ---- all contract indices (contract_def.h) so a directly-#included sibling resolves ----\n";
-    for (const constant of parsed.indexConstants) {
-        output += `#ifndef ${constant.name}_CONTRACT_INDEX\n#define ${constant.name}_CONTRACT_INDEX ${constant.index}\n#endif\n`;
+    // the test examples count up from the last #define, so only the parsed name map knows their indices
+    const indices = new Map([...parsed.indexConstants.map((constant) => [constant.name, constant.index] as const), ...[...parsed.names].map(([index, name]) => [name, index] as const)]);
+    for (const [name, index] of indices) {
+        output += `#ifndef ${name}_CONTRACT_INDEX\n#define ${name}_CONTRACT_INDEX ${index}\n#endif\n`;
     }
 
     return output;

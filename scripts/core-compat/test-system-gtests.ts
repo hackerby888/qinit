@@ -8,7 +8,14 @@ import { runCorpus, systemGtestCorpora, type SystemGtestTier } from "@qinit/cli/
 type Selection = SystemGtestTier | "all";
 
 // qubic/core still carries this legacy assertion beside its replacement reveal-and-leave test.
-const EXCLUDED_UPSTREAM_TESTS = ["ContractRandom.RevealWithZeroCommitIsRejectedNoDoublePay"];
+// the two QX dividend tests INIT_CONTRACT(TESTEXA), a test-example contract the corpus runner does not build or deploy.
+// the QX frozen sweep test fails in core's own native harness too (the frozen ask order survives), so it is not a parity signal yet.
+const EXCLUDED_UPSTREAM_TESTS = [
+    "ContractRandom.RevealWithZeroCommitIsRejectedNoDoublePay",
+    "ContractQx.DividendToErrorStateContractSkipsCallback",
+    "ContractQx.DividendToPreConstructionContractSkipsCallback",
+    "ContractQx.FrozenEntityOrdersRemovedAtCleanupTick",
+];
 
 function option(name: string): string | undefined {
     const index = process.argv.indexOf(name);

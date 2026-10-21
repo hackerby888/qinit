@@ -534,6 +534,14 @@ static inline bool isPublicKeyOfContract(const m256i& publicKey) {
            publicKey.u64._0 < contractCount;
 }
 
+// core's special_entities.h isFrozenAddress: the host's frozen list answers, as it does for qpi.isFrozenIdentity
+extern "C" {
+__attribute__((import_module("lhost"), import_name("isFrozenIdentity"))) unsigned int qbct_isFrozenIdentity(const void* id32);
+}
+static inline bool isFrozenAddress(const m256i& publicKey) {
+    return qbct_isFrozenIdentity(&publicKey) != 0;
+}
+
 // ---- broadcastedComputors: layout-compatible stub of core-lite's global ----
 // GQMPROP/CCF corpora seed committee identities via `broadcastedComputors.computors.publicKeys[i] = id`.
 
