@@ -162,6 +162,22 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
         expect(accepted.getUint8(8)).toBe(OC_INVOCATION_STATUS.PENDING_AUTH);
     });
 
+    test("a context method core declares without a wasm forwarder is advisory and traps only when reached", async () => {
+        const header = HEADER().replace(/struct QpiContextFunctionCall : public QpiContext\s*\{/, "$& inline bit probeUnbound(const id& id) const;");
+        const result = await compileContractWithTypeScript({
+            source: wrap("FUNCTION", "output.result = qpi.probeUnbound(qpi.invocator());"),
+            contractName: "QpiUnbound",
+            slot: 27,
+            qpiHeader: header,
+        });
+        expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+        expect(result.diagnostics.some((diagnostic) => /QPI method 'probeUnbound'/.test(diagnostic.message) && diagnostic.category === undefined)).toBe(true);
+        expect(result.wasm.length).toBeGreaterThan(0);
+        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+        sim.deploy(27, result.wasm);
+        expect(() => sim.query(27, 1)).toThrow();
+    });
+
     test("context violations and unknown bindings fail closed even with strict false", async () => {
         const context = await compileContractWithTypeScript({
             source: wrap("FUNCTION", "output.result = qpi.burn(1);"),

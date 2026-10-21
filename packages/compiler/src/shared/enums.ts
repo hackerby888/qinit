@@ -445,6 +445,7 @@ export enum BareNamePolicy {
 /** A C++ construct the TypeScript compiler does not fully implement. Grep a member to find every site that reports it; that set is the work list. */
 export enum UnsupportedFeature {
     NATIVE_C_SCALAR = "native_c_scalar",
+    UNBOUND_QPI_METHOD = "unbound_qpi_method",
     DESTRUCTOR = "destructor",
     CLASS_TO_SCALAR_CONVERSION = "class_to_scalar_conversion",
     AUTO_DEDUCTION = "auto_deduction",

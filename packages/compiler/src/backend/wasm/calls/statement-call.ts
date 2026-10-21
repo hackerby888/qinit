@@ -5,6 +5,7 @@ import { tryEmitContractStatementCall } from "./contract-statement-call";
 import { tryEmitHostIntrinsicCall } from "./host-intrinsic-call";
 import { tryEmitMemoryStatementCall } from "./memory-statement-call";
 import { tryEmitPlatformStatementCall } from "./platform-statement-call";
+import * as watIr from "../wat-ir";
 
 export function emitCallStatement(context: FunctionEmissionContext, expression: CallExpression): void {
     if (tryEmitHostIntrinsicCall(context, expression)) {
@@ -27,7 +28,11 @@ export function emitCallStatement(context: FunctionEmissionContext, expression: 
         return;
     }
 
-    context.lowering.emitQpiCall(context, expression);
+    const unbound = context.lowering.emitQpiCall(context, expression);
+    if (unbound) {
+        context.lines.push(`    ${watIr.serializeWatNode(unbound)}`);
+        return;
+    }
     context.programAnalysis.warn(`unsupported call statement [${describeShape(expression)}]`, expression.span.line);
 }
 

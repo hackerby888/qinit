@@ -175,7 +175,7 @@ describe("escape-hatch ratchet", () => {
             const src = readFileSync(join(dir, f), "utf8");
             count += (src.match(/watIr\.rawWatNode\(/g) ?? []).length;
         }
-        expect(count).toBeLessThanOrEqual(32);
+        expect(count).toBeLessThanOrEqual(33);
     });
 });
 

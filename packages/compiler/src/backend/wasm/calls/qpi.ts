@@ -1,4 +1,5 @@
-import { AssetSelectTypeName, AstKind } from "../../../shared/enums";
+import { AssetSelectTypeName, AstKind, UnsupportedFeature, WatNodeType } from "../../../shared/enums";
+import { adviseUnsupported } from "../../../semantics/unsupported";
 import { addrIr } from "../memory/memory-operations";
 import { EMPTY_TEMPLATE_BINDINGS, FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
@@ -89,13 +90,13 @@ export function materializeAssetAddress(context: FunctionEmissionContext, expres
     if (!address) throw new Error(`${bindingName} asset argument is missing or not addressable`);
     return address;
 }
-/** Fail closed when a qpi method is absent from the parsed context inheritance hierarchy. */
+/** Fail closed when a qpi method is absent from the parsed context inheritance hierarchy; one core declares without a wasm forwarder lowers to a trap. */
 export function emitQpiCall(
     context: FunctionEmissionContext,
     expression: Expression & {
         kind: AstKind.CALL;
     },
-): null {
+): watIr.WatNode | null {
     if (!(expression.callee.kind === AstKind.MEMBER_ACCESS && expression.callee.object.kind === AstKind.IDENTIFIER && expression.callee.object.name === "qpi"))
         return null;
     const contextType = context.params?.get("qpi")?.type;
@@ -107,5 +108,14 @@ export function emitQpiCall(
     ) {
         throw new Error(`QPI method '${expression.callee.member}' is unavailable in a function context`);
     }
+    if (contextType?.kind === AstKind.NAME && declaresMethod(context, contextType.name, expression.callee.member)) {
+        adviseUnsupported(context.programAnalysis, UnsupportedFeature.UNBOUND_QPI_METHOD, expression.span.line, expression.callee.member);
+        return watIr.rawWatNode("(unreachable)", WatNodeType.I64, "qpi method without a wasm forwarder traps when reached");
+    }
     throw new Error(`unknown QPI method '${expression.callee.member}' in parsed core source`);
+}
+
+// a body-less declaration on the context struct or one of its bases: core knows the method, the wasm sdk does not
+function declaresMethod(context: FunctionEmissionContext, contextTypeName: string, method: string): boolean {
+    return context.programAnalysis.methodOwnerNames(contextTypeName).some((owner) => context.programAnalysis.structByName(owner, EMPTY_TEMPLATE_BINDINGS)?.members.some((member) => member.kind === AstKind.FUNCTION && member.name === method));
 }

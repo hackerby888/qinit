@@ -120,7 +120,8 @@ export function emitCallValueIr(
     }
     const containerCallText = context.lowering.emitContainerCall(context, expression, true);
     if (containerCallText !== null) return watIr.rawWatNode(containerCallText, WatNodeType.I64, "source-compiled instance method");
-    context.lowering.emitQpiCall(context, expression);
+    const unbound = context.lowering.emitQpiCall(context, expression);
+    if (unbound) return unbound;
     // Narrow functional scalar casts to the target width; the cast may name its type through an alias, so the chain is followed first.
     if (expression.callee.kind === AstKind.IDENTIFIER && expression.callArguments.length === 1) {
         const bound = context.thisBind?.types.get(expression.callee.name);

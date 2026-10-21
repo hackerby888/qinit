@@ -14,6 +14,10 @@ const FEATURE_TEXT: Record<UnsupportedFeature, FeatureText> = {
         noun: "native C type",
         advice: "it lowers at its wasm32 width, but the QPI spellings (uint64, sint32, ...) are fixed-width on every target",
     },
+    [UnsupportedFeature.UNBOUND_QPI_METHOD]: {
+        noun: "QPI method",
+        advice: "core declares it but the wasm host has no binding for it, so the call traps if it is ever reached, as a clang build's unresolved import does",
+    },
     [UnsupportedFeature.DESTRUCTOR]: {
         noun: "destructor",
     },
