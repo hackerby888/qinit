@@ -86,6 +86,7 @@ export interface VirtualNodeOptions {
     epochLength?: number;
     // the smallest io region a deployed module may report. It defaults to core's capacity, so a node refuses what core refuses; 0 accepts any.
     minIoBytes?: number;
+    frozenIdentities?: ReadonlySet<string>;
 }
 
 export class VirtualNode implements NodeTransport {
@@ -137,6 +138,7 @@ export class VirtualNode implements NodeTransport {
             logStore: this.logger,
             historyTicks: options.historyTicks,
             epochLength: options.epochLength,
+            frozenIdentities: options.frozenIdentities,
         });
         // Align the live simulator node with core's wall clock; gtest and fuzz build their own QubicSimulator and keep the deterministic 2024 base.
         this.sim.timeBaseMs = Date.now();

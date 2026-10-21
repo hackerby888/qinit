@@ -73,19 +73,20 @@ function serializeWasmAbi(wasmAbi: WasmAbi): string {
     return `${WASM_ABI_MARKER}${JSON.stringify(wasmAbi)}\n`;
 }
 
-function assembleContractIndexDefinitions(fileSystem: NodeFileSystem, sourceDirectory: string): string {
-    const contractDefinitionsPath = `${sourceDirectory}/contract_core/contract_def.h`;
+// the #define lines of one core header that match, with no other content of the file; #include is a no-op here, so these stand in for it
+function assembleDefinitionLines(fileSystem: NodeFileSystem, sourceDirectory: string, relativePath: string, pattern: RegExp): string {
+    const headerPath = `${sourceDirectory}/${relativePath}`;
 
-    if (!fileSystem.existsSync(contractDefinitionsPath)) {
+    if (!fileSystem.existsSync(headerPath)) {
         return "";
     }
 
-    const indexDefinitions = fileSystem
-        .readFileSync(contractDefinitionsPath, "utf8")
+    const definitions = fileSystem
+        .readFileSync(headerPath, "utf8")
         .split("\n")
-        .filter((line) => /^#define \w+_CONTRACT_INDEX \d+\s*$/.test(line));
+        .filter((line) => pattern.test(line));
 
-    return `${indexDefinitions.join("\n")}\n`;
+    return `${definitions.join("\n")}\n`;
 }
 
 function assembleHeaderDeclarations(fileSystem: NodeFileSystem, sourceDirectory: string): string {
@@ -299,6 +300,7 @@ export function snapshotInputFiles(corePath: string): string[] {
     const files = [
         join(base, "network_messages", "common_def.h"),
         join(base, "contract_core", "contract_def.h"),
+        ...(existsSync(join(base, "frozen_addresses.h")) ? [join(base, "frozen_addresses.h")] : []),
         join(base, CORE_WASM_HEADERS.shared.abiMetadata),
         join(base, CORE_WASM_HEADERS.shared.abiTypes),
         join(base, CORE_WASM_HEADERS.sdk.lhostImports),
@@ -326,7 +328,8 @@ export function assembleQpiHeader(corePath: string): string {
     const sourceDirectory = requireCoreSourceDirectory(corePath, fileSystem);
     const wasmAbi = readWasmAbi(fileSystem, sourceDirectory);
     const protocolPrelude = assembleQpiProtocolPrelude(fileSystem.readFileSync(`${sourceDirectory}/network_messages/common_def.h`, "utf8"));
-    const contractIndexDefinitions = assembleContractIndexDefinitions(fileSystem, sourceDirectory);
+    const contractIndexDefinitions = assembleDefinitionLines(fileSystem, sourceDirectory, "contract_core/contract_def.h", /^#define \w+_CONTRACT_INDEX \d+\s*$/);
+    const freezeTickDefinition = assembleDefinitionLines(fileSystem, sourceDirectory, "frozen_addresses.h", /^#define FREEZE_FROM_TICK \d+\s*$/);
     const headerDeclarations = assembleHeaderDeclarations(fileSystem, sourceDirectory);
     const lhostImports = readWasmSdkHeader(fileSystem, sourceDirectory, CORE_WASM_HEADERS.sdk.lhostImports);
     const qpiForwarders = readWasmSdkHeader(fileSystem, sourceDirectory, CORE_WASM_HEADERS.sdk.qpiForwarders);
@@ -339,6 +342,7 @@ export function assembleQpiHeader(corePath: string): string {
         `${QPI_LANGUAGE_PRELUDE}\n${QPI_BUILD_PROFILE_BLOCK}${protocolPrelude}\n`,
         serializeWasmAbi(wasmAbi),
         contractIndexDefinitions,
+        freezeTickDefinition,
         headerDeclarations,
         contextBufferDeclaration,
         implementationChunks,

@@ -10,6 +10,7 @@ export type { EngineFaultInfo } from "@qinit/core";
 export { runContractTesting } from "./gtest";
 export type { TestResult } from "./gtest";
 export { MAX_AMOUNT } from "./ledger/assets";
+export { parseFrozenIdentities } from "./ledger/frozen";
 export type { AssetSnapshot } from "./ledger/assets";
 export { VirtualNode } from "./transport";
 export type { VirtualNodeOptions } from "./transport";

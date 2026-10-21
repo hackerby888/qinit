@@ -147,6 +147,7 @@ export class QubicSimulator {
     // core's contractError: the code a failed procedure, system procedure or migration left behind. A function failure leaves none.
     private contractErrors = new Map<number, number>();
     private contractLifetimes = new Map<number, { constructionEpoch: number; destructionEpoch: number }>();
+    private frozenIdentities: ReadonlySet<string>;
     private assets = new AssetLedger({
         contractId: (slot) => this.contractId(slot),
         logAssetMutation: (type, message) => this.logStore?.logMessage(type, message, this.currentEpoch),
@@ -199,6 +200,8 @@ export class QubicSimulator {
             haltOnContractFault?: boolean;
             // core's contractCount; an index at or past it names the caller in burn, queryFeeReserve and the share calls.
             contractCount?: number;
+            // core's compiled-in frozen list, keyed like the spectrum; absent, nobody is frozen.
+            frozenIdentities?: ReadonlySet<string>;
         } = {},
     ) {
         this.mempoolMode = options.mempool ?? false;
@@ -206,6 +209,7 @@ export class QubicSimulator {
         this.epochLength = Math.max(0, Math.trunc(options.epochLength ?? DEFAULT_EPOCH_LENGTH));
         this.historyTicks = Math.max(1, Math.trunc(options.historyTicks ?? DEFAULT_TICK_HISTORY));
         this.contractCount = options.contractCount ?? DEFAULT_CONTRACT_COUNT;
+        this.frozenIdentities = options.frozenIdentities ?? new Set();
         this.fees = new FeeManager(options.fees ?? "off", options.defaultReserve, this.contractCount);
         this.logStore = options.logStore;
         this.registry = new ContractRegistry(this.fees, this.recorder);
@@ -392,6 +396,7 @@ export class QubicSimulator {
                 return this.oracleEngine.getOracleReply(queryId, reply) ? reply : null;
             },
             isContractId: (id) => (this.isContractAddress(id) ? 1 : 0),
+            isFrozenIdentity: (id) => (this.frozenIdentities.has(toHex(id.subarray(0, 32))) ? 1 : 0),
             arbitrator: () => this.ticking.getCommittee().arbitrator.publicKey,
             computor: (index) =>
                 this.computorOverride.get(index >>> 0) ?? this.ticking.getCommittee().computors[index % this.ticking.committeeSize()]?.publicKey ?? ZERO32,

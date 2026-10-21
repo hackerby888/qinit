@@ -1,6 +1,6 @@
 // Generated from core-lite Wasm shared ABI headers. Do not edit.
 export const WASM_ABI_METADATA = {
-  "abiVersion": 7,
+  "abiVersion": 8,
   "lhost": [
     {
       "name": "beginFn",
@@ -172,6 +172,15 @@ export const WASM_ABI_METADATA = {
     },
     {
       "name": "isContractId",
+      "params": [
+        "i32"
+      ],
+      "results": [
+        "i32"
+      ]
+    },
+    {
+      "name": "isFrozenIdentity",
       "params": [
         "i32"
       ],

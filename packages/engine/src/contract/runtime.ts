@@ -197,6 +197,7 @@ export interface HostServices {
     burn(slot: number, amount: bigint, burnedFor: number): bigint;
     getEntity(id: Id): Entity | null;
     isContractId(id: Id): number;
+    isFrozenIdentity(id: Id): number;
     arbitrator(): Uint8Array;
     computor(index: number): Uint8Array;
     getPrevSpectrumDigest(): Uint8Array;
@@ -1128,6 +1129,7 @@ export class Contract {
                 this.writeGuest(outOff, this.host.prevId(u8().slice(idOff, idOff + 32)));
             },
             isContractId: (idOff: number) => this.host.isContractId(u8().slice(idOff, idOff + 32)),
+            isFrozenIdentity: (idOff: number) => this.host.isFrozenIdentity(u8().slice(idOff, idOff + 32)),
             arbitrator: (out: number) => this.writeGuest(out, this.host.arbitrator().subarray(0, 32)),
             computor: (i: number, out: number) => this.writeGuest(out, this.host.computor(i >>> 0).subarray(0, 32)),
         };

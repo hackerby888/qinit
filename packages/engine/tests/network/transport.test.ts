@@ -363,8 +363,8 @@ test("a processed DEPLOY records what the node did with it", async () => {
     expect(await lastDeploy()).toMatchObject({ sessionId: "21", slot: DYN - 1, ok: false, code: "bad-slot" });
 
     // a new session replaces the record; within one, only an incomplete upload may still end differently.
-    expect(() => deploy(22n, counterHash, { abiVersion: 6 })).toThrow("unsupported Wasm ABI version 6; expected 7");
-    expect(await lastDeploy()).toMatchObject({ sessionId: "22", code: "abi-mismatch", message: "unsupported Wasm ABI version 6; expected 7" });
+    expect(() => deploy(22n, counterHash, { abiVersion: 6 })).toThrow("unsupported Wasm ABI version 6; expected 8");
+    expect(await lastDeploy()).toMatchObject({ sessionId: "22", code: "abi-mismatch", message: "unsupported Wasm ABI version 6; expected 8" });
     expect(() => deploy(22n, counterHash)).toThrow("is not the upload session");
     expect((await lastDeploy())?.code).toBe("abi-mismatch");
 

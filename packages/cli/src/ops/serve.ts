@@ -7,6 +7,7 @@ import { systemContractClosure } from "@qinit/build";
 import type { SystemContract, SystemContractCompiler } from "@qinit/build";
 import { resolveCoreDir } from "../config";
 import { systemWasm } from "../contracts/system-wasm";
+import { readFrozenIdentities } from "./frozen-identities";
 
 // RPC base -> simulator port. Use the standard development port when none is given.
 export function portFromRpc(rpcBaseUrl: string): number {
@@ -46,7 +47,7 @@ export async function serveEngine(
     fees?: FeeMode,
 ): Promise<never> {
     const ms = Number.isFinite(tickMs) ? Math.max(0, tickMs as number) : DEFAULT_TICK_MS;
-    const srv = new EngineServer(new VirtualNode({ ...slotLayout, historyTicks, liteTicking, fees }));
+    const srv = new EngineServer(new VirtualNode({ ...slotLayout, historyTicks, liteTicking, fees, frozenIdentities: readFrozenIdentities(resolveCoreDir()) }));
     await srv.start(portFromRpc(rpcBaseUrl), ms, peerPort);
     process.stdout.write(`qinit simulator: rpc ${rpcBaseUrl} · peer ${LOOPBACK_HOST}:${peerPort}\n`);
     await seedSystemContracts(srv, system, compiler);

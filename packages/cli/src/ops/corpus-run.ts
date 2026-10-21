@@ -6,6 +6,7 @@ import { runContractTesting, type TestResult } from "@qinit/engine";
 import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { initK12, type BuildProfile } from "@qinit/core";
 import type { CompilerBackend } from "../config";
+import { readFrozenIdentities } from "./frozen-identities";
 
 // Suites needing the shared-memory harness: PULSE/QTF retain state pointers, NOST has a ~1 GiB state, QTRY exhausts the unshared arena, QEARN is 33x slower.
 const HEAVY_SYSTEM_GTEST_NAMES = new Set(["PULSE", "QTF", "QTRY", "QEARN", "NOST"]);
@@ -390,6 +391,7 @@ export async function runStdGtest(opts: {
         mainSlot: main.slot,
         assetNames,
         profile,
+        frozenIdentities: readFrozenIdentities(opts.core),
         excludeTests: opts.excludeTests,
         filterTests: opts.filterTests,
         onResult: opts.onResult,

@@ -33,6 +33,7 @@ export async function runContractTesting(
         filterTests?: readonly string[]; // run only tests whose name contains one of these (case-insensitive)
         // core's own corpora are compiled for its default committee, so the host that pays their dividends and ipo shares has to be that size too.
         profile?: BuildProfile;
+        frozenIdentities?: ReadonlySet<string>;
     } = {},
 ): Promise<TestResult[]> {
     await initK12();
@@ -151,6 +152,7 @@ export async function runContractTesting(
             fees: "off",
             liteTicking: true,
             haltOnContractFault: false,
+            frozenIdentities: opts.frozenIdentities,
             ...(opts.profile === "core-gtest" ? { consensus: { numberOfComputors: MAINNET_COMPUTOR_COUNT } } : {}),
         });
         // Pin the corpus clock to the native harness's fixed date so it does not follow VirtualNode's wall-clock override; syncClockFromRunner replaces it.
@@ -713,6 +715,7 @@ export async function runContractTesting(
             nextId: (idOff: number, outOff: number) => write(outOff, sim.host.nextId(id32(idOff)).subarray(0, 32)),
             prevId: (idOff: number, outOff: number) => write(outOff, sim.host.prevId(id32(idOff)).subarray(0, 32)),
             isContractId: (idOff: number): number => sim.host.isContractId(id32(idOff)),
+            isFrozenIdentity: (idOff: number): number => sim.host.isFrozenIdentity(id32(idOff)),
             arbitrator: (outOff: number) => write(outOff, sim.host.arbitrator().subarray(0, 32)),
             computor: (index: number, outOff: number) => write(outOff, sim.host.computor(index >>> 0).subarray(0, 32)),
             prevUniverseDigest: (outOff: number) => write(outOff, sim.host.getPrevUniverseDigest().subarray(0, 32)),
