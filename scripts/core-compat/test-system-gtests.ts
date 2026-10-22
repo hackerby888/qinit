@@ -9,7 +9,7 @@ type Selection = SystemGtestTier | "all";
 
 // qubic/core still carries this legacy assertion beside its replacement reveal-and-leave test.
 // the two QX dividend tests INIT_CONTRACT(TESTEXA), a test-example contract the corpus runner does not build or deploy.
-// the QX frozen sweep test fails in core's own native harness too (the frozen ask order survives), so it is not a parity signal yet.
+// the QX frozen sweep test sets epoch 235 while Qx.h's sweep guards on epoch 236, so it fails identically in core's native harness; not a parity signal.
 const EXCLUDED_UPSTREAM_TESTS = [
     "ContractRandom.RevealWithZeroCommitIsRejectedNoDoublePay",
     "ContractQx.DividendToErrorStateContractSkipsCallback",
