@@ -16,18 +16,18 @@ function deployedSlot(name: string): number | undefined {
 }
 
 // The contracts this one calls, resolved as `build` resolves them, so a field typed by a callee gets its real layout; a project that cannot resolve still runs.
-function projectCalleeSources(core: string, contractPath: string, contractName: string, slot: number): CalleeSource[] {
+function projectCalleeSources(core: string, contractPath: string, contractName: string, stateType: string, slot: number): CalleeSource[] {
     try {
         const resolved = resolveContracts({
             projectRoot: process.cwd(),
             corePath: core,
             contractPath,
             contractName,
+            stateType,
             slot,
         });
-        return resolved
-            .filter((contract) => contract.stateType !== contractName)
-            .map((contract) => ({ name: contract.stateType, source: contract.source, slot: contract.slot }));
+        // the graph ends with the contract itself
+        return resolved.slice(0, -1).map((contract) => ({ name: contract.stateType, source: contract.source, slot: contract.slot }));
     } catch {
         return [];
     }
@@ -48,7 +48,7 @@ export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
             const cfg = loadConfig();
             const requestedContractPath = commandArgs.get("contract") ?? commandArgs.positionals[0];
             const contractPath = projectContractPath("gen", requestedContractPath, cfg);
-            const name = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requestedContractPath);
+            const { name, stateType } = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requestedContractPath);
             const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
             // The deploy wrote this contract's slot to the IDL file; the window base is only right with no callees.
             const requestedSlot = commandArgs.get("slot") ?? cfg.slot ?? deployedSlot(name);
@@ -56,7 +56,8 @@ export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
             const idl = extractIdl(readFileSync(contractPath, "utf8"), name, {
                 slot,
                 qpiHeader: loadQpiHeader(core),
-                calleeSources: projectCalleeSources(core, contractPath, name, slot),
+                stateType,
+                calleeSources: projectCalleeSources(core, contractPath, name, stateType, slot),
             });
             // Emit a SELF-CONTAINED client: it pulls LiteRpc/codec from a sibling runtime.ts, not the unpublished @qinit/* packages, so it works outside.
             const ts = generateClient(idl, slot, { runtimeImport: "./runtime" });

@@ -49,7 +49,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                 const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
                 const requested = commandArgs.get("contract") ?? commandArgs.positionals[0];
                 const contractPath = projectContractPath("build", requested, cfg);
-                const name = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
+                const { name, stateType } = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
                 const outDir = resolve(commandArgs.get("out") ?? "dist/contracts");
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
                 const slot = requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot);
@@ -66,6 +66,7 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
                         corePath: core,
                         contractPath,
                         contractName: name,
+                        stateType,
                         slot,
                         explicitCallees: dynCallees,
                     }),

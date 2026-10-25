@@ -61,11 +61,12 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
     // resolved at render for the names below; a missing contract is reported as the first step rather than a crash.
     let contractPath = "",
         contractName = "",
+        contractStateType = "",
         contractErr = "";
     try {
         const requested = commandArgs.get("contract") ?? commandArgs.positionals[0];
         contractPath = projectContractPath("test", requested, cfg);
-        contractName = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
+        ({ name: contractName, stateType: contractStateType } = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested));
     } catch (e: any) {
         contractErr = String(e?.message ?? e);
     }
@@ -183,6 +184,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                         projectRoot: root,
                         contractPath,
                         name: contractName,
+                        stateType: contractStateType,
                         core,
                         rpcBaseUrl: activeRpc,
                         seed,
@@ -216,6 +218,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     extractIdl(readFileSync(contractPath, "utf8"), contractName, {
                         slot: dep.slot,
                         qpiHeader: loadQpiHeader(core),
+                        stateType: contractStateType,
                     });
                 const sdkDir = join(root, "tests", ".qinit");
                 mkdirSync(sdkDir, { recursive: true });

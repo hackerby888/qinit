@@ -148,11 +148,11 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
 
                 // One accepted source format: core-lite contract_testing.h / ContractTesting.
-                let contractPath: string, name: string;
+                let contractPath: string, name: string, stateType: string;
                 try {
                     contractPath = projectContractPath("gtest", commandArgs.get("contract"), cfg);
                     const flags = { contractName: commandArgs.get("contract-name"), stateType: commandArgs.get("state-type") };
-                    name = projectContractName(contractPath, flags, cfg, !commandArgs.get("contract"));
+                    ({ name, stateType } = projectContractName(contractPath, flags, cfg, !commandArgs.get("contract")));
                 } catch (e: any) {
                     add("contract", false, String(e?.message ?? e));
                     return done(false, []);
@@ -166,6 +166,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     projectRoot: process.cwd(),
                     corePath: core,
                     contractName: name,
+                    stateType,
                     contractPath,
                     slot: requestedSlot === undefined ? undefined : resolveGtestSlot(core, requestedSlot),
                     explicitCallees,
@@ -194,11 +195,11 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     const idl = extractIdl(contractSrc, name, {
                         slot,
                         qpiHeader: loadQpiHeader(core),
-                        stateType: name,
+                        stateType,
                         calleeSources,
                     });
                     mkdirSync(join(testPath, ".."), { recursive: true });
-                    writeFileSync(testPath, genStdGtest(idl, name, name));
+                    writeFileSync(testPath, genStdGtest(idl, name, stateType));
                     add("scaffold", true, `${testPath.replace(process.cwd() + "/", "")} (core-lite)`);
                 }
 
@@ -207,7 +208,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     contractPath,
                     testPath,
                     name,
-                    stateType: name,
+                    stateType,
                     slot,
                     core,
                     backend,

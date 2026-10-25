@@ -139,6 +139,29 @@ test("buildCalleePrelude emits guarded callee CONTRACT_INDEX + inputType constan
     }
 });
 
+// a project copy of QUTIL is built at a dynamic slot the wrapper defines; core's canonical index must not be pre-defined under it.
+test("buildCalleePrelude leaves the contract's own index to the wrapper", () => {
+    const root = mkdtempSync(join(tmpdir(), "ic-self-"));
+    try {
+        mkdirSync(join(root, "src", "contract_core"), { recursive: true });
+        writeFileSync(join(root, "src", "contract_core", "contract_def.h"), "#define QX_CONTRACT_INDEX 1\n#define QUTIL_CONTRACT_INDEX 4\n");
+        const callee = join(root, "QX.h");
+        writeFileSync(
+            callee,
+            `struct QX : public ContractBase {
+      struct Get_input {}; struct Get_output {};
+      PUBLIC_FUNCTION(Get) {}
+      REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+    };`,
+        );
+        const prelude = buildCalleePrelude(root, "CALL_OTHER_CONTRACT_FUNCTION(QX, in, out);", { QX: { header: callee, slot: 1 } }, "QUTIL");
+        expect(prelude).toContain("#define QX_CONTRACT_INDEX 1");
+        expect(prelude).not.toContain("QUTIL_CONTRACT_INDEX");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("buildCalleePrelude includes static-only dynamic callees", () => {
     const root = mkdtempSync(join(tmpdir(), "ic-static-"));
     try {

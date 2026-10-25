@@ -19,6 +19,7 @@ export {
     generateWasmContractTestingHeaderForCore,
     KNOWN_LOG_HEADER_VIOLATIONS,
     systemContractClosure,
+    isCoreStateType,
     systemContractDescriptions,
     systemContracts,
     systemNames,

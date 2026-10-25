@@ -1,5 +1,6 @@
 import { LiteRpc, debug, type DynamicContractRegistryEntry } from "@qinit/core";
 import { systemContracts, type CalleeSource, type SystemContract } from "@qinit/build";
+import { declaredStateType } from "@qinit/compiler/analyzer";
 import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
 import type { ContractEntry, ContractIdl } from "@qinit/proto/contract-idl";
 import { resolveCoreDir } from "../config";
@@ -128,8 +129,9 @@ export function siblingCalleeSources(contracts: readonly DynamicContractRegistry
         if (contract.index === index || !contract.source) {
             continue;
         }
+        // the analyzer keys a callee by its struct, which a deploy name need not match
         siblings.push({
-            name: contract.name || String(contract.index),
+            name: (declaredStateType(contract.source) ?? contract.name) || String(contract.index),
             source: contract.source,
             slot: contract.index,
         });
@@ -158,11 +160,14 @@ export function resolveContract(target: string, sets: ContractSets): ResolvedCon
 
     if (userContract) {
         const catalogEntry = sets.system.find((contract) => contract.index === userContract.index);
+        // only the contract's own source names its struct; the catalog's is a fallback for a slot that shares an index
+        const stateType = userContract.source ? declaredStateType(userContract.source) : undefined;
         return {
             index: userContract.index,
             name: userContract.name || String(userContract.index),
             kind: "user",
             source: userContract.source || catalogEntry?.source,
+            ...(stateType ? { stateType } : {}),
             ...(userContract.codeHash ? { codeHash: userContract.codeHash } : {}),
         };
     }

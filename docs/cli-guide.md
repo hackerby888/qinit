@@ -668,7 +668,7 @@ qinit integrate [<contract.h>]
 ```
 
 Contract selection is `--contract`, then the positional, then `qinit.json`.
-The name is the struct the header declares (`struct Name : public ContractBase`); `--contract-name` and `qinit.json contractName` are checked against it and refused when they differ.
+The state type is the struct the header declares (`struct Name : public ContractBase`) and is never typed. The deploy name is `--contract-name`, then `qinit.json contractName`, then that struct; it may differ from the struct, which is how a copy of core's `QUtil.h` ships as `MyQutil` with every `QUTIL_*` name untouched. `--state-type` is still refused when it differs from the struct.
 Output defaults to `../<ContractName>-core`. A new output is a full,
 single-branch clone of the latest `qubic/core` `main`, followed by a
 `qinit/<lowercase-name>` integration branch. In a TTY, initial integration
@@ -746,7 +746,7 @@ It resolves:
 | Value    | Resolution                                                            |
 | -------- | --------------------------------------------------------------------- |
 | Contract | `--contract` -> first positional -> config -> error                  |
-| Name     | the declared struct; `--contract-name`/config must match it           |
+| Name     | `--contract-name` -> config `contractName` -> the declared struct      |
 | Output   | `--out` -> `dist/contracts`                                           |
 | Slot     | `--slot` -> config -> live registry plan -> offline hypothetical plan |
 | Core     | normal `resolveCoreDir()` chain                                       |

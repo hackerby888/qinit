@@ -2,7 +2,7 @@ import { existsSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { cacheRoot, readCurrent } from "@qinit/core";
-import { analyzeContract, stripCheatcodes } from "@qinit/compiler/analyzer";
+import { analyzeContract, stripCheatcodes, declaredStateType } from "@qinit/compiler/analyzer";
 import { buildGateViolations, type BuildGateContext } from "./build-rules";
 
 export interface VerifyResult {
@@ -42,7 +42,7 @@ export async function verifyForBuild(options: {
         return { available: false, ok: true, oracle: false, errors: [] };
     }
 
-    return verifyContract(options.contractPath, options.stateType, { allowedPrefixes: [...options.calleeNames] });
+    return verifyContract(options.contractPath, options.stateType, { allowedPrefixes: [...options.calleeNames], stateType: options.stateType });
 }
 
 // A rejection in the build result's own shape, so neither backend needs a second error path.
@@ -62,10 +62,13 @@ export function verifyRejection(verify: VerifyResult): { ok: false; verify: Veri
 export async function verifyContract(
     file: string,
     name: string,
-    options?: { oracle?: boolean; allowedPrefixes?: string[]; buildRules?: BuildGateContext },
+    options?: { oracle?: boolean; allowedPrefixes?: string[]; buildRules?: BuildGateContext; stateType?: string },
 ): Promise<VerifyResult> {
-    const gate = options?.buildRules ? buildGateViolations(analyzeContract({ source: readFileSync(file, "utf8"), contractName: name }).diagnostics, options.buildRules) : [];
-    const result = await verifyWithTool(file, name, options);
+    const source = readFileSync(file, "utf8");
+    // the verifier and the gate read the struct; a deploy name that differs from it must not reach either.
+    const stateType = options?.stateType ?? declaredStateType(source) ?? name;
+    const gate = options?.buildRules ? buildGateViolations(analyzeContract({ source, contractName: stateType }).diagnostics, options.buildRules) : [];
+    const result = await verifyWithTool(file, stateType, options);
     return gate.length ? { ...result, ok: false, errors: [...gate, ...result.errors] } : result;
 }
 

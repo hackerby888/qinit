@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { scanCallees } from "@qinit/build";
+import { declaredStateType } from "@qinit/compiler/analyzer";
 import type { LiteRpc } from "@qinit/core";
 import { invalidArgs } from "../args";
 
@@ -45,7 +46,7 @@ export async function resolveNodeCallees(
     contractSource: string,
     declared: Record<string, DynamicCallee> = {},
     onNote?: (message: string) => void,
-    analysis?: { name: string; slot: number; qpiHeader: string },
+    analysis?: { contractName: string; slot: number; qpiHeader: string },
     timeoutMs?: number,
 ): Promise<Record<string, DynamicCallee>> {
     const resolved = { ...declared };
@@ -69,7 +70,9 @@ export async function resolveNodeCallees(
             : await probe;
 
         for (const name of pending) {
-            const contract = (registry.contracts ?? []).find((candidate) => candidate.name === name && candidate.armed && candidate.source);
+            const contract = (registry.contracts ?? []).find(
+                (candidate) => candidate.armed && !!candidate.source && (declaredStateType(candidate.source) ?? candidate.name) === name,
+            );
             if (!contract) {
                 continue;
             }

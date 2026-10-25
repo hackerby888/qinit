@@ -204,6 +204,34 @@ test("a system contract with a bare div passes the gate", async () => {
     }
 });
 
+// a project copy of one of core's contracts is core's code: its bare divs are not the developer's to fix on the way to the simulator.
+test.skipIf(!HAS_CORE)("a project copy of a core contract passes the user-scope gate by default", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "qinit-bare-div-core-copy-"));
+    const contractPath = join(directory, "MyQx.h");
+    writeFileSync(contractPath, BARE_DIV_CONTRACT.replace("struct Ratio", "struct QX"));
+
+    try {
+        const outcome = await buildContractWithClang({
+            contractPath,
+            contractName: "MyQx",
+            slot: 28,
+            corePath: CORE_PATH,
+            outDir: directory,
+            skipVerify: true,
+            wasmClang: join(directory, "must-not-run-clang"),
+            calleePrelude: "",
+        }).then(
+            (result) => result.stderr ?? "",
+            (error: any) => String(error?.message ?? error),
+        );
+
+        expect(outcome).not.toContain("QPI::div");
+        expect(outcome).toContain("must-not-run-clang");
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
 test.skipIf(!HAS_CORE)("the TypeScript backend rejects a bare div with the same message", async () => {
     const directory = mkdtempSync(join(tmpdir(), "qinit-bare-div-ts-"));
 

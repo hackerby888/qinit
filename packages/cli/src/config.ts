@@ -40,13 +40,20 @@ export function projectContractPath(command: string, requested: string | undefin
 // the deploy message carries the name in char[32]: core keeps 31 bytes, the simulator keeps them all, and reuse-by-name would disagree.
 export const MAX_CONTRACT_NAME = 31;
 
-// a user contract's name is the struct it declares; a name given by flag or qinit.json must agree with it, never replace it.
+export interface ProjectContract {
+    // what the node, the IDL and the generated client call the contract
+    name: string;
+    // the struct the header declares: the wrapper's CONTRACT_STATE_TYPE and core's verifier read this one
+    stateType: string;
+}
+
+// the deploy name is --contract-name, then qinit.json's contractName, then the struct; the struct itself is never typed, only read from the header.
 export function projectContractName(
     contractPath: string,
     flags: { contractName?: string; stateType?: string },
     config: QinitConfig,
     fromConfig: boolean,
-): string {
+): ProjectContract {
     if (!existsSync(contractPath)) {
         throw new Error(`${contractPath} not found`);
     }
@@ -54,21 +61,23 @@ export function projectContractName(
     if (!declared) {
         throw new Error(`no contract struct in ${contractPath} — a contract declares \`struct Name : public ContractBase\``);
     }
-    if (declared.length > MAX_CONTRACT_NAME) {
-        throw new Error(`contract ${declared} is ${declared.length} characters — a deployed contract's name is at most ${MAX_CONTRACT_NAME}`);
-    }
     // qinit.json's name speaks only for qinit.json's file; a header named on the command line is its own contract.
-    const claims = [
-        ["--contract-name", flags.contractName],
-        ["--state-type", flags.stateType],
-        ["qinit.json contractName", fromConfig ? config.contractName : undefined],
-    ] as const;
-    for (const [source, claimed] of claims) {
-        if (claimed !== undefined && claimed !== declared) {
-            throw new Error(`${source} "${claimed}" ≠ struct ${declared} in ${basename(contractPath)} — a contract's name is its struct: rename one of them`);
+    const name = flags.contractName ?? (fromConfig ? config.contractName : undefined) ?? declared;
+    // a struct named with core's macro has no name of its own; the deploy name stands in, as the wrapper's define does.
+    const stateType = declared === "CONTRACT_STATE_TYPE" ? name : declared;
+    if (flags.stateType !== undefined && flags.stateType !== stateType) {
+        throw new Error(`--state-type "${flags.stateType}" ≠ struct ${stateType} in ${basename(contractPath)}`);
+    }
+    for (const value of new Set([stateType, name])) {
+        if (value.length > MAX_CONTRACT_NAME) {
+            throw new Error(`contract ${value} is ${value.length} characters — a deployed contract's name is at most ${MAX_CONTRACT_NAME}`);
         }
     }
-    return declared;
+    // the name becomes the generated client's class and the gtest suite, so it has to be an identifier.
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+        throw new Error(`contract name "${name}" is not an identifier`);
+    }
+    return { name, stateType };
 }
 
 // Keep these re-exports free of Ink/React so the VS Code extension can use them.

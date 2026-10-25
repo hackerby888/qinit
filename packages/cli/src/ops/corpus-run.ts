@@ -113,9 +113,10 @@ export function clangErrorExcerpt(stderr: string, lines = 25): string {
 }
 
 // Sibling SYSTEM contracts referenced by the test or the contract source — built + deployed alongside the main.
-function depSpecs(catalog: any[], mainName: string, testSrc: string, contractSrc: string, core: string): StdGtestContractSpec[] {
+function depSpecs(catalog: any[], mainName: string, mainStateType: string, testSrc: string, contractSrc: string, core: string): StdGtestContractSpec[] {
     const deps: StdGtestContractSpec[] = [];
-    const seen = new Set<string>([mainName]);
+    // a project copy of a core contract references its own prefixes; the catalog's version is not its dependency
+    const seen = new Set<string>([mainName, ...catalog.filter((other) => other.stateType === mainStateType).map((other) => other.name)]);
     const visit = (source: string) => {
         for (const other of catalog) {
             if (seen.has(other.name)) continue;
@@ -182,11 +183,11 @@ async function clangWasms(
         });
         return p2.wasmPath ? new Uint8Array(readFileSync(p2.wasmPath)) : null;
     };
-    const m = await build(main, mainArenaSize(main.name), true, shared);
+    const m = await build(main, mainArenaSize(main.stateType), true, shared);
     if (m) out[main.slot] = m;
     for (const d of deps) {
         // NOST's state is near the Wasm32 ceiling, and its QX dependency retains no runner-side pointers, so keep that dependency in its own memory.
-        const w = await build(d, DEP_ARENA, false, shared && main.name !== "NOST");
+        const w = await build(d, DEP_ARENA, false, shared && main.stateType !== "NOST");
         if (w) out[d.slot] = w;
     }
     return out;
@@ -270,7 +271,7 @@ async function typescriptWasms(
         if (!dr.idl) {
             throw new Error(`TypeScript dependency ${d.name}: compiler did not produce IDL`);
         }
-        out[d.slot] = shared && main.name !== "NOST" ? (await emitAt(depOpts, DEP_ARENA)).wasm : (await withStateArena(depOpts, dr)).wasm;
+        out[d.slot] = shared && main.stateType !== "NOST" ? (await emitAt(depOpts, DEP_ARENA)).wasm : (await withStateArena(depOpts, dr)).wasm;
         callees.push({
             ...dr.idl,
             name: d.stateType,
@@ -293,7 +294,7 @@ async function typescriptWasms(
             calleeSources: calleeSources.length ? calleeSources : undefined,
             strict: !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(main.contractPath)),
         },
-        mainArenaSize(main.name),
+        mainArenaSize(main.stateType),
     );
     out[main.slot] = m.wasm;
     return { wasms: out, timings: m.timings };
@@ -321,7 +322,7 @@ export async function runStdGtest(opts: {
     await initK12();
     const testSrc = readFileSync(opts.testPath, "utf8");
     const contractSrc = readFileSync(opts.contractPath, "utf8");
-    const detectedSystemDependencies = depSpecs(systemContracts(opts.core), opts.name, testSrc, contractSrc, opts.core);
+    const detectedSystemDependencies = depSpecs(systemContracts(opts.core), opts.name, opts.stateType, testSrc, contractSrc, opts.core);
     const deps = [...(opts.projectDependencies ?? [])];
     for (const dependency of detectedSystemDependencies) {
         const matchingType = deps.find((candidate) => candidate.stateType === dependency.stateType);

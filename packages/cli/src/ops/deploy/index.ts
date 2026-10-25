@@ -25,6 +25,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export interface DeployOpts {
     contractPath: string;
     name: string;
+    // the struct the header declares when it differs from the deploy name
+    stateType?: string;
     core: string;
     rpcBaseUrl: string;
     seed?: string;
@@ -134,7 +136,7 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
     const discoveredCallees = options.artifact
         ? (options.dynCallees ?? {})
         : await resolveNodeCallees(rpc, readFileSync(options.contractPath, "utf8"), options.dynCallees ?? {}, (note) => emit({ note }), {
-              name: options.name,
+              contractName: options.stateType ?? options.name,
               slot,
               qpiHeader: loadQpiHeader(options.core),
           });
@@ -166,6 +168,7 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
           ? await buildContractWithTypeScript({
                 contractPath: options.contractPath,
                 contractName: options.name,
+                stateType: options.stateType,
                 slot,
                 corePath: options.core,
                 outDir,
@@ -176,6 +179,7 @@ async function runDeployment(options: DeployOpts, rpc: LiteRpc, staging: Staging
           : await buildContractWithClang({
                 contractPath: options.contractPath,
                 contractName: options.name,
+                stateType: options.stateType,
                 slot,
                 corePath: options.core,
                 outDir,

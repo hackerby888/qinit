@@ -204,3 +204,12 @@ test("semantic failures surface through the adapter", () => {
         ),
     ).toThrow(/no implementation body/);
 });
+
+// a copy of a core header keeps its struct; a caller holding only the deploy name still gets the right IDL.
+test("extractIdl reads the struct from the source when the name differs from it", () => {
+    const source = SOURCE.replaceAll("CONTRACT_STATE2_TYPE", "QUTIL2").replaceAll("CONTRACT_STATE_TYPE", "QUTIL");
+    const renamed = extractIdl(source, "MyQutil", { slot: 28 });
+    expect(renamed.name).toBe("MyQutil");
+    expect(renamed.functions.map((entry) => entry.name)).toEqual(["Get"]);
+    expect(renamed.procedures.map((entry) => entry.name)).toEqual(["Set"]);
+});

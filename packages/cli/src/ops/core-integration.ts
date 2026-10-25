@@ -33,6 +33,10 @@ export interface CoreIntegrationOptions {
     projectRoot: string;
     contractPath: string;
     contractName: string;
+    // the project's own test file is named after its deploy name, which may differ from the struct
+    localTestName?: string;
+    // "system" for an update of one of core's own contracts: the user-scope rules are not its author's to fix here
+    contractKind?: "user" | "system";
     outputPath: string;
     assetName?: string;
     constructionEpoch?: number;
@@ -362,7 +366,8 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
 
         // Core's Windows build is the hand-off this gate exists for; refuse before any checkout is created.
         const analysis = analyzeContract({ source: contractSource, contractName });
-        const gateContext = { contractKind: "user" as const, buildRules: options.buildRules };
+        const contractKind: "user" | "system" = options.contractKind ?? "user";
+        const gateContext = { contractKind, buildRules: options.buildRules };
         const rules = buildGateViolations(analysis.diagnostics, gateContext);
         if (rules.length) {
             throw new Error(`build rule violations in ${sourceFileName}:\n${rules.map((item) => `  ${item}`).join("\n")}`);
@@ -379,7 +384,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
             throw new Error(`${sourceFileName}: ${rejection.stderr}`);
         }
 
-        const localTestPath = join(projectRoot, "tests", `${contractName}.test.cpp`);
+        const localTestPath = join(projectRoot, "tests", `${options.localTestName ?? contractName}.test.cpp`);
         const testSource = existsSync(localTestPath) ? readFileSync(localTestPath, "utf8") : undefined;
 
         return {
@@ -447,7 +452,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
         const ownHeader = existing ? join(corePath, "src", ...existing.include.split("/")) : undefined;
         const warnings = [...contract.warnings, ...plan.warnings, ...coreNameCollisions(corePath, [contractName, `${contractName}2`], ownHeader)];
         if (!plan.testPath) {
-            warnings.push(`no tests/${contractName}.test.cpp: Core gets ${contractName} without a GTest`);
+            warnings.push(`no tests/${options.localTestName ?? contractName}.test.cpp: Core gets ${contractName} without a GTest`);
         }
 
         let branch = checkout.branch;

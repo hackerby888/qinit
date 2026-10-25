@@ -31,7 +31,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                 const contractPath = projectContractPath("deploy", requested, cfg);
                 const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
                 const slotOverride = requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot);
-                const nm = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
+                const { name: nm, stateType } = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
                 setName(nm);
                 const emit = (e: DeploymentEvent) => {
                     if ("note" in e) {
@@ -45,6 +45,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
                         projectRoot: process.cwd(),
                         contractPath,
                         name: nm,
+                        stateType,
                         core: resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir),
                         rpcBaseUrl: resolveRpc(commandArgs.get("rpc"), cfg),
                         seed: commandArgs.get("seed"),

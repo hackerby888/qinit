@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { loadQpiHeader } from "@qinit/compiler";
-import { detectContractName } from "@qinit/compiler/analyzer";
+import { declaredStateType, detectContractName } from "@qinit/compiler/analyzer";
 import { scanCallees } from "./intercontract";
 import { systemContracts, type SystemContract } from "./system-contracts";
 
@@ -26,6 +26,8 @@ export interface ResolveContractsOptions {
     projectRoot: string;
     corePath: string;
     contractName: string;
+    // the struct the header declares when the caller already read it; detected from the header otherwise
+    stateType?: string;
     contractPath: string;
     slot?: number;
     explicitCallees?: Readonly<Record<string, CalleeInput>>;
@@ -128,12 +130,16 @@ export function resolveContracts(options: ResolveContractsOptions): ResolvedCont
         throw new Error(`contract name '${options.contractName}' is reserved by system contract ${reservedRoot.name} at slot ${reservedRoot.index}`);
     }
 
+    // the deploy name may differ from the struct; the graph is keyed by the struct, which is what callers reference.
+    const root = readCustomNode(options.contractName, contractPath, options.slot);
+    root.stateType = options.stateType ?? declaredStateType(root.source) ?? root.name;
+
     for (const name of Object.keys(explicitCallees).sort()) {
         const reserved = reservedSystemNames.get(name.toLowerCase());
         if (reserved) {
             throw new Error(`--callee '${name}' cannot override system contract ${reserved.name} at slot ${reserved.index}`);
         }
-        if (name === options.contractName) {
+        if (name === options.contractName || name === root.stateType) {
             throw new Error(`--callee '${name}' duplicates the main contract`);
         }
     }
@@ -145,7 +151,6 @@ export function resolveContracts(options: ResolveContractsOptions): ResolvedCont
     const visitState = new Map<string, "visiting" | "visited">();
     const stack: string[] = [];
     const ordered: ResolvedContract[] = [];
-    const root = readCustomNode(options.contractName, contractPath, options.slot);
     nodes.set(root.stateType, root);
 
     const resolveSystem = (system: SystemContract): ResolvedContract => {
@@ -162,6 +167,25 @@ export function resolveContracts(options: ResolveContractsOptions): ResolvedCont
         const known = nodes.get(reference);
         if (known) {
             return known;
+        }
+
+        // core's contracts are compiled code calling canonical slots: they only ever see the catalog.
+        if (caller.kind === "system") {
+            const native = systemsByStateType.get(reference) ?? systemsByName.get(reference);
+            if (native) {
+                return resolveSystem(native);
+            }
+        }
+
+        // a header in this project declaring a core struct is the version this project's contracts call; it deploys under its file's name.
+        const twin = headers.get(reference);
+        if (twin?.length === 1 && reservedSystemNames.has(reference.toLowerCase())) {
+            const node = readCustomNode(basename(twin[0], ".h"), twin[0]);
+            if (declaredStateType(node.source) === reference) {
+                node.stateType = reference;
+                nodes.set(node.stateType, node);
+                return node;
+            }
         }
 
         // stateType is the primary key: scanCallees emits struct type names.

@@ -518,6 +518,32 @@ describe("build rules at the Core hand-off", () => {
         expect(existsSync(outputPath)).toBe(false);
     }, 60000);
 
+    // a bug fix to one of core's own contracts is not refused for the bare divs core itself shipped.
+    test("an update of a core contract is gated as system code", async () => {
+        const root = temporaryDirectory();
+        const repositoryUrl = createCoreRepository(root);
+        const projectRoot = createProject(root);
+
+        writeFileSync(
+            join(projectRoot, "contracts", "Main.h"),
+            "struct Main { struct StateData { Base::StateData* base; }; };\nPUBLIC_PROCEDURE(P)\n{\n    state.mut().n = div(input.a, input.b);\n}\n",
+        );
+
+        const result = await integrate({
+            projectRoot,
+            contractPath: "contracts/Main.h",
+            contractName: "Main",
+            contractKind: "system",
+            outputPath: join(root, "Main-core"),
+            assetName: "MAIN",
+            constructionEpoch: 300,
+            destructionEpoch: 10000,
+            repositoryUrl,
+        });
+
+        expect(readFileSync(join(result.corePath, "src", "contracts", "Main.h"), "utf8")).toContain("div(input.a, input.b)");
+    }, 60000);
+
     test("--no-build-rules lets the same contract through", async () => {
         const root = temporaryDirectory();
         const repositoryUrl = createCoreRepository(root);

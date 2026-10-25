@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { DynamicContractRegistryEntry } from "@qinit/core";
 import { scanCallees, type SystemContract } from "@qinit/build";
+import { declaredStateType } from "@qinit/compiler/analyzer";
 import type { ContractIdlFile } from "@qinit/proto/contract-idl";
 import { contractIdlForSlot } from "./idl-file";
 
@@ -54,7 +55,7 @@ export function dependentsOf(
         .filter((entry) => entry.armed && !systemSlots.has(entry.index))
         .flatMap((entry) => {
             const idl = contractIdlForSlot(idlFile, entry.index, entry.codeHash);
-            const callees = idl ? idl.dependencies : entry.source ? [...scanCallees(entry.source, { contractName: entry.name }, catalogNames)] : [];
+            const callees = idl ? idl.dependencies : entry.source ? [...scanCallees(entry.source, { contractName: declaredStateType(entry.source) ?? entry.name }, catalogNames)] : [];
             const uses = callees.filter((callee) => removedNames.has(callee));
             return uses.length ? [{ name: entry.name || String(entry.index), index: entry.index, uses: uses.join(", ") }] : [];
         });

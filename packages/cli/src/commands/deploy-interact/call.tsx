@@ -411,7 +411,7 @@ function CallOneShot({
                 // Why the procedure was never submitted, worded for the trace note and remembered past dispatch so an empty trace can name the real reason.
                 let skipped: string | undefined;
                 const traceSrc = rc.source;
-                const traceName = rc.name;
+                const traceName = rc.stateType ?? rc.name;
                 if (wantTrace) {
                     try {
                         await rpc.setDebug(true);

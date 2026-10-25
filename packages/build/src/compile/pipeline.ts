@@ -14,9 +14,9 @@ import type { ContractBuildResult, SystemContractCompiler } from "./types";
 import { buildContractWithTypeScript } from "./typescript";
 import { buildCalleePrelude } from "../contracts/intercontract";
 import type { DynCallees } from "../contracts/intercontract";
-import { generateWasmContractTestingHeaderForCore, KNOWN_LOG_HEADER_VIOLATIONS, systemContractClosure, systemContracts } from "../contracts/system-contracts";
+import { generateWasmContractTestingHeaderForCore, KNOWN_LOG_HEADER_VIOLATIONS, systemContractClosure, systemContracts, isCoreStateType } from "../contracts/system-contracts";
 import { k12Hex, type BuildProfile } from "@qinit/core";
-import { analyzeContract } from "@qinit/compiler/analyzer";
+import { analyzeContract, declaredStateType } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
 import { buildGateRejection, buildGateViolations, buildGateWarnings, type ContractKind } from "./build-rules";
 
@@ -45,17 +45,21 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         source: readFileSync(callee.header, "utf8"),
         slot: callee.slot,
     }));
+    // the deploy name may differ from the struct; everything that reads the C++ goes by the struct the header declares.
+    const stateType = o.stateType ?? declaredStateType(source) ?? o.contractName;
     // Collection/HashMap/HashSet/LinkedList have no safe public wire representation; reject them even when verification is skipped.
     const analysis = analyzeContract({
         source,
-        contractName: o.stateType ?? o.contractName,
+        contractName: stateType,
         slot: o.slot,
         qpiHeader,
         calleeSources,
     });
     // The same gate the TypeScript backend runs (build-rules.ts), so both compilers reject the same contracts.
+    // core's own code, a project copy included, builds under the system rules.
+    const contractKind: ContractKind = o.contractKind ?? (isCoreStateType(o.corePath, stateType) ? "system" : "user");
     const gateContext = {
-        contractKind: o.contractKind,
+        contractKind,
         buildRules: o.buildRules,
         rejectsLogHeader: o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(o.contractPath)),
     };
@@ -66,7 +70,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
     const warnings = buildGateWarnings(analysis.diagnostics, gateContext);
     const calls = analysis.calls;
     const calleeNames = [...new Set([...Object.keys(o.dynCallees ?? {}), ...calls.map((call) => call.callee)])];
-    const verify = await verifyForBuild({ contractPath: o.contractPath, stateType: o.stateType ?? o.contractName, calleeNames, skipVerify: o.skipVerify });
+    const verify = await verifyForBuild({ contractPath: o.contractPath, stateType, calleeNames, skipVerify: o.skipVerify });
     const rejected = verifyRejection(verify);
     if (rejected) {
         return rejected;
@@ -76,7 +80,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
     let calleePrelude = o.calleePrelude;
     if (calleePrelude === undefined) {
         try {
-            calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, o.stateType ?? o.contractName);
+            calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, stateType);
         } catch (e: any) {
             return {
                 ok: false,
@@ -85,7 +89,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         }
     }
     // Compile the contract to a wasm module for the node's WAMR engine: one platform-independent artifact, deployed by chunked upload and sniffed as wasm.
-    const compiled = await compileWasmContract({ ...o, calleePrelude });
+    const compiled = await compileWasmContract({ ...o, stateType, calleePrelude });
     if (!compiled.ok) {
         return {
             ok: false,
@@ -109,7 +113,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
         idl = extractIdl(source, o.contractName, {
             slot: o.slot,
             qpiHeader,
-            stateType: o.stateType,
+            stateType,
             calleeSources,
         });
     } catch (e: any) {

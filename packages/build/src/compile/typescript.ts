@@ -1,11 +1,11 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { CheatMode, compileContractWithTypeScript, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
-import { analyzeContract, type SourceAnalysisResult } from "@qinit/compiler/analyzer";
+import { analyzeContract, type SourceAnalysisResult, declaredStateType } from "@qinit/compiler/analyzer";
 import { k12Hex } from "@qinit/core";
 import type { ContractBuildResult } from "./types";
 import { verifyForBuild, verifyRejection } from "./verify";
-import { KNOWN_LOG_HEADER_VIOLATIONS } from "../contracts/system-contracts";
+import { KNOWN_LOG_HEADER_VIOLATIONS, isCoreStateType } from "../contracts/system-contracts";
 import { resolveContractSource } from "./source";
 import { buildGateRejection, buildGateViolations, buildGateWarnings, type ContractKind } from "./build-rules";
 
@@ -126,7 +126,8 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         slot,
         source: calleeSource,
     }));
-    const contractStateType = o.stateType ?? o.contractName;
+    // the deploy name may differ from the struct; everything that reads the C++ goes by the struct the header declares.
+    const contractStateType = o.stateType ?? declaredStateType(source) ?? o.contractName;
     const rejectsLogHeader = o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(contractPath));
 
     // The same gate the clang build runs (build-rules.ts), so both compilers reject the same contracts.
@@ -137,7 +138,9 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         qpiHeader,
         calleeSources: calleeSources.length ? calleeSources : undefined,
     });
-    const gateContext = { contractKind: o.contractKind, buildRules: o.buildRules, rejectsLogHeader };
+    // core's own code, a project copy included, builds under the system rules.
+    const contractKind: ContractKind = o.contractKind ?? (isCoreStateType(o.corePath, contractStateType) ? "system" : "user");
+    const gateContext = { contractKind, buildRules: o.buildRules, rejectsLogHeader };
     const gate = buildGateRejection(buildGateViolations(analysis.diagnostics, gateContext));
     if (gate) {
         return gate;

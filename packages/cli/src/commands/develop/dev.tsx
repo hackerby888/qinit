@@ -20,11 +20,12 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     // resolved at render like the core dir, so a missing contract is a panel rather than a crash.
     let contractPath = "",
         contractName = "",
+        contractStateType = "",
         contractErr = "";
     try {
         const requested = commandArgs.get("contract") ?? commandArgs.positionals[0];
         contractPath = projectContractPath("dev", requested, cfg);
-        contractName = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
+        ({ name: contractName, stateType: contractStateType } = projectContractName(contractPath, { contractName: commandArgs.get("contract-name") }, cfg, !requested));
     } catch (e: any) {
         contractErr = String(e?.message ?? e);
     }
@@ -78,6 +79,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
                         projectRoot: process.cwd(),
                         contractPath,
                         name: contractName,
+                        stateType: contractStateType,
                         core,
                         rpcBaseUrl: rpcBaseUrl,
                         seed,

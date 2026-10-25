@@ -1,4 +1,4 @@
-// a contract whose file, qinit.json name and struct differ once built with typescript and failed with clang.
+// a contract whose file, qinit.json name and struct differ once built with typescript and failed with clang; the struct is read from the header and the qinit.json name is the deploy name.
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,19 +45,21 @@ test.skipIf(!HAS_CORE)(
     120_000,
 );
 
+// a copy of a core header keeps its struct and every prefixed global; the qinit.json name is what it deploys as.
 test.skipIf(!HAS_CORE)(
-    "a qinit.json name that disagrees with the struct is refused before either compiler runs",
+    "a qinit.json name that differs from the struct is the deploy name on both compilers",
     async () => {
         const cwd = project({ contractName: "Counter" });
         try {
-            for (const compiler of ["typescript", "clang"]) {
+            for (const compiler of HAS_WASI ? ["typescript", "clang"] : ["typescript"]) {
                 const result = await build(cwd, compiler);
-                expect(result.ok, compiler).toBe(false);
-                expect(result.error, compiler).toContain(`qinit.json contractName "Counter" ≠ struct CounterV2 in MyCounter.h`);
+                expect(result.ok, `${compiler}: ${result.error}`).toBe(true);
+                expect(result.idl?.name, compiler).toBe("Counter");
+                expect(result.artifact, compiler).toEndWith("Counter.wasm");
             }
         } finally {
             rmSync(cwd, { recursive: true, force: true });
         }
     },
-    60_000,
+    120_000,
 );

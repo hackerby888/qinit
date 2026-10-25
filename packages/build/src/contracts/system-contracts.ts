@@ -161,6 +161,15 @@ export function systemNames(coreRoot: string): Set<string> {
     return new Set(systemContracts(coreRoot).map((contract) => contract.name.toLowerCase()));
 }
 
+// core's own code builds under the system rules wherever its header lives, a project copy of QUtil.h included.
+export function isCoreStateType(coreRoot: string, stateType: string): boolean {
+    try {
+        return systemContracts(coreRoot).some((contract) => contract.stateType === stateType);
+    } catch {
+        return false;
+    }
+}
+
 export function systemContractClosure(coreRoot: string, name: string): SystemContract[] {
     const catalog = systemContracts(coreRoot);
     const contractsByIdentifier = new Map<string, SystemContract>();

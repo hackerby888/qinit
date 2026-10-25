@@ -61,7 +61,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
                 }
                 // also refuse a built-in system-contract name (best-effort: needs the snapshot; deploy re-checks authoritatively)
                 if (loadSystem().some((c) => c.name.toLowerCase() === name.toLowerCase())) {
-                    fail(`✗ '${name}' is a system contract name — pick another`);
+                    fail(`✗ '${name}' is a system contract name — pick another; the header may still declare struct ${name}, the project name is only the deploy name`);
                     return;
                 }
                 if (name.length > MAX_CONTRACT_NAME) {

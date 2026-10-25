@@ -123,7 +123,7 @@ test.skipIf(!HAS_CORE)("explicit callees override workspace discovery and may om
     );
 });
 
-test.skipIf(!HAS_CORE)("system contracts take precedence over workspace headers", () => {
+test.skipIf(!HAS_CORE)("a header merely named after a system contract does not replace it", () => {
     project(
         {
             "contracts/Main.h": calls("QUTIL"),
@@ -303,6 +303,50 @@ test.skipIf(!HAS_CORE)("a broken or non-contract sibling is skipped instead of f
             });
 
             expect(graph.map((node) => node.stateType)).toEqual(["Main"]);
+        },
+    );
+});
+
+// a project copy of a core contract keeps its struct and takes its own deploy name, so none of its prefixed globals move.
+test.skipIf(!HAS_CORE)("a project header declaring a core struct is the main contract under its own deploy name", () => {
+    project({ "contracts/MyQx.h": contract("QX") }, (root) => {
+        const graph = resolveContracts({ projectRoot: root, corePath: CORE, contractName: "MyQx", contractPath: "contracts/MyQx.h" });
+        expect(graph.map((node) => [node.name, node.stateType, node.kind])).toEqual([["MyQx", "QX", "custom"]]);
+    });
+});
+
+test.skipIf(!HAS_CORE)("a project contract calling a core struct binds to the project's copy", () => {
+    project(
+        {
+            "contracts/Main.h": contract("Main", calls("QUTIL", "QX")),
+            "contracts/MyQx.h": contract("QX"),
+        },
+        (root) => {
+            const graph = resolveContracts({ projectRoot: root, corePath: CORE, contractName: "Main", contractPath: "contracts/Main.h" });
+            const qx = graph.filter((node) => node.stateType === "QX");
+            expect(qx.map((node) => [node.name, node.kind, node.slot])).toEqual([["MyQx", "custom", undefined]]);
+            expect(graph.find((node) => node.stateType === "QUTIL")?.kind).toBe("system");
+            // one node per struct: core's QUTIL names the copy too, which is what the prelude needs; the node itself calls slot 1 natively
+            expect(graph.find((node) => node.stateType === "QUTIL")?.callees).toContain("QX");
+            expect(graph.at(-1)?.callees).toEqual(["QUTIL", "QX"]);
+        },
+    );
+});
+
+// core's own contracts are compiled against canonical slots, so their references never pick up a project header.
+test.skipIf(!HAS_CORE)("a core contract's own callees come from the catalog even when the project holds a copy", () => {
+    project(
+        {
+            "contracts/Main.h": contract("Main", calls("QUTIL")),
+            "contracts/MyQx.h": contract("QX"),
+        },
+        (root) => {
+            const graph = resolveContracts({ projectRoot: root, corePath: CORE, contractName: "Main", contractPath: "contracts/Main.h" });
+            expect(graph.map((node) => [node.stateType, node.kind, node.slot])).toEqual([
+                ["QX", "system", 1],
+                ["QUTIL", "system", 4],
+                ["Main", "custom", undefined],
+            ]);
         },
     );
 });

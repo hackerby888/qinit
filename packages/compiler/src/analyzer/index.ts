@@ -116,6 +116,12 @@ export function detectContractName(source: string): string | undefined {
     return detectQpiContractName(source);
 }
 
+// the struct a header declares, unless it names itself with core's CONTRACT_STATE_TYPE macro and so has no name of its own.
+export function declaredStateType(source: string): string | undefined {
+    const name = detectQpiContractName(source);
+    return name === "CONTRACT_STATE_TYPE" ? undefined : name;
+}
+
 function analyzeCompiler(
     options: AnalyzeContractOptions & {
         contractName: string;

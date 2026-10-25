@@ -100,11 +100,15 @@ export function parseRegisters(source: string, options: SourceOptions = {}): { f
 
 export type DynCallees = Record<string, { header: string; slot: number }>;
 
-function indexDefines(parsed: ParsedContractDefinitionSource): string {
+function indexDefines(parsed: ParsedContractDefinitionSource, selfType?: string): string {
     let output = "// ---- all contract indices (contract_def.h) so a directly-#included sibling resolves ----\n";
     // the test examples count up from the last #define, so only the parsed name map knows their indices
     const indices = new Map([...parsed.indexConstants.map((constant) => [constant.name, constant.index] as const), ...[...parsed.names].map(([index, name]) => [name, index] as const)]);
     for (const [name, index] of indices) {
+        // a project copy of a core contract gets its slot from the wrapper, not core's canonical index
+        if (name === selfType) {
+            continue;
+        }
         output += `#ifndef ${name}_CONTRACT_INDEX\n#define ${name}_CONTRACT_INDEX ${index}\n#endif\n`;
     }
 
@@ -134,7 +138,7 @@ export function buildCalleePrelude(
 
     try {
         const parsed = readContractDefinitions(corePath);
-        indexBlock = indexDefines(parsed);
+        indexBlock = indexDefines(parsed, selfType);
         definitions = calleeDefinitions(parsed);
     } catch {
         // Builds without static callees do not require a core contract registry.
@@ -159,7 +163,7 @@ export function buildCalleePrelude(
     }
 
     const sourceOptions = {
-        name: selfType,
+        contractName: selfType,
         qpiHeader,
     };
     wanted = new Set([...scanCallees(contractSource, sourceOptions, knownCallees), ...unreferenced]);

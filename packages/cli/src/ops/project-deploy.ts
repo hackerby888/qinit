@@ -1,6 +1,7 @@
 import { CheatMode } from "@qinit/compiler";
-import { relative, resolve } from "node:path";
-import { resolveContracts, type CalleeInput, type ContractIdl } from "@qinit/build";
+import { readFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+import { resolveContracts, systemContractClosure, type CalleeInput, type ContractIdl } from "@qinit/build";
 import { LiteRpc, k12Hex, type DynamicContractRegistryEntry, type NodeBackendIdentity } from "@qinit/core";
 import type { CompilerBackend } from "../config";
 import { stageContractState } from "../contracts/state-stage";
@@ -67,6 +68,8 @@ export async function deployProjectContracts(
         projectRoot: string;
         contractPath: string;
         name: string;
+        // the struct the header declares when it differs from the deploy name
+        stateType?: string;
         core: string;
         rpcBaseUrl: string;
         seed?: string;
@@ -99,6 +102,7 @@ export async function deployProjectContracts(
             corePath: options.core,
             contractPath: options.contractPath,
             contractName: options.name,
+            stateType: options.stateType,
             slot: options.slotOverride,
             explicitCallees: options.explicitCallees,
         }),
@@ -178,10 +182,28 @@ export async function deployProjectContracts(
     }
     const systems: BuiltSystem[] = [];
     if (identity.backend === "simulator") {
+        // a project copy of a core contract takes that struct's place in the graph, but core's own callers are compiled
+        // against the canonical slot, so every native dependency of a system contract is deployed as well.
+        const systemRows = new Map<number, SlottedContract>();
         for (const contract of plan) {
             if (contract.kind !== "system") {
                 continue;
             }
+            for (const dependency of systemContractClosure(options.core, contract.name)) {
+                const sourcePath = join(options.core, "src", "contracts", dependency.file);
+                systemRows.set(dependency.index, plan.find((node) => node.kind === "system" && node.slot === dependency.index) ?? {
+                    kind: "system",
+                    name: dependency.name,
+                    stateType: dependency.stateType,
+                    sourcePath,
+                    source: readFileSync(sourcePath, "utf8"),
+                    slot: dependency.index,
+                    alreadyDeployed: false,
+                    callees: [],
+                });
+            }
+        }
+        for (const contract of [...systemRows.values()].sort((left, right) => left.slot - right.slot)) {
             report(contract, `building (${options.compiler})`, "active");
             const built = await systemWasm(contract.name, options.core, options.compiler);
             report(contract, "built", "quiet");

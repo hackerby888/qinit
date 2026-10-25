@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { resolveContracts, verifyContract, type VerifyResult } from "@qinit/build";
+import { isCoreStateType, resolveContracts, verifyContract, type VerifyResult } from "@qinit/build";
 import { loadConfig, projectContractName, projectContractPath, resolveCoreDir } from "../../config";
 import { Header, Panel, Status, theme, termCols } from "../../ui";
 import { output, type CommandArguments } from "../../args";
@@ -18,19 +18,23 @@ export function Verify({ commandArgs }: { commandArgs: CommandArguments }) {
                 const cfg = loadConfig();
                 const requested = commandArgs.get("contract") ?? commandArgs.positionals[0];
                 const file = projectContractPath("verify", requested, cfg);
-                const name = projectContractName(file, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
+                const { name, stateType } = projectContractName(file, { contractName: commandArgs.get("contract-name") }, cfg, !requested);
+                const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
                 const graph = resolveContracts({
                     projectRoot: process.cwd(),
-                    corePath: resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir),
+                    corePath: core,
                     contractName: name,
+                    stateType,
                     contractPath: file,
                     explicitCallees: dynCallees,
                 });
-                const calleeNames = graph.filter((contract) => contract.stateType !== name).flatMap((contract) => [contract.name, contract.stateType]);
+                // the graph ends with the contract itself
+                const calleeNames = graph.slice(0, -1).flatMap((contract) => [contract.name, contract.stateType]);
                 setR(
-                    await verifyContract(file, name, {
+                    await verifyContract(file, stateType, {
                         allowedPrefixes: calleeNames,
-                        buildRules: { contractKind: "user", buildRules: !commandArgs.has("no-build-rules") },
+                        stateType,
+                        buildRules: { contractKind: isCoreStateType(core, stateType) ? "system" : "user", buildRules: !commandArgs.has("no-build-rules") },
                     }),
                 );
             } catch (e: any) {

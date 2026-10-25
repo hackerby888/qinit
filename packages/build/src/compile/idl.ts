@@ -1,4 +1,4 @@
-import { analyzeContract } from "@qinit/compiler/analyzer";
+import { analyzeContract, declaredStateType } from "@qinit/compiler/analyzer";
 
 export { QINIT_IDL_VERSION, AbiContainerKind, AbiScalarKind, AbiTypeKind, formatAbiType, parseContractIdl } from "@qinit/proto/contract-idl";
 export type {
@@ -36,7 +36,8 @@ export interface ExtractIdlOptions {
 }
 
 export function extractIdl(source: string, name: string, options: ExtractIdlOptions = {}): ContractIdl {
-    const analysisName = options.stateType ?? name;
+    // the deploy name may differ from the struct, so the analysis reads the struct from the source unless told otherwise.
+    const analysisName = options.stateType ?? declaredStateType(source) ?? name;
     const result = analyzeContract({
         source,
         contractName: analysisName,
