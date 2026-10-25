@@ -39,6 +39,9 @@ export interface ResolveContractsOptions {
     onSiblingDropped?: (name: string, reason: string) => void;
 }
 
+// where deploy and `system add` copy the core headers a project depends on, for reading and the editor only
+export const SYSTEM_SOURCE_DIRNAME = "system_scs";
+
 function headerPaths(directory: string): string[] {
     if (!existsSync(directory)) {
         return [];
@@ -50,6 +53,10 @@ function headerPaths(directory: string): string[] {
     for (const entry of entries) {
         const entryPath = join(directory, entry.name);
         if (entry.isDirectory()) {
+            // the copies of core's headers are not project contracts: they would otherwise read as project copies of every system struct
+            if (entry.name === SYSTEM_SOURCE_DIRNAME) {
+                continue;
+            }
             paths.push(...headerPaths(entryPath));
         } else if (entry.isFile() && entry.name.endsWith(".h")) {
             paths.push(entryPath);

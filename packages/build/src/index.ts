@@ -26,7 +26,7 @@ export {
     type SystemContract,
     type SystemContractDescription,
 } from "./contracts/system-contracts";
-export { resolveContracts } from "./contracts/project-dependencies";
+export { resolveContracts, SYSTEM_SOURCE_DIRNAME } from "./contracts/project-dependencies";
 export type { CalleeInput, ResolvedContract, ResolveContractsOptions } from "./contracts/project-dependencies";
 export { assignSlots } from "./contracts/project-slots";
 export type { SlotAssignment, ProjectSlotLayout, SlotInput } from "./contracts/project-slots";

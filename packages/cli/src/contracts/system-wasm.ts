@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { cacheRoot, readCurrent } from "@qinit/core";
-import { buildSystemContract, systemContracts, type SystemContract, type SystemContractCompiler } from "@qinit/build";
+import { buildSystemContract, systemContracts, type SystemContract, type SystemContractCompiler, SYSTEM_SOURCE_DIRNAME } from "@qinit/build";
 import { resolveCoreDir } from "../config";
 
 export function systemCatalog(core?: string): SystemContract[] {
@@ -17,7 +17,7 @@ export function systemWasmCacheDir(compiler: SystemContractCompiler, headersVers
     return join(cacheRoot(), headersVersion, "system-wasm", WASM_BUILD_PROFILE, compiler);
 }
 
-export const SYSTEM_SOURCE_DIR = "contracts/system_scs";
+export const SYSTEM_SOURCE_DIR = `contracts/${SYSTEM_SOURCE_DIRNAME}`;
 
 // the copy is the header the node runs, kept for reading and for the editor; `system rm` leaves it in place
 export function writeSystemSource(projectRoot: string, sourcePath: string): string {

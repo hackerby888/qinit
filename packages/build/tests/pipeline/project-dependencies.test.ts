@@ -350,3 +350,20 @@ test.skipIf(!HAS_CORE)("a core contract's own callees come from the catalog even
         },
     );
 });
+
+// deploy copies the core headers a project depends on under contracts/system_scs for the editor; a redeploy must not read them as project copies.
+test.skipIf(!HAS_CORE)("the copies under contracts/system_scs are not project contracts", () => {
+    project(
+        {
+            "contracts/Test.h": contract("QUTIL", calls("QX")),
+            "contracts/system_scs/Qx.h": contract("QX"),
+        },
+        (root) => {
+            const graph = resolveContracts({ projectRoot: root, corePath: CORE, contractName: "Test", contractPath: "contracts/Test.h" });
+            expect(graph.map((node) => [node.name, node.stateType, node.kind, node.slot])).toEqual([
+                ["QX", "QX", "system", 1],
+                ["Test", "QUTIL", "custom", undefined],
+            ]);
+        },
+    );
+});
