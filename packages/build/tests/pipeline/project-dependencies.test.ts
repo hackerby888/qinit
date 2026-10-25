@@ -367,3 +367,19 @@ test.skipIf(!HAS_CORE)("the copies under contracts/system_scs are not project co
         },
     );
 });
+
+// two project headers declaring the same core struct cannot both be the copy a caller means; silently taking the catalog would hide the mistake.
+test.skipIf(!HAS_CORE)("two project copies of one core struct are an ambiguous callee", () => {
+    project(
+        {
+            "contracts/Main.h": contract("Main", calls("QX")),
+            "contracts/MyQx.h": contract("QX"),
+            "contracts/MyQx2.h": contract("QX"),
+        },
+        (root) => {
+            expect(() => resolveContracts({ projectRoot: root, corePath: CORE, contractName: "Main", contractPath: "contracts/Main.h" })).toThrow(
+                "callee 'QX' referenced by Main is ambiguous: contracts/MyQx.h, contracts/MyQx2.h",
+            );
+        },
+    );
+});

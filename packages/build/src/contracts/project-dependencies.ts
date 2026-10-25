@@ -170,6 +170,12 @@ export function resolveContracts(options: ResolveContractsOptions): ResolvedCont
         return node;
     };
 
+    const listed = (paths: string[]) =>
+        paths
+            .map((candidate) => relative(projectRoot, candidate).replaceAll("\\", "/"))
+            .sort()
+            .join(", ");
+
     const resolveCallee = (reference: string, caller: ResolvedContract): ResolvedContract => {
         const known = nodes.get(reference);
         if (known) {
@@ -185,10 +191,13 @@ export function resolveContracts(options: ResolveContractsOptions): ResolvedCont
         }
 
         // a header in this project declaring a core struct is the version this project's contracts call; it deploys under its file's name.
-        const twin = headers.get(reference);
-        if (twin?.length === 1 && reservedSystemNames.has(reference.toLowerCase())) {
-            const node = readCustomNode(basename(twin[0], ".h"), twin[0]);
-            if (declaredStateType(node.source) === reference) {
+        if (reservedSystemNames.has(reference.toLowerCase())) {
+            const twins = (headers.get(reference) ?? []).filter((path) => declaredStateType(readFileSync(path, "utf8")) === reference);
+            if (twins.length > 1) {
+                throw new Error(`callee '${reference}' referenced by ${caller.stateType} is ambiguous: ${listed(twins)}`);
+            }
+            if (twins.length === 1) {
+                const node = readCustomNode(basename(twins[0], ".h"), twins[0]);
                 node.stateType = reference;
                 nodes.set(node.stateType, node);
                 return node;
@@ -216,11 +225,7 @@ export function resolveContracts(options: ResolveContractsOptions): ResolvedCont
 
         const candidates = headers.get(reference) ?? [];
         if (candidates.length > 1) {
-            const listed = candidates
-                .map((candidate) => relative(projectRoot, candidate).replaceAll("\\", "/"))
-                .sort()
-                .join(", ");
-            throw new Error(`callee '${reference}' referenced by ${caller.stateType} is ambiguous: ${listed}`);
+            throw new Error(`callee '${reference}' referenced by ${caller.stateType} is ambiguous: ${listed(candidates)}`);
         }
         if (candidates.length === 1) {
             const node = readCustomNode(reference, candidates[0]);
