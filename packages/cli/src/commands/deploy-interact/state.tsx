@@ -5,7 +5,7 @@ import { contractAddress } from "@qinit/proto";
 import { LARGE_STATE_CONTAINER_BYTES, loadStateContainer, readState, stateIsComplete, type DecodedState, type StateContainer } from "../../trace/state-read";
 import { StateView } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader, resolveRpc } from "../../config";
-import { loadContracts, mergeContracts, missingContractMessage, notLoadedMessage, siblingCalleeSources, systemLoaded } from "../../contracts/registry";
+import { loadContracts, mergeContracts, missingContractMessage, notLoadedMessage, siblingCalleeSources, systemLoaded, projectCopiesOf } from "../../contracts/registry";
 import { Header, Spinner, Panel, KV, fmtCompact, theme } from "../../ui";
 import { Select, type SelItem } from "../../ui/prompt";
 import { invalidArgs, output, type CommandArguments } from "../../args";
@@ -371,7 +371,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
                         throw new Error(missingContractMessage(sets, o.target));
                     }
                     if (all.indexOf(c) >= deployed && !systemLoaded(sets)) {
-                        throw new Error(notLoadedMessage(c.name || String(c.index)));
+                        throw new Error(notLoadedMessage(c.name || String(c.index), projectCopiesOf(sets, sets.system.find((entry) => entry.index === c.index)?.stateType ?? c.name)));
                     }
                     await load(c, all);
                     return;

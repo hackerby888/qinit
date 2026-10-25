@@ -62,8 +62,14 @@ export function systemLoaded(sets: ContractSets): boolean {
     return sets.backend !== "simulator";
 }
 
-export function notLoadedMessage(name: string): string {
-    return `${name} is not running on this simulator — qinit system add ${name}`;
+// the user contracts on this node that declare a system contract's struct: a developer's copies, which the system name never reaches
+export function projectCopiesOf(sets: ContractSets, stateType: string): string[] {
+    return sets.user.filter((entry) => entry.armed && entry.source && declaredStateType(entry.source) === stateType).map((entry) => entry.name || String(entry.index));
+}
+
+export function notLoadedMessage(name: string, copies: readonly string[] = []): string {
+    const hint = copies.length ? ` · this node runs ${copies.join(", ")}, project copies of ${name}` : "";
+    return `${name} is not running on this simulator — qinit system add ${name}${hint}`;
 }
 
 // A registry the node never answered is not an empty registry, and reporting no contract would send the developer off to redeploy something still there.
