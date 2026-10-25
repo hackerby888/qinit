@@ -1,11 +1,11 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { CheatMode, compileContractWithTypeScript, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { analyzeContract, type SourceAnalysisResult, declaredStateType } from "@qinit/compiler/analyzer";
 import { k12Hex } from "@qinit/core";
 import type { ContractBuildResult } from "./types";
 import { verifyForBuild, verifyRejection } from "./verify";
-import { KNOWN_LOG_HEADER_VIOLATIONS, isCoreStateType } from "../contracts/system-contracts";
+import { isCoreStateType, knownLogHeaderViolation } from "../contracts/system-contracts";
 import { resolveContractSource } from "./source";
 import { buildGateRejection, buildGateViolations, buildGateWarnings, type ContractKind } from "./build-rules";
 
@@ -128,7 +128,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
     }));
     // the deploy name may differ from the struct; everything that reads the C++ goes by the struct the header declares.
     const contractStateType = o.stateType ?? declaredStateType(source) ?? o.contractName;
-    const rejectsLogHeader = o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(contractPath));
+    const rejectsLogHeader = o.strict ?? !knownLogHeaderViolation(contractPath, contractStateType);
 
     // The same gate the clang build runs (build-rules.ts), so both compilers reject the same contracts.
     const analysis = analyzeContract({

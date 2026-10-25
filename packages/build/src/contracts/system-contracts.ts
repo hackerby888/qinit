@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { loadQpiHeader } from "@qinit/compiler";
 import { parseContractDefinitionSource } from "./contract-def";
 import { extractIdl, type ContractIdl } from "../compile/idl";
@@ -8,6 +8,12 @@ import { generateWasmContractTestingHeader } from "../compile/clang";
 
 // Core contracts whose leading log word the host overwrites with the contract index — AddressChangeLogger opens with an id, QRWALogger a uint64; gate off.
 export const KNOWN_LOG_HEADER_VIOLATIONS: ReadonlySet<string> = new Set(["VottunBridge.h", "qRWA.h"]);
+// the same two by state type, so a project copy of either under another file name stays exempt.
+export const KNOWN_LOG_HEADER_VIOLATION_TYPES: ReadonlySet<string> = new Set(["VOTTUNBRIDGE", "QRWA"]);
+
+export function knownLogHeaderViolation(contractPath: string, stateType: string): boolean {
+    return KNOWN_LOG_HEADER_VIOLATIONS.has(basename(contractPath)) || KNOWN_LOG_HEADER_VIOLATION_TYPES.has(stateType);
+}
 
 export interface SystemContract {
     index: number;

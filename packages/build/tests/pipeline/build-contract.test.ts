@@ -107,6 +107,11 @@ test.each(["VottunBridge.h", "qRWA.h"])("%s is exempt from the log header gate b
     expect(await buildLogHeaderContract(fileName)).not.toContain(LOG_HEADER_MESSAGE);
 });
 
+// a project copy of qRWA keeps its struct but rarely its file name; the exemption follows the struct.
+test("a copy of an exempt core contract under another file name stays exempt", async () => {
+    expect(await buildLogHeaderContract("MyQrwa.h", LOG_HEADER_CONTRACT.replace("struct Unsafe", "struct QRWA"))).not.toContain(LOG_HEADER_MESSAGE);
+});
+
 // VottunBridge's shape: two 24-byte logs, both INFO, no _type. a user contract is refused; core's own is only warned and reaches clang.
 const AMBIGUOUS_LOGS_CONTRACT = `
 using namespace QPI;

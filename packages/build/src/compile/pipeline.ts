@@ -14,7 +14,7 @@ import type { ContractBuildResult, SystemContractCompiler } from "./types";
 import { buildContractWithTypeScript } from "./typescript";
 import { buildCalleePrelude } from "../contracts/intercontract";
 import type { DynCallees } from "../contracts/intercontract";
-import { generateWasmContractTestingHeaderForCore, KNOWN_LOG_HEADER_VIOLATIONS, systemContractClosure, systemContracts, isCoreStateType } from "../contracts/system-contracts";
+import { generateWasmContractTestingHeaderForCore, systemContractClosure, systemContracts, isCoreStateType, knownLogHeaderViolation } from "../contracts/system-contracts";
 import { k12Hex, type BuildProfile } from "@qinit/core";
 import { analyzeContract, declaredStateType } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
@@ -61,7 +61,7 @@ export async function buildContractWithClang(input: ClangBuildOptions): Promise<
     const gateContext = {
         contractKind,
         buildRules: o.buildRules,
-        rejectsLogHeader: o.strict ?? !KNOWN_LOG_HEADER_VIOLATIONS.has(basename(o.contractPath)),
+        rejectsLogHeader: o.strict ?? !knownLogHeaderViolation(o.contractPath, stateType),
     };
     const gate = buildGateRejection(buildGateViolations(analysis.diagnostics, gateContext));
     if (gate) {
