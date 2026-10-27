@@ -197,6 +197,22 @@ describe("an existing contract", () => {
         expect(mutationText(plan, coreFile("src", "contracts", "Base.h"))).toContain("int updated;");
     });
 
+    test("keeps the test file Core already holds and says so", () => {
+        const plan = planMutations(
+            planOptions({
+                contractName: "Base",
+                contractPath: "/project/contracts/Base.h",
+                testSource: "TEST(Base, Scaffold) {}\n",
+                existing,
+                metadata: { assetName: "BASE", constructionEpoch: 1, destructionEpoch: 10_000 },
+                fileExists: (path) => path === coreFile("test", "contract_base.cpp"),
+            }),
+        );
+
+        expect(plan.mutations.map((mutation) => mutation.path)).toEqual([coreFile("src", "contracts", "Base.h")]);
+        expect(plan.warnings).toContain("Core already has test/contract_base.cpp; the project's test was not copied — add its new TESTs there by hand");
+    });
+
     test("reports the test path a checkout already holds", () => {
         const plan = planMutations(
             planOptions({

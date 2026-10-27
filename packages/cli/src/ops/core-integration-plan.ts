@@ -346,7 +346,10 @@ export function planMutations(options: PlanMutationsOptions): MutationPlan {
             mutations.push({ path, bytes: encodeTextFile({ ...original, text }) });
         }
     }
-    if (testSource) {
+    // an update never replaces the test file Core already holds: the project's scaffold would drop every upstream TEST
+    if (testSource && existing && fileExists(testDestination)) {
+        warnings.push(`Core already has test/${testFileName}; the project's test was not copied — add its new TESTs there by hand`);
+    } else if (testSource) {
         mutations.push({
             path: testDestination,
             bytes: new TextEncoder().encode(testSource),
