@@ -68,7 +68,8 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
                     fail(`✗ '${name}' is ${name.length} characters — a deployed contract's name is at most ${MAX_CONTRACT_NAME}`);
                     return;
                 }
-                const coreDir = requestedCoreDir ?? process.env.QINIT_CORE;
+                // only an explicit --core-dir is written: qinit.json is committed, and QINIT_CORE is this machine's path
+                const coreDir = requestedCoreDir;
                 if (existsSync(dir)) {
                     fail(`✗ '${dir}' already exists`);
                     return;
