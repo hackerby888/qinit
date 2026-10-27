@@ -281,7 +281,7 @@ const commandMeta = {
             booleanOption("fn", "make a read-only call"),
             booleanOption("proc", "send a signed call and wait for it"),
             stringOption("args", "<json>", "JSON input"),
-            stringOption("in", '"<values>"', 'input values, e.g. "0id, 100uint64" (id: 0, 60 A-Z chars, or 64 hex); the type may be omitted when the entry\'s schema is known'),
+            stringOption("in", '"<values>"', 'input values, e.g. "0id, 100uint64, MYTOKasset" (id: 0, 60 A-Z chars, or 64 hex; asset: the name then asset, a packed uint64); the type may be omitted when the entry\'s schema is known'),
             stringOption("out", "<type>", "output type"),
             stringOption("amount", "<n>", "transfer amount"),
             booleanOption("trace", "show state changes and contract calls"),
