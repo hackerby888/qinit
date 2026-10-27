@@ -26,6 +26,15 @@ test("gtest generator reads v3 entry arrays and input types", () => {
     expect(output).toContain("TEST(Counter, Write)");
 });
 
+// a fixture cannot name `Counter::Write_input` when a PRIVATE_* macro left it protected, so the entry is listed instead of scaffolded
+test("an entry whose io types are not public is listed instead of scaffolded", () => {
+    const scaffold = genStdGtest(extractIdl(source, "Counter"), "Counter", "Counter", new Set(["Write_input"]));
+    expect(scaffold).toContain("// not scaffolded: Write —");
+    expect(scaffold).toContain("TEST(Counter, Read)");
+    expect(scaffold).not.toContain("TEST(Counter, Write)");
+    expect(scaffold).not.toContain("Write_input");
+});
+
 test("a notification procedure gets no wrapper and no TEST", () => {
     const idl = extractIdl(source, "Counter");
     idl.procedures.find((entry) => entry.name === "Write")!.notification = true;

@@ -25,6 +25,26 @@ export function accessAfterMacro(macros: ReadonlyMap<string, MacroDef>, name: st
     return access;
 }
 
+/** The structs and typedefs a macro's expansion declares while a non-public access is in force, starting from the access at its call site. */
+export function macroDeclaredMembers(macros: ReadonlyMap<string, MacroDef>, name: string, access: AccessSpec, path: ReadonlySet<string> = new Set()): Map<string, string> {
+    const members = new Map<string, string>();
+    const macro = macros.get(name);
+    if (!macro || path.has(name)) return members;
+    const inner = new Set(path).add(name);
+    let current = access;
+    for (const match of macro.body.matchAll(/\b(public|protected|private)\s*:(?!:)|\btypedef\b[^;]*?\b([A-Za-z_]\w*)\s*;|\bstruct\s+([A-Za-z_]\w*)\s*[{:]|\b([A-Za-z_]\w*)\s*\(/g)) {
+        if (match[1]) {
+            current = match[1] as AccessSpec;
+        } else if (match[2] || match[3]) {
+            if (current !== AccessSpec.PUBLIC) members.set(match[2] ?? match[3], `declared by ${name}(…)`);
+        } else {
+            for (const [member, reason] of macroDeclaredMembers(macros, match[4], current, inner)) members.set(member, reason);
+            current = accessAfterMacro(macros, match[4], inner) ?? current;
+        }
+    }
+    return members;
+}
+
 /** The structs and typedefs a contract declares where they are not public, each with the macro that made them so. */
 export function nonPublicMembers(source: string, contractName: string, macros: ReadonlyMap<string, MacroDef>): Map<string, string> {
     const tokens = new Lexer(source).tokenize();
@@ -46,6 +66,7 @@ export function nonPublicMembers(source: string, contractName: string, macros: R
             access = label;
             opener = `${token.text}:`;
         } else if (token.kind === TokenKind.IDENTIFIER && tokens[index + 1]?.kind === TokenKind.L_PAREN && macros.has(token.text)) {
+            for (const [member, reason] of macroDeclaredMembers(macros, token.text, access)) members.set(member, reason);
             const after = accessAfterMacro(macros, token.text);
             if (after) {
                 access = after;

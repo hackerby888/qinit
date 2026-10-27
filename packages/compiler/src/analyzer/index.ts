@@ -25,6 +25,8 @@ export { analyzeQpiPolicy, verifierViolations, QPI_BANNED_KEYWORDS, USER_CONTRAC
 // the build gate matches on these; exported here so it loads without the compiler root, which a browser cannot import.
 export { LOG_AMBIGUITY_HINT, LOG_HEADER_WORD_HINT } from "../backend/wasm/abi/log-payload";
 export { analyzeCheatcodes, cheatArgumentRanges, stripCheatcodes, CHEAT_NAMES } from "./cheatcodes";
+export { nonPublicMembers } from "./rules/protected-members";
+export { getQpiMacros };
 // Lexer-only rule pass, no parse: editors wanting the fast character/keyword tier consume it directly rather than keeping their own copy.
 export { completeMembersAt, completeMembersOfType, declaredTypeOf, splitReceiver } from "./member-query";
 export type { MemberCompletion, MemberQueryOptions, TypeMemberQueryOptions } from "./member-query";

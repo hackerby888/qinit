@@ -8,6 +8,7 @@ import { loadConfig, projectContractName, projectContractPath, resolveCompilerBa
 import { genStdGtest, extractIdl, resolveContracts, type CalleeSource } from "@qinit/build";
 import type { DynCallees } from "@qinit/build/contracts/intercontract";
 import { loadQpiHeader } from "@qinit/compiler";
+import { getQpiMacros, nonPublicMembers } from "@qinit/compiler/analyzer";
 import type { TestResult } from "@qinit/engine";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { runCorpus, runStdGtest } from "../../ops/corpus-run";
@@ -192,14 +193,15 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 }));
                 const { dynCallees, calleeSources } = gtestCallees(plannedDependencies);
                 if (!existsSync(testPath) || commandArgs.has("new")) {
+                    const qpiHeader = loadQpiHeader(core);
                     const idl = extractIdl(contractSrc, name, {
                         slot,
-                        qpiHeader: loadQpiHeader(core),
+                        qpiHeader,
                         stateType,
                         calleeSources,
                     });
                     mkdirSync(join(testPath, ".."), { recursive: true });
-                    writeFileSync(testPath, genStdGtest(idl, name, stateType));
+                    writeFileSync(testPath, genStdGtest(idl, name, stateType, new Set(nonPublicMembers(contractSrc, stateType, getQpiMacros(qpiHeader)).keys())));
                     add("scaffold", true, `${testPath.replace(process.cwd() + "/", "")} (core-lite)`);
                 }
 

@@ -3,11 +3,13 @@ import type { ContractEntry, ContractIdl } from "@qinit/proto/contract-idl";
 
 const SAMPLE_SEED_ID = "id::randomValue()";
 
-export function genStdGtest(idl: ContractIdl, name: string, stateType: string = name): string {
+export function genStdGtest(idl: ContractIdl, name: string, stateType: string = name, nonPublic: ReadonlySet<string> = new Set()): string {
     const contractType = stateType;
-    // a notification is not in core's user-procedure table, so invokeUserProcedure on it never runs.
-    const procedures = idl.procedures.filter((entry) => !entry.notification);
-    const functions = idl.functions;
+    // a notification is not in core's user-procedure table, so invokeUserProcedure on it never runs; an entry whose io types are not public cannot be named from the fixture.
+    const callable = (entry: ContractEntry) => !nonPublic.has(`${entry.name}_input`) && !nonPublic.has(`${entry.name}_output`);
+    const procedures = idl.procedures.filter((entry) => !entry.notification && callable(entry));
+    const functions = idl.functions.filter(callable);
+    const skipped = [...idl.procedures, ...idl.functions].filter((entry) => !callable(entry)).map((entry) => entry.name);
 
     const head = [
         `// Standard gtest for ${name} (core-lite contract_testing.h) — the real Qubic SC-test format.`,
@@ -16,6 +18,7 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
         `#define NO_UEFI`,
         ``,
         `#include "contract_testing.h"`,
+        ...(skipped.length ? [``, `// not scaffolded: ${skipped.join(", ")} — their io types are not public in ${contractType} (declared after a PRIVATE_* macro), so a fixture cannot name them.`] : []),
     ].join("\n");
 
     // Each registered entry gets a wrapper that initializes input, invokes the harness, and returns output.
