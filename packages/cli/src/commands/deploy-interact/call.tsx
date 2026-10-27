@@ -395,7 +395,8 @@ function CallOneShot({
                                 z = zeroInputFormat(entryIdl.input);
                             }
                         } catch {}
-                        throw new Error(`bad input: ${enc?.message ?? enc}${z ? `\nall-zero sample: ${z}` : ""}`);
+                        const jsonHint = /^\s*[[{]/.test(inputFormat ?? "") ? '\n--in takes positional values such as "100sint64, 0id"; JSON input goes in --args' : "";
+                        throw new Error(`bad input: ${enc?.message ?? enc}${z ? `\nall-zero sample: ${z}` : ""}${jsonHint}`);
                     }
                 }
                 if (entryIdl) {
