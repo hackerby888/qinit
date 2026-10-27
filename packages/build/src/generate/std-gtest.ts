@@ -51,6 +51,8 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
         `    {`,
         `        initEmptySpectrum();`,
         `        initEmptyUniverse();`,
+        // a callee left uninitialized has zero state in the harness: reads through it return nothing and its fee checks pass for free
+        ...idl.dependencies.flatMap((dependency) => [`        INIT_CONTRACT(${dependency});`, `        callSystemProcedure(${dependency}_CONTRACT_INDEX, INITIALIZE);`]),
         `        INIT_CONTRACT(${contractType});`,
         `        callSystemProcedure(${contractType}_CONTRACT_INDEX, INITIALIZE);`,
         `    }`,

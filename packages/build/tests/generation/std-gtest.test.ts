@@ -43,3 +43,10 @@ test("a notification procedure gets no wrapper and no TEST", () => {
     expect(scaffold).not.toContain("TEST(Counter, Write)");
     expect(scaffold).not.toContain("invokeUserProcedure");
 });
+
+// a callee's state is zero in the harness until the fixture initializes it, as core's own tests do before the contract under test
+test("a dependency is initialized before the contract", () => {
+    const withCallee = genStdGtest({ ...extractIdl(source, "Counter"), dependencies: ["QX"] }, "Counter");
+
+    expect(withCallee).toContain("        INIT_CONTRACT(QX);\n        callSystemProcedure(QX_CONTRACT_INDEX, INITIALIZE);\n        INIT_CONTRACT(Counter);");
+});
