@@ -12,7 +12,8 @@ import { abiAdviceText, checkHeadersAbi } from "./abi-advice";
 import { assignSlots } from "@qinit/build/contracts/project-slots";
 import { deployContract, type DeployResult } from "./deploy";
 import type { ContractStatus, DeploymentEvent } from "./deploy/steps";
-import { DEFAULT_IDL_PATH, saveContractIdl } from "../contracts/idl-file";
+import { DEFAULT_IDL_PATH, loadContractIdlFile, saveContractIdl } from "../contracts/idl-file";
+import { foreignSlotRejection } from "./deploy/slot-owner";
 
 export interface ProjectDeploymentRecord {
     name: string;
@@ -96,22 +97,30 @@ export async function deployProjectContracts(
 
     const registry = await rpc.dynRegistry();
     emit({ step: "slot", state: "active", detail: "planning project slots…" });
-    const plan = assignSlots(
-        resolveContracts({
-            projectRoot: options.projectRoot,
-            corePath: options.core,
-            contractPath: options.contractPath,
-            contractName: options.name,
-            stateType: options.stateType,
-            slot: options.slotOverride,
-            explicitCallees: options.explicitCallees,
-        }),
-        registry,
-        registry,
-    );
+    const graph = resolveContracts({
+        projectRoot: options.projectRoot,
+        corePath: options.core,
+        contractPath: options.contractPath,
+        contractName: options.name,
+        stateType: options.stateType,
+        slot: options.slotOverride,
+        explicitCallees: options.explicitCallees,
+    });
+    const plan = assignSlots(graph, registry, registry);
     const main = plan.at(-1);
     if (!main || main.kind !== "custom" || main.name !== options.name) {
         throw new Error(`project dependency graph did not end with Main '${options.name}'`);
+    }
+    // a slot matched by name alone must be one this project deployed; an explicitly requested slot is the dev's say-so
+    const requestedSlots = new Set(graph.filter((node) => node.kind === "custom" && node.slot !== undefined).map((node) => node.stateType));
+    const foreign = foreignSlotRejection(
+        plan.filter((contract) => contract.kind === "custom" && contract.alreadyDeployed && !requestedSlots.has(contract.stateType)),
+        loadContractIdlFile(resolve(options.projectRoot, DEFAULT_IDL_PATH)),
+        DEFAULT_IDL_PATH,
+    );
+    if (foreign) {
+        emit({ step: "slot", state: "fail", detail: "slot belongs to another project" });
+        return { ok: false, backend: identity.backend, deployments: [], error: foreign };
     }
     emit({
         step: "slot",
