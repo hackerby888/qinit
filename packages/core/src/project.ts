@@ -1,6 +1,6 @@
 // Project config and core resolution shared by the CLI and VS Code extension. Bun-free.
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { readCurrent } from "./cache/paths";
 
 export interface QinitConfig {
@@ -52,7 +52,15 @@ export function loadConfigSafe(path = "qinit.json"): { config: QinitConfig; erro
 // Where to find core headers for compiling: explicit checkout > env > fetched snapshot cache; neither present gives an actionable error.
 export function resolveCoreDir(cliCoreDir?: string, configCoreDir?: string): string {
     const explicit = cliCoreDir || configCoreDir || process.env.QINIT_CORE;
-    if (explicit) return resolve(explicit);
+    if (explicit) {
+        const coreDir = resolve(explicit);
+        // checked once here, so a stale path in a cloned qinit.json fails the same way in every command
+        if (!existsSync(join(coreDir, "src", "qpi", "qpi.h"))) {
+            const origin = cliCoreDir ? "--core-dir" : configCoreDir ? "coreDir in qinit.json" : "QINIT_CORE";
+            throw new Error(`${origin} points to ${coreDir}, which is not a core checkout (src/qpi/qpi.h not found) — fix it, or remove it and run \`qinit setup\``);
+        }
+        return coreDir;
+    }
     const cur = readCurrent();
     if (cur?.coreHeaders && existsSync(cur.coreHeaders)) return cur.coreHeaders;
     throw new Error("no core headers: run `qinit setup` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>");

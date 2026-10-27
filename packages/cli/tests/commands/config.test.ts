@@ -1,7 +1,7 @@
 // Project config, global seed/theme stores and resolution precedence: a bug here silently signs with the wrong seed or builds against the wrong core.
 import { test, expect, afterEach } from "bun:test";
 import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE } from "@qinit/core";
-import { mkdtempSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -129,12 +129,23 @@ test("resolveSeed precedence: explicit > saved > funded > default", async () => 
 
 test("resolveCoreDir: explicit precedence -> absolute; throws when unresolved", () => {
     const x = isolate();
+    for (const name of ["cli-core", "cfg-core", "env-core"]) {
+        mkdirSync(join(x, name, "src", "qpi"), { recursive: true });
+        writeFileSync(join(x, name, "src", "qpi", "qpi.h"), "");
+    }
     expect(resolveCoreDir(join(x, "cli-core"))).toBe(join(x, "cli-core"));
     expect(resolveCoreDir(undefined, join(x, "cfg-core"))).toBe(join(x, "cfg-core"));
     process.env.QINIT_CORE = join(x, "env-core");
     expect(resolveCoreDir()).toBe(join(x, "env-core"));
     delete process.env.QINIT_CORE;
     expect(() => resolveCoreDir()).toThrow(/no core headers/);
+});
+
+// a cloned qinit.json can carry a teammate's core path; the miss names the field instead of surfacing as an ENOENT deep in a command
+test("resolveCoreDir: a path without qpi.h is refused and the message names where it came from", () => {
+    const x = isolate();
+    expect(() => resolveCoreDir(undefined, join(x, "gone"))).toThrow(/coreDir in qinit.json points to .*gone, which is not a core checkout/);
+    expect(() => resolveCoreDir(join(x, "gone"))).toThrow(/^--core-dir points to/);
 });
 
 // every node-facing command resolves the rpc the same way, or `node run` starts one node while `deploy` talks to another.
