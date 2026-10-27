@@ -434,7 +434,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
     return runProgressStep(options, "wire", "checking registration", async (updateDetail) => {
         const existing = findRegistration(corePath, contractName, checkout.files);
         if (checkoutExists && checkout.branch !== "main" && !existing) {
-            throw new Error(`contract '${contractName}' is not registered on existing branch ` + `'${checkout.branch}'`);
+            throw new Error(`contract '${contractName}' is not registered on branch '${checkout.branch}' — a new contract is added from main: switch the checkout to main, or point --out at a path to clone into`);
         }
         validateMetadata(options, existing);
 
