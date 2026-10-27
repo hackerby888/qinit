@@ -74,7 +74,12 @@ function workspaceHeaders(projectRoot: string): Map<string, string[]> {
         // otherwise register a second contract redefining the same type.
         let name = basename(headerPath, ".h");
         try {
-            name = detectContractName(readFileSync(headerPath, "utf8")) ?? name;
+            const declared = detectContractName(readFileSync(headerPath, "utf8"));
+            // a helper header that declares no contract is not a callee candidate and takes no slot
+            if (!declared) {
+                continue;
+            }
+            name = declared;
         } catch {
             // unreadable headers fall back to the filename and fail later where the read is reported.
         }
@@ -309,10 +314,6 @@ function visitWorkspaceSiblings(o: SiblingVisit): void {
 
         try {
             const sibling = readCustomNode(name, paths[0]);
-            // A plain helper header under contracts/ is not a contract and must not take a slot.
-            if (!detectContractName(sibling.source)) {
-                continue;
-            }
             o.nodes.set(sibling.stateType, sibling);
             o.visit(sibling);
             for (const node of o.ordered.slice(orderedLength)) {

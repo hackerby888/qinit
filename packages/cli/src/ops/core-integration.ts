@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseContractDef } from "@qinit/build/contracts/intercontract";
-import { analyzeCheatcodes, analyzeContract, stripCheatcodes } from "@qinit/compiler/analyzer";
+import { analyzeCheatcodes, analyzeContract, detectContractName, stripCheatcodes } from "@qinit/compiler/analyzer";
 import { buildGateViolations, buildGateWarnings, verifyContract, verifyRejection, type VerifyResult } from "@qinit/build";
 import { autoUpdateVerifyTool } from "@qinit/core";
 import {
@@ -311,7 +311,10 @@ function localHeaderNames(projectRoot: string, contractPath: string): string[] {
                 if (entry.isDirectory()) {
                     pendingDirectories.push(join(currentDirectory, entry.name));
                 } else if (entry.isFile() && extname(entry.name).toLowerCase() === ".h") {
-                    names.add(basename(entry.name, extname(entry.name)));
+                    // a helper header that declares no contract is a plain qualified type to the plan, not a callee
+                    if (detectContractName(readFileSync(join(currentDirectory, entry.name), "utf8"))) {
+                        names.add(basename(entry.name, extname(entry.name)));
+                    }
                 }
             }
         }

@@ -306,7 +306,7 @@ describe("runCoreIntegration", () => {
         const repositoryUrl = createCoreRepository(root);
         const projectRoot = createProject(root);
         const outputPath = join(root, "Main-core");
-        writeFileSync(join(projectRoot, "contracts", "Missing.h"), "struct Missing { struct StateData {}; };\n");
+        writeFileSync(join(projectRoot, "contracts", "Missing.h"), "struct Missing : public ContractBase { struct StateData {}; };\n");
         writeFileSync(join(projectRoot, "contracts", "Main.h"), "struct Main { struct StateData { Missing::StateData* missing; }; };\n");
 
         const failureProgress: CoreIntegrationProgress[] = [];

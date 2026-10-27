@@ -29,9 +29,9 @@ test.skipIf(!HAS_CORE)("resolves recursive workspace callees in dependency-first
     project(
         {
             "contracts/Main.h": calls("Middle", "Shared"),
-            "contracts/nested/Middle.h": calls("Leaf", "Shared"),
-            "contracts/Leaf.h": "",
-            "contracts/Shared.h": "",
+            "contracts/nested/Middle.h": contract("Middle", calls("Leaf", "Shared")),
+            "contracts/Leaf.h": contract("Leaf"),
+            "contracts/Shared.h": contract("Shared"),
         },
         (root) => {
             const graph = resolveContracts({
@@ -51,7 +51,7 @@ test.skipIf(!HAS_CORE)("resolves custom callees referenced through ABI types", (
     project(
         {
             "contracts/Main.h": "Counter::Get_input input{};",
-            "contracts/Counter.h": "",
+            "contracts/Counter.h": contract("Counter"),
         },
         (root) => {
             const graph = resolveContracts({
@@ -70,7 +70,7 @@ test.skipIf(!HAS_CORE)("resolves custom callees referenced only by additional ro
     project(
         {
             "contracts/Main.h": "",
-            "contracts/Helper.h": "",
+            "contracts/Helper.h": contract("Helper"),
         },
         (root) => {
             const graph = resolveContracts({
@@ -92,8 +92,8 @@ test.skipIf(!HAS_CORE)("explicit callees override workspace discovery and may om
     project(
         {
             "contracts/Main.h": calls("Counter"),
-            "contracts/Counter.h": calls("Wrong"),
-            "contracts/Leaf.h": "",
+            "contracts/Counter.h": contract("Counter", calls("Wrong")),
+            "contracts/Leaf.h": contract("Leaf"),
             "overrides/Counter.h": calls("Leaf"),
         },
         (root) => {
@@ -166,8 +166,8 @@ test.skipIf(!HAS_CORE)("rejects missing and ambiguous workspace callees determin
     project(
         {
             "contracts/Main.h": calls("Counter"),
-            "contracts/one/Counter.h": "",
-            "contracts/two/Counter.h": "",
+            "contracts/one/Counter.h": contract("Counter"),
+            "contracts/two/Counter.h": contract("Counter"),
         },
         (root) => {
             expect(() =>
@@ -186,8 +186,8 @@ test.skipIf(!HAS_CORE)("rejects dependency cycles and ignores self-calls", () =>
     project(
         {
             "contracts/Main.h": calls("First"),
-            "contracts/First.h": calls("Second"),
-            "contracts/Second.h": calls("First"),
+            "contracts/First.h": contract("First", calls("Second")),
+            "contracts/Second.h": contract("Second", calls("First")),
         },
         (root) => {
             expect(() =>
@@ -301,6 +301,21 @@ test.skipIf(!HAS_CORE)("a broken or non-contract sibling is skipped instead of f
                 contractPath: "contracts/Main.h",
                 includeWorkspaceSiblings: true,
             });
+
+            expect(graph.map((node) => node.stateType)).toEqual(["Main"]);
+        },
+    );
+});
+
+// a helper header under contracts/ is a plain qualified type to the contract, not a callee that would take a slot
+test.skipIf(!HAS_CORE)("a qualified call into a helper header is not a callee", () => {
+    project(
+        {
+            "contracts/Main.h": contract("Main", "uint64 next() { return MainMath::bump(1); }"),
+            "contracts/MainMath.h": "struct MainMath { static inline uint64 bump(uint64 value) { return value + 2; } };",
+        },
+        (root) => {
+            const graph = resolveContracts({ projectRoot: root, corePath: CORE, contractName: "Main", contractPath: "contracts/Main.h", includeWorkspaceSiblings: true });
 
             expect(graph.map((node) => node.stateType)).toEqual(["Main"]);
         },
