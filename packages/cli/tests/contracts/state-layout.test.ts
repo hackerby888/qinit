@@ -17,10 +17,20 @@ test("an unchanged layout redeploys", () => {
 test("an inserted field without MIGRATE is refused, naming both layouts and the ways out", () => {
     const rejection = stateCarryoverRejection("Box", idl(24, "uint64, uint64, uint64"), idl(32, "uint64, uint32, uint64, uint64"));
 
-    expect(rejection).toContain("was 24 B (uint64, uint64, uint64)");
-    expect(rejection).toContain("now 32 B (uint64, uint32, uint64, uint64)");
+    expect(rejection).toContain("was 24 B, now 32 B (added 1: uint32 at field #2)");
     expect(rejection).toContain("Box has no MIGRATE handler");
     expect(rejection).toContain("--allow-state-carryover");
+});
+
+// a nested container is one field, and an appended field is reported alone rather than as both full formats
+test("an appended field is reported by itself", () => {
+    const rejection = stateCarryoverRejection("Box", idl(24, "uint64, [2;{ uint32, uint32 }]"), idl(32, "uint64, [2;{ uint32, uint32 }], sint64"));
+    expect(rejection).toContain("was 24 B, now 32 B (added 1: sint64 at the end)");
+});
+
+test("a replaced field is reported as removed and added", () => {
+    const rejection = stateCarryoverRejection("Box", idl(16, "uint64, uint64"), idl(16, "uint64, sint64"));
+    expect(rejection).toContain("(removed 1: uint64; added 1: sint64 at field #2)");
 });
 
 test("a host without a node to restart names its own way out", () => {
