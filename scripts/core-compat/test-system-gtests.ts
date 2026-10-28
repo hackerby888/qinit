@@ -10,7 +10,9 @@ type Selection = SystemGtestTier | "all";
 // qubic/core still carries this legacy assertion beside its replacement reveal-and-leave test.
 // the two QX dividend tests INIT_CONTRACT(TESTEXA), a test-example contract the corpus runner does not build or deploy.
 // the QX frozen sweep test sets epoch 235 while Qx.h's sweep guards on epoch 236, so it fails identically in core's native harness; not a parity signal.
+// the QX hang guard bounds a bid with std::async and a 5 s timeout; the wasm harness has no threads, so thread creation aborts before the bid runs.
 const EXCLUDED_UPSTREAM_TESTS = [
+    "ContractQx.BidWithTruncatedIssuerCollisionMustNotHang",
     "ContractRandom.RevealWithZeroCommitIsRejectedNoDoublePay",
     "ContractQx.DividendToErrorStateContractSkipsCallback",
     "ContractQx.DividendToPreConstructionContractSkipsCallback",
