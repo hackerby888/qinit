@@ -35,6 +35,7 @@ const DEPENDENCIES: Record<string, DependencySpec> = {
     RL: { name: "RL", path: join(SYSTEM, "RandomLottery.h"), slot: 16 },
     QRP: { name: "QRP", path: join(SYSTEM, "QReservePool.h"), slot: 21 },
     QTF: { name: "QTF", path: join(SYSTEM, "QThirtyFour.h"), slot: 22 },
+    QSWAP: { name: "QSWAP", path: join(SYSTEM, "Qswap.h"), slot: 13 },
 };
 
 // Inter-contract source needs both the callee IDL and source; keep dependency order topological, because later callees may themselves call earlier ones.
@@ -56,9 +57,11 @@ const LINKED_DEPENDENCIES: Record<string, string[]> = {
     Nostromo: ["QX"],
     QTREAT: ["QX", "QBAY", "RANDOM"],
     Qusino: ["RANDOM"],
+    Qpump: ["QX", "QSWAP"],
 };
 
-const INTER_CONTRACT_CALL = /(?:INVOKE|CALL)_OTHER_CONTRACT_(?:PROCEDURE|FUNCTION)\s*\(\s*([A-Za-z_]\w*)/g;
+// the _E variants return the callee error instead of aborting; they name the callee the same way
+const INTER_CONTRACT_CALL = /(?:INVOKE|CALL)_OTHER_CONTRACT_(?:PROCEDURE|FUNCTION)(?:_E)?\s*\(\s*([A-Za-z_]\w*)/g;
 
 function structName(src: string): string {
     const m = src.match(/struct\s+(\w+)\s*:\s*public\s+ContractBase/);
