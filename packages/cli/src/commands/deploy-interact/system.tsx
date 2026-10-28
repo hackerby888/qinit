@@ -46,6 +46,11 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                 const core = resolveCoreDir(undefined, cfg.coreDir);
                 const catalog = systemCatalog(core);
 
+                if (o.sub && o.sub !== "ls" && o.sub !== "add" && o.sub !== "rm") {
+                    add(`unknown subcommand '${o.sub}' — usage: qinit system [ls | add <name…> | rm <name…>]`, false);
+                    setDone(true);
+                    return;
+                }
                 if (o.sub === "add" || o.sub === "rm") {
                     if (!o.names.length) {
                         add(`usage: qinit system ${o.sub} <name…>`, false);
@@ -59,7 +64,9 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                     const requested = o.names.flatMap((name) => {
                         const contract = catalog.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
                         if (!contract) {
-                            add(`unknown system contract '${name}'`, false);
+                            // QUOTTERY is a struct name, not a contract name: the developer wants QTRY, as `qinit state` already says
+                            const byStruct = catalog.find((candidate) => candidate.stateType.toLowerCase() === name.toLowerCase());
+                            add(byStruct ? `${byStruct.stateType} is ${byStruct.name}'s state struct — use ${byStruct.name}` : `unknown system contract '${name}'`, false);
                             return [];
                         }
                         return [contract];

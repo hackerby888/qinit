@@ -60,3 +60,17 @@ test("a system contract the simulator never added is refused by name, not decode
         stop();
     }
 }, 90_000);
+
+// the catalog names QTRY, its header declares QUOTTERY: `system add` answers the struct spelling the way `state` does, and a verb it does not know is not `ls`
+test("system add by struct name points at the contract name, an unknown verb is refused", async () => {
+    const { run, stop } = await boot();
+    try {
+        const byStruct = await run("system", "add", "QUOTTERY", "--plain");
+        expect(byStruct.text).toContain("QUOTTERY is QTRY's state struct — use QTRY");
+
+        const verb = await run("system", "remove", "QTRY", "--plain");
+        expect(verb.text).toContain("unknown subcommand 'remove'");
+    } finally {
+        stop();
+    }
+}, 60000);
