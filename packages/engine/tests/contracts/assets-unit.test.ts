@@ -216,16 +216,20 @@ test("enumerate: possession (kind 1) + ownership (kind 0) records, with a posses
     expect(filtered[0].shares).toBe(300n);
 });
 
-// core's QX test renames an issuance by writing the universe record; the holdings under it must stay attached
-test("renameIssuance: the issuance answers to its new name and keeps its holdings", () => {
+// core's QX test edits a universe record in place; every field is taken as written, and holdings stay attached by index
+test("writeRecord: a renamed issuance answers to its new name, an edited holding reports its new shares", () => {
     const a = ledger();
     const iss = contractId(1);
     expect(a.issueAsset(1, NAME, iss, 2, 1000n, 0n, iss)).toBe(1000n);
-    const [index] = a.universeEntries().find(([, record]) => record.type === 1)!;
+    const entries = a.universeEntries();
+    const [issuanceIndex, issuance] = entries.find(([, record]) => record.type === 1)!;
+    const [possessionIndex, possession] = entries.find(([, record]) => record.type === 3)!;
 
-    expect(a.renameIssuance(index, 0x5a51n)).toBe(true);
+    expect(a.writeRecord(issuanceIndex, { ...issuance, name: 0x5a51n })).toBe(true);
     expect(a.isAssetIssued(iss, NAME)).toBe(false);
     expect(a.isAssetIssued(iss, 0x5a51n)).toBe(true);
-    expect(a.numberOfPossessedShares(0x5a51n, iss, iss, iss, 1, 1)).toBe(1000n);
-    expect(a.renameIssuance(index + 1, 0x5a51n)).toBe(false);
+    expect(a.writeRecord(possessionIndex, { ...possession, shares: 250n })).toBe(true);
+    expect(a.numberOfPossessedShares(0x5a51n, iss, iss, iss, 1, 1)).toBe(250n);
+    const empty = [...Array(16).keys()].find((index) => !entries.some(([used]) => used === index))!;
+    expect(a.writeRecord(empty, issuance)).toBe(false);
 });

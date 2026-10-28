@@ -395,7 +395,23 @@ export async function runContractTesting(
             write(outPtr, bytes.subarray(0, 48));
             return index;
         },
-        q_universe_rename_issuance: (index: number, name: bigint): number => ((sim as any).assets.renameIssuance(index >>> 0, BigInt.asUintN(64, name)) ? 1 : 0),
+        // the record a test edited, read back from core's 48-byte layout; 1 when the index held a record
+        q_universe_write: (index: number, ptr: number): number => {
+            const bytes = read(ptr, 48);
+            const view = new DataView(bytes.buffer, bytes.byteOffset, 48);
+            const type = bytes[32];
+            let name = 0n;
+            let unit = 0n;
+            for (let k = 6; k >= 0; k--) {
+                name = (name << 8n) | BigInt(bytes[33 + k]);
+                unit = (unit << 8n) | BigInt(bytes[41 + k]);
+            }
+            const record =
+                type === 1
+                    ? { type, publicKey: bytes.slice(0, 32), name, decimals: (bytes[40] << 24) >> 24, unit, mgmt: 0, crossRef: 0, shares: 0n }
+                    : { type, publicKey: bytes.slice(0, 32), name: 0n, decimals: 0, unit: 0n, mgmt: view.getUint16(34, true), crossRef: view.getUint32(36, true), shares: view.getBigInt64(40, true) };
+            return (sim as any).assets.writeRecord(index >>> 0, record) ? 1 : 0;
+        },
         // issueAsset(issuer, name, decimals, unit, shares, mgmt): mint an asset (issuer == invocator path). Returns shares.
         q_issue_asset: (issuerPtr: number, name: bigint, decimals: number, shares: bigint, unit: bigint, slot: number): bigint => {
             const issuer = id32(issuerPtr);

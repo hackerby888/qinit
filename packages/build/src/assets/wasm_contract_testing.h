@@ -34,7 +34,7 @@ QBCT_IMPORT(q_fire_pit)  unsigned int  bq_fire_pit(const void* src32, const void
 QBCT_IMPORT(q_issue_asset) long long   bq_issue_asset(const void* issuer32, unsigned long long name, int decimals, long long shares, unsigned long long unit, unsigned int slot);
 QBCT_IMPORT(q_shares)    long long     bq_shares(const void* issuer32, unsigned long long assetName);
 QBCT_IMPORT(q_universe_record) int bq_universe_record(unsigned int position, void* out48);
-QBCT_IMPORT(q_universe_rename_issuance) int bq_universe_rename_issuance(unsigned int index, unsigned long long name);
+QBCT_IMPORT(q_universe_write) int bq_universe_write(unsigned int index, const void* record48);
 QBCT_IMPORT(q_possessed) long long     bq_possessed(unsigned long long name, const void* issuer32, const void* owner32, const void* possessor32, unsigned int om, unsigned int pm);
 QBCT_IMPORT(q_number_of_shares) long long bq_number_of_shares(const void* asset, const void* ownershipSelect, const void* possessionSelect);
 QBCT_IMPORT(q_mint_contract_shares) void bq_mint_contract_shares(unsigned long long name, long long shares, unsigned int qxSlot);
@@ -75,8 +75,8 @@ QBCT_IMPORT(q_user_procedure) unsigned int bq_user_procedure(unsigned int proced
 QBCT_IMPORT(q_call_notification) unsigned int bq_call_notification(unsigned int contractIndex, unsigned int procedureId, const void* input, unsigned int inputSize);
 }
 
-// ---- core's asset universe as a test sees it: assets[i] mirrors the engine's records in index order, and an issuance
-// renamed in place (core's test writes assets[i].varStruct.issuance.name) is written back before the next host call ----
+// ---- core's asset universe as a test sees it: assets[i] mirrors the engine's records in index order, and a record the
+// test edited in place (core's QX test rewrites an issuance name) is written back whole before the next host call ----
 #define EMPTY 0
 #define ISSUANCE 1
 #define OWNERSHIP 2
@@ -114,18 +114,27 @@ static inline void qbct_universe_refresh() {
     qbct_mirror_serial = qbct_call_serial;
 }
 
+// reported through gtest, which is declared further down
+static void qbct_universe_overflow(unsigned int position);
+
+static inline bool qbct_universe_same(const AssetRecord& a, const AssetRecord& b) {
+    const unsigned char* x = (const unsigned char*)&a;
+    const unsigned char* y = (const unsigned char*)&b;
+    for (unsigned int k = 0; k < sizeof(AssetRecord); ++k) if (x[k] != y[k]) return false;
+    return true;
+}
+
 static inline void qbct_universe_flush() {
     for (unsigned int i = 0; i < qbct_universe_count; ++i) {
-        auto& now = qbct_universe_mirror[i].varStruct.issuance;
-        auto& was = qbct_universe_seen[i].varStruct.issuance;
-        if (now.type != ISSUANCE || was.type != ISSUANCE) continue;
-        bool same = true;
-        for (int k = 0; k < 7; ++k) same = same && now.name[k] == was.name[k];
-        if (same) continue;
-        unsigned long long name = 0;
-        copyMem(&name, now.name, 7);
-        bq_universe_rename_issuance(qbct_universe_index[i], name);
-        copyMem(was.name, now.name, 7);
+        if (qbct_universe_same(qbct_universe_mirror[i], qbct_universe_seen[i])) continue;
+        bq_universe_write(qbct_universe_index[i], &qbct_universe_mirror[i]);
+        copyMem(&qbct_universe_seen[i], &qbct_universe_mirror[i], sizeof(AssetRecord));
+    }
+    // a slot past the mirrored records has no universe index to write to; say so rather than drop the edit
+    for (unsigned int i = qbct_universe_count; i < ASSETS_CAPACITY; ++i) {
+        if (qbct_universe_same(qbct_universe_mirror[i], qbct_universe_seen[i])) continue;
+        qbct_universe_overflow(i);
+        copyMem(&qbct_universe_seen[i], &qbct_universe_mirror[i], sizeof(AssetRecord));
     }
 }
 
@@ -1079,6 +1088,10 @@ namespace qinit_gtest {
 #define EXPECT_NEAR(a, b, error) switch (0) case 0: default: if (::qinit_gtest::recNear(__FILE__, __LINE__, "EXPECT_NEAR(" #a ", " #b ", " #error ")", (a), (b), (error))) ; else ::qinit_gtest::Sink()
 #define ASSERT_NEAR(a, b, error) switch (0) case 0: default: if (::qinit_gtest::recNear(__FILE__, __LINE__, "ASSERT_NEAR(" #a ", " #b ", " #error ")", (a), (b), (error))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 #define ADD_FAILURE() switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ADD_FAILURE()", false)) ; else ::qinit_gtest::Sink()
+
+static void qbct_universe_overflow(unsigned int position) {
+    ADD_FAILURE() << "assets[" << position << "] was written past the " << qbct_universe_count << " mirrored records; the engine cannot place it";
+}
 #define FAIL() switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "FAIL()", false)) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 #define SUCCEED() ::qinit_gtest::NullSink()
 // the result has no skipped state, so a skipped test reports as passed.

@@ -1007,13 +1007,14 @@ export class AssetLedger {
         return [...this.table].sort(([left], [right]) => left - right);
     }
 
-    // a test renames an issuance in place, as core's does by writing assets[i].varStruct.issuance.name; holdings stay attached by index
-    renameIssuance(index: number, name: bigint): boolean {
-        const record = this.table.get(index);
-        if (!record || record.type !== ISSUANCE) {
+    // a harness test edits a record in place, as core's does by writing into assets[]: every field is taken as written, and the
+    // index links stay, so a changed key is found by neither node, exactly as in core
+    writeRecord(index: number, record: LedgerRecord): boolean {
+        const current = this.table.get(index);
+        if (!current) {
             return false;
         }
-        record.name = name;
+        Object.assign(current, record);
         this.dirty.add(index);
         return true;
     }
