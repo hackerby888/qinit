@@ -33,6 +33,8 @@ QBCT_IMPORT(q_balance)   long long     bq_balance(const void* id32);
 QBCT_IMPORT(q_fire_pit)  unsigned int  bq_fire_pit(const void* src32, const void* dst32, long long amount, unsigned int type);
 QBCT_IMPORT(q_issue_asset) long long   bq_issue_asset(const void* issuer32, unsigned long long name, int decimals, long long shares, unsigned long long unit, unsigned int slot);
 QBCT_IMPORT(q_shares)    long long     bq_shares(const void* issuer32, unsigned long long assetName);
+QBCT_IMPORT(q_universe_record) int bq_universe_record(unsigned int position, void* out48);
+QBCT_IMPORT(q_universe_rename_issuance) int bq_universe_rename_issuance(unsigned int index, unsigned long long name);
 QBCT_IMPORT(q_possessed) long long     bq_possessed(unsigned long long name, const void* issuer32, const void* owner32, const void* possessor32, unsigned int om, unsigned int pm);
 QBCT_IMPORT(q_number_of_shares) long long bq_number_of_shares(const void* asset, const void* ownershipSelect, const void* possessionSelect);
 QBCT_IMPORT(q_mint_contract_shares) void bq_mint_contract_shares(unsigned long long name, long long shares, unsigned int qxSlot);
@@ -72,6 +74,74 @@ QBCT_IMPORT(q_oracle_check_state) void bq_oracle_check_state();
 QBCT_IMPORT(q_user_procedure) unsigned int bq_user_procedure(unsigned int procedureId, void* userProcedureData);
 QBCT_IMPORT(q_call_notification) unsigned int bq_call_notification(unsigned int contractIndex, unsigned int procedureId, const void* input, unsigned int inputSize);
 }
+
+// ---- core's asset universe as a test sees it: assets[i] mirrors the engine's records in index order, and an issuance
+// renamed in place (core's test writes assets[i].varStruct.issuance.name) is written back before the next host call ----
+#define EMPTY 0
+#define ISSUANCE 1
+#define OWNERSHIP 2
+#define POSSESSION 3
+// the mirror's capacity, not core's 2^24: a test walks it looking for a record, and the engine holds far fewer
+#define ASSETS_CAPACITY 4096
+
+struct AssetRecord {
+    union {
+        struct { m256i publicKey; unsigned char type; char name[7]; char numberOfDecimalPlaces; char unitOfMeasurement[7]; } issuance;
+        struct { m256i publicKey; unsigned char type; char padding[1]; unsigned short managingContractIndex; unsigned int issuanceIndex; long long numberOfShares; } ownership;
+        struct { m256i publicKey; unsigned char type; char padding[1]; unsigned short managingContractIndex; unsigned int ownershipIndex; long long numberOfShares; } possession;
+    } varStruct;
+};
+static_assert(sizeof(AssetRecord) == 48, "AssetRecord must match core's layout");
+
+static AssetRecord qbct_universe_mirror[ASSETS_CAPACITY];
+static AssetRecord qbct_universe_seen[ASSETS_CAPACITY];
+static unsigned int qbct_universe_index[ASSETS_CAPACITY];
+static unsigned int qbct_universe_count = 0;
+// bumped after every host call that can touch the universe; the mirror reloads on its next read
+static unsigned int qbct_call_serial = 1;
+static unsigned int qbct_mirror_serial = 0;
+
+static inline void qbct_universe_refresh() {
+    unsigned int n = 0;
+    for (; n < ASSETS_CAPACITY; ++n) {
+        const int index = bq_universe_record(n, &qbct_universe_mirror[n]);
+        if (index < 0) break;
+        qbct_universe_index[n] = (unsigned int)index;
+    }
+    for (unsigned int i = n; i < qbct_universe_count; ++i) setMem(&qbct_universe_mirror[i], sizeof(AssetRecord), 0);
+    qbct_universe_count = n;
+    copyMem(qbct_universe_seen, qbct_universe_mirror, sizeof(AssetRecord) * n);
+    qbct_mirror_serial = qbct_call_serial;
+}
+
+static inline void qbct_universe_flush() {
+    for (unsigned int i = 0; i < qbct_universe_count; ++i) {
+        auto& now = qbct_universe_mirror[i].varStruct.issuance;
+        auto& was = qbct_universe_seen[i].varStruct.issuance;
+        if (now.type != ISSUANCE || was.type != ISSUANCE) continue;
+        bool same = true;
+        for (int k = 0; k < 7; ++k) same = same && now.name[k] == was.name[k];
+        if (same) continue;
+        unsigned long long name = 0;
+        copyMem(&name, now.name, 7);
+        bq_universe_rename_issuance(qbct_universe_index[i], name);
+        copyMem(was.name, now.name, 7);
+    }
+}
+
+struct QbctUniverse {
+    AssetRecord& operator[](unsigned int i) {
+        if (qbct_mirror_serial != qbct_call_serial) qbct_universe_refresh();
+        return qbct_universe_mirror[i < ASSETS_CAPACITY ? i : ASSETS_CAPACITY - 1];
+    }
+};
+static QbctUniverse assets;
+
+// flushes the test's universe edits before a host call and marks the mirror stale after it
+struct QbctUniverseScope {
+    QbctUniverseScope() { qbct_universe_flush(); }
+    ~QbctUniverseScope() { ++qbct_call_serial; }
+};
 
 #undef QBCT_IMPORT
 
@@ -236,6 +306,7 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall, public
     // the runner's lhost surface has no contract index and acts for the contract under test.
     long long issueAsset(unsigned long long name, const QPI::id& issuer, signed char numberOfDecimalPlaces,
                          long long numberOfShares, unsigned long long unitOfMeasurement) const {
+        QbctUniverseScope qbctUniverseScope;
         return bq_issue_asset(&issuer, name, (int)numberOfDecimalPlaces, numberOfShares, unitOfMeasurement,
                               _currentContractIndex);
     }
@@ -245,6 +316,7 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall, public
     long long transferShareOwnershipAndPossession(unsigned long long assetName, const QPI::id& issuer,
                                                   const QPI::id& owner, const QPI::id& possessor,
                                                   long long numberOfShares, const QPI::id& newOwnerAndPossessor) const {
+        QbctUniverseScope qbctUniverseScope;
         (void)possessor;
         return bq_transfer_holding(assetName, &issuer, &owner, &newOwnerAndPossessor, numberOfShares,
                                    _currentContractIndex);
@@ -357,6 +429,7 @@ static QbStatesProxy contractStates;
 
 // ---- ContractTesting class: same public surface as core-lite ContractTesting ----
 
+
 class ContractTesting {
 public:
     ContractTesting() {
@@ -372,6 +445,7 @@ public:
 
     template <typename InputType, typename OutputType>
     unsigned int callFunction(unsigned int contractIndex, unsigned short fnInputType, const InputType& input, OutputType& output, bool checkInputSize = true, bool expectSuccess = true) const {
+        QbctUniverseScope qbctUniverseScope;
         setMem(&output, sizeof(output), 0);
         const unsigned int errorCode = bq_query(contractIndex, fnInputType, &input, sizeof(input), &output, sizeof(output));
         if (expectSuccess) {
@@ -382,6 +456,7 @@ public:
 
     template <typename InputType, typename OutputType>
     bool invokeUserProcedure(unsigned int contractIndex, unsigned short procInputType, const InputType& input, OutputType& output, const QPI::id& user, QPI::sint64 amount, bool checkInputSize = true, bool expectSuccess = true) {
+        QbctUniverseScope qbctUniverseScope;
         setMem(&output, sizeof(output), 0);
         // Mirror core-lite contract_testing.h: the invocation fails (no procedure run, nothing transferred)
         // when the user has NO spectrum record at all (spectrumIndex < 0 — even with amount 0), or can't
@@ -402,6 +477,7 @@ public:
     }
 
     void callSystemProcedure(unsigned int contractIndex, SystemProcedureID sysProcId, bool expectSuccess = true) {
+        QbctUniverseScope qbctUniverseScope;
         const unsigned int errorCode = bq_sysproc(contractIndex, (unsigned int)sysProcId);
         if (errorCode) {
             contractError[contractIndex] = errorCode;
@@ -830,6 +906,7 @@ namespace qbctidx {
 static inline long long issueAsset(const QPI::id& issuer, const char* name, signed char decimals, const char* unit,
                                    long long numberOfShares, unsigned short managingContract,
                                    int* issuanceIndex, int* ownershipIndex, int* possessionIndex) {
+    QbctUniverseScope qbctUniverseScope;
     const unsigned long long assetName = assetNameFromString(name);
 
     long long issued;
@@ -864,6 +941,7 @@ static inline long long energy(int idx) {
 static inline QPI::sint64 numberOfShares(const QPI::Asset& a,
     const QPI::AssetOwnershipSelect& own = QPI::AssetOwnershipSelect::any(),
     const QPI::AssetPossessionSelect& pos = QPI::AssetPossessionSelect::any()) {
+    QbctUniverseScope qbctUniverseScope;
     // No owner/possessor filter → total issued shares. Otherwise the selects go whole to the query contracts use, so an
     // "any managing contract" flag is honoured rather than read as contract 0.
     if (own.anyOwner && own.anyManagingContract && pos.anyPossessor && pos.anyManagingContract)
@@ -1007,6 +1085,7 @@ namespace qinit_gtest {
 #define GTEST_SKIP() return ::qinit_gtest::SkipSink() = ::qinit_gtest::NullSink()
 
 static inline long long numberOfPossessedShares(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, const QPI::id& possessor, unsigned int om, unsigned int pm) {
+    QbctUniverseScope qbctUniverseScope;
     return bq_possessed(name, &issuer, &owner, &possessor, om, pm);
 }
 

@@ -369,6 +369,33 @@ export async function runContractTesting(
             pullShadowsFromEngine();
             return code;
         },
+        // the harness's assets[] mirror: the record at `position` in index order, written in core's 48-byte layout; returns its universe index, -1 past the end
+        q_universe_record: (position: number, outPtr: number): number => {
+            const entry = (sim as any).assets.universeEntries()[position >>> 0];
+            if (!entry) {
+                return -1;
+            }
+            const [index, record] = entry;
+            const bytes = new Uint8Array(48);
+            const view = new DataView(bytes.buffer);
+            bytes.set(record.publicKey.subarray(0, 32), 0);
+            bytes[32] = record.type;
+            if (record.type === 1) {
+                // name and unit are 7 bytes each in core's record, little-endian
+                for (let k = 0; k < 7; k++) {
+                    bytes[33 + k] = Number((record.name >> BigInt(8 * k)) & 0xffn);
+                    bytes[41 + k] = Number((record.unit >> BigInt(8 * k)) & 0xffn);
+                }
+                bytes[40] = record.decimals & 0xff;
+            } else {
+                view.setUint16(34, record.mgmt, true);
+                view.setUint32(36, record.crossRef, true);
+                view.setBigInt64(40, record.shares, true);
+            }
+            write(outPtr, bytes.subarray(0, 48));
+            return index;
+        },
+        q_universe_rename_issuance: (index: number, name: bigint): number => ((sim as any).assets.renameIssuance(index >>> 0, BigInt.asUintN(64, name)) ? 1 : 0),
         // issueAsset(issuer, name, decimals, unit, shares, mgmt): mint an asset (issuer == invocator path). Returns shares.
         q_issue_asset: (issuerPtr: number, name: bigint, decimals: number, shares: bigint, unit: bigint, slot: number): bigint => {
             const issuer = id32(issuerPtr);

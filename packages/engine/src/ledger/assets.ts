@@ -23,7 +23,7 @@ const ISSUANCE = 1;
 const OWNERSHIP = 2;
 const POSSESSION = 3;
 
-interface LedgerRecord {
+export interface LedgerRecord {
     type: number;
     publicKey: Id;
     name: bigint;
@@ -1000,6 +1000,22 @@ export class AssetLedger {
         }
 
         return false;
+    }
+
+    // the records in index order, for a harness that mirrors core's assets[] array
+    universeEntries(): [number, LedgerRecord][] {
+        return [...this.table].sort(([left], [right]) => left - right);
+    }
+
+    // a test renames an issuance in place, as core's does by writing assets[i].varStruct.issuance.name; holdings stay attached by index
+    renameIssuance(index: number, name: bigint): boolean {
+        const record = this.table.get(index);
+        if (!record || record.type !== ISSUANCE) {
+            return false;
+        }
+        record.name = name;
+        this.dirty.add(index);
+        return true;
     }
 
     assetUniverse(): AssetSnapshot[] {
