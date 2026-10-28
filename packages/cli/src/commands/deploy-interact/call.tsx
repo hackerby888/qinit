@@ -412,7 +412,8 @@ function CallOneShot({
                 // Why the procedure was never submitted, worded for the trace note and remembered past dispatch so an empty trace can name the real reason.
                 let skipped: string | undefined;
                 const traceSrc = rc.source;
-                const traceName = rc.stateType ?? rc.name;
+                // the trace is labelled by the name the dev addressed, so a project copy of QX never reads as the native one; the IDL still finds the struct in the source
+                const traceName = rc.name;
                 if (wantTrace) {
                     try {
                         await rpc.setDebug(true);
