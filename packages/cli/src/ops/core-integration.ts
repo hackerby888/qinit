@@ -35,8 +35,6 @@ export interface CoreIntegrationOptions {
     contractName: string;
     // the project's own test file is named after its deploy name, which may differ from the struct
     localTestName?: string;
-    // "system" for an update of one of core's own contracts: the user-scope rules are not its author's to fix here
-    contractKind?: "user" | "system";
     outputPath: string;
     assetName?: string;
     constructionEpoch?: number;
@@ -367,14 +365,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
             throw new Error("internal: cheatcode residue after strip");
         }
 
-        // Core's Windows build is the hand-off this gate exists for; refuse before any checkout is created.
         const analysis = analyzeContract({ source: contractSource, contractName });
-        const contractKind: "user" | "system" = options.contractKind ?? "user";
-        const gateContext = { contractKind, buildRules: options.buildRules };
-        const rules = buildGateViolations(analysis.diagnostics, gateContext);
-        if (rules.length) {
-            throw new Error(`build rule violations in ${sourceFileName}:\n${rules.map((item) => `  ${item}`).join("\n")}`);
-        }
 
         // upstream CI runs contractverify on every contract, so a missing tool refuses rather than passing.
         const calleeNames = [...new Set(analysis.calls.map((call) => call.callee))];
@@ -391,7 +382,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
         const testSource = existsSync(localTestPath) ? readFileSync(localTestPath, "utf8") : undefined;
 
         return {
-            value: { contractSource, testSource, warnings: buildGateWarnings(analysis.diagnostics, gateContext) },
+            value: { contractSource, testSource, diagnostics: analysis.diagnostics },
             detail: sourceFileName,
         };
     });
@@ -436,6 +427,12 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
         if (checkoutExists && checkout.branch !== "main" && !existing) {
             throw new Error(`contract '${contractName}' is not registered on branch '${checkout.branch}' — a new contract is added from main: switch the checkout to main, or point --out at a path to clone into`);
         }
+        // an update of one of core's own contracts is gated as core's code, as its builds are; the checkout says which it is, so no local headers are needed
+        const gateContext = { contractKind: existing ? ("system" as const) : ("user" as const), buildRules: options.buildRules };
+        const rules = buildGateViolations(contract.diagnostics, gateContext);
+        if (rules.length) {
+            throw new Error(`build rule violations in ${sourceFileName}:\n${rules.map((item) => `  ${item}`).join("\n")}`);
+        }
         validateMetadata(options, existing);
 
         const metadata = metadataFor(options, existing);
@@ -453,7 +450,7 @@ export async function runCoreIntegration(options: CoreIntegrationOptions): Promi
             fileExists: existsSync,
         });
         const ownHeader = existing ? join(corePath, "src", ...existing.include.split("/")) : undefined;
-        const warnings = [...contract.warnings, ...plan.warnings, ...coreNameCollisions(corePath, [contractName, `${contractName}2`], ownHeader)];
+        const warnings = [...buildGateWarnings(contract.diagnostics, gateContext), ...plan.warnings, ...coreNameCollisions(corePath, [contractName, `${contractName}2`], ownHeader)];
         if (!plan.testPath) {
             warnings.push(`no tests/${options.localTestName ?? contractName}.test.cpp: Core gets ${contractName} without a GTest`);
         }

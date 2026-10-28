@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { resolve } from "node:path";
 import { Box, Text, useApp, useInput } from "ink";
 import { output, type CommandArguments } from "../../args";
-import { loadConfig, projectContractName, resolveCoreDir } from "../../config";
-import { isCoreStateType } from "@qinit/build";
+import { loadConfig, projectContractName } from "../../config";
 import { Header, Spinner, StepRow, TextPrompt, theme, type StepState } from "../../ui";
 import {
     CoreIntegrationMetadataRequiredError,
@@ -23,7 +22,6 @@ interface CoreIntegrationContext {
     contractPath: string;
     contractName: string;
     localTestName: string;
-    contractKind: "user" | "system";
     outputPath: string;
 }
 
@@ -200,13 +198,11 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
                     !(commandArgs.get("contract") ?? commandArgs.positionals[0]),
                 );
                 const outputPath = resolve(projectRoot, commandArgs.get("out") ?? `../${contractName}-core`);
-                // an update of one of core's own contracts is gated as core's code, as its builds are
                 const context: CoreIntegrationContext = {
                     projectRoot,
                     contractPath,
                     contractName,
                     localTestName: name,
-                    contractKind: isCoreStateType(resolveCoreDir(undefined, config.coreDir), contractName) ? "system" : "user",
                     outputPath,
                 };
                 const metadata: Metadata = {

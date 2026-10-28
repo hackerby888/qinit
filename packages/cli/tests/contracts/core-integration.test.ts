@@ -492,7 +492,8 @@ describe("runCoreIntegration", () => {
 });
 
 describe("build rules at the Core hand-off", () => {
-    test("refuses a bare div before any checkout is created", async () => {
+    // the gate needs the checkout to know whether the contract is one of core's own, so a fresh clone may exist: it stays untouched
+    test("refuses a bare div before anything is written to the checkout", async () => {
         const root = temporaryDirectory();
         const repositoryUrl = createCoreRepository(root);
         const projectRoot = createProject(root);
@@ -515,33 +516,28 @@ describe("build rules at the Core hand-off", () => {
                 repositoryUrl,
             }),
         ).rejects.toThrow(/build rule violations in Main\.h:\n {2}line 4: .*QPI::div/);
-        expect(existsSync(outputPath)).toBe(false);
+        expect(existsSync(join(outputPath, "src", "contracts", "Main.h"))).toBe(false);
+        expect(runGit(outputPath, "status", "--porcelain")).toBe("");
     }, 60000);
 
-    // a bug fix to one of core's own contracts is not refused for the bare divs core itself shipped.
+    // a bug fix to one of core's own contracts is not refused for the bare divs core itself shipped; the checkout's registration decides, not local headers.
     test("an update of a core contract is gated as system code", async () => {
         const root = temporaryDirectory();
         const repositoryUrl = createCoreRepository(root);
         const projectRoot = createProject(root);
 
-        writeFileSync(
-            join(projectRoot, "contracts", "Main.h"),
-            "struct Main { struct StateData { Base::StateData* base; }; };\nPUBLIC_PROCEDURE(P)\n{\n    state.mut().n = div(input.a, input.b);\n}\n",
-        );
+        writeFileSync(join(projectRoot, "contracts", "Base.h"), "struct Base { struct StateData {}; };\nPUBLIC_PROCEDURE(P)\n{\n    state.mut().n = div(input.a, input.b);\n}\n");
 
         const result = await integrate({
             projectRoot,
-            contractPath: "contracts/Main.h",
-            contractName: "Main",
-            contractKind: "system",
-            outputPath: join(root, "Main-core"),
-            assetName: "MAIN",
-            constructionEpoch: 300,
-            destructionEpoch: 10000,
+            contractPath: "contracts/Base.h",
+            contractName: "Base",
+            outputPath: join(root, "Base-core"),
             repositoryUrl,
         });
 
-        expect(readFileSync(join(result.corePath, "src", "contracts", "Main.h"), "utf8")).toContain("div(input.a, input.b)");
+        expect(result.branch).toBe("qinit/base-update");
+        expect(readFileSync(join(result.corePath, "src", "contracts", "Base.h"), "utf8")).toContain("div(input.a, input.b)");
     }, 60000);
 
     test("--no-build-rules lets the same contract through", async () => {
