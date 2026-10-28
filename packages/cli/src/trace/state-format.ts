@@ -1,5 +1,6 @@
 // Pure rendering of decoded state: values to text, container entries to rows. No I/O, so it is unit-testable without an RPC client.
-import { AbiScalarSemantic, AbiTypeKind, type AbiType, type ContractIdl } from "@qinit/proto/contract-idl";
+import { AbiScalarKind, AbiScalarSemantic, AbiTypeKind, type AbiType, type ContractIdl } from "@qinit/proto/contract-idl";
+import { unpackAssetName } from "@qinit/proto";
 
 // what a state field's container is, e.g. { kind: "hashmap", key: <uint64>, value: <uint64>, capacity: 8 } or { kind: "bitarray", capacity: 2 }
 export type StateContainerLayout =
@@ -192,6 +193,15 @@ export function dateAndTimeText(value: unknown): string {
 
 // decoded abi value + its type -> display text: 1n as uint64 -> "1", [5, -6] as { sint32 x; sint32 y } -> "{x: 5, y: -6}", an id -> quoted, a BitArray -> index runs.
 // display only, not the `--in` encoding: "1uint64" comes from proto's input-format, and this never parses back.
+// a uint64 field named like `assetName` holds a packed asset name and reads as its letters, so a mistyped pack shows the odd name it is (MY=X); zero and non-text stay numeric
+export function assetNameFieldText(name: string, type: AbiType, value: unknown): string | undefined {
+    if (!/assetname$/i.test(name) || type.kind !== AbiTypeKind.SCALAR || type.scalar !== AbiScalarKind.UINT64 || (typeof value !== "bigint" && typeof value !== "number") || !value) {
+        return undefined;
+    }
+    const text = unpackAssetName(BigInt(value));
+    return /^[\x21-\x7e]{1,7}$/.test(text) ? text : undefined;
+}
+
 export function abiValueText(value: unknown, type: AbiType, { showAll = false, topLevel = false }: AbiValueTextOptions = {}): string {
     switch (type.kind) {
         case AbiTypeKind.BIT_ARRAY: {
@@ -210,7 +220,7 @@ export function abiValueText(value: unknown, type: AbiType, { showAll = false, t
                 return "{}";
             }
             const values = topLevel && type.fields.length === 1 ? [value] : Array.isArray(value) ? value : [];
-            const rawParts = type.fields.map((field, index) => abiValueText(values[index], field.type, { showAll }));
+            const rawParts = type.fields.map((field, index) => assetNameFieldText(field.name, field.type, values[index]) ?? abiValueText(values[index], field.type, { showAll }));
             // A one-field struct read as a whole field is its value, so it keeps the bare form.
             if (topLevel && type.fields.length === 1) {
                 return rawParts[0];

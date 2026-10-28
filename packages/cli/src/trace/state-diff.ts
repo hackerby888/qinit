@@ -14,7 +14,7 @@ import {
     type WordType,
 } from "@qinit/proto/qpi-layout";
 import type { DebugStateRegion } from "@qinit/core";
-import { holdsContainer, keyLabel, pastCapacityWarning, scalarText, type StateField, type StateLine } from "./state-format";
+import { assetNameFieldText, holdsContainer, keyLabel, pastCapacityWarning, scalarText, type StateField, type StateLine } from "./state-format";
 import { hexToBytes } from "@qinit/core";
 
 // one row, e.g. { label: "map[11]", detail: "map._elements[4].value", text: "= 101 (new)", filled: true, internal: false, before: 0n, after: 101n, change: "new" }
@@ -493,14 +493,15 @@ function compareBits(walk: Walk, names: Names, run: BitRun, role: MemberRole, sl
 // Stage two: bytes to text, the only step that decodes, and the only one that may ask the node for anything.
 
 // Bytes + type -> display text and JSON data, e.g. `07 00 …` as uint64 -> `{ text: "7", data: 7n }`; an all-zero value collapses to `0`.
-async function renderValue(bytes: Uint8Array, type: AbiType): Promise<Rendered> {
+// `path` is the member's resolved path, whose last segment names an asset-name field.
+async function renderValue(bytes: Uint8Array, type: AbiType, path: string): Promise<Rendered> {
     const decoded = await decodeAbi(bytes, type);
     const data = decodedAbiToJson(decoded, type);
     if (allZero(bytes)) {
         return { text: "0", data }; // matches how `qinit state` collapses an untouched element
     }
 
-    return { text: scalarText(decoded, type), data };
+    return { text: assetNameFieldText(path.split(".").at(-1) ?? "", type, decoded) ?? scalarText(decoded, type), data };
 }
 
 // Key bytes -> the label text an entry is named by, the same text `qinit state` prints. `decodeAbiValue` keeps a one-field struct positional; `decodeAbi` would unwrap it.
@@ -550,8 +551,8 @@ async function decodeChanges(changes: Change[], windows: ChangedWindow[], readKe
     for (const change of changes) {
         if (change.kind === "value") {
             const value = {
-                before: await renderValue(change.value.before, change.value.type),
-                after: await renderValue(change.value.after, change.value.type),
+                before: await renderValue(change.value.before, change.value.type, change.names.detail),
+                after: await renderValue(change.value.after, change.value.type, change.names.detail),
             };
             decoded.push({ ...change, value, slot: change.slot && (await decodedSlot(change.slot)) });
         } else if (change.kind === "bit") {
