@@ -85,6 +85,8 @@ test.skipIf(!haveCore)(
                 { contract: "Counter", cheats: (await describeTrace(children[0], undefined, "Counter", undefined, counter.idl)).cheats },
             ];
             expect(mergePrints(frames).map((cheat) => `${cheat.contract}:${cheat.text}`)).toEqual(["Proxy:before", "Counter:inc 1", "Proxy:after"]);
+            // the decoder names the entry it resolved, so a callee frame can read `proc#1 (Inc)` instead of a bare number
+            expect((await describeTrace(children[0], undefined, "Counter", undefined, counter.idl)).entryName).toBe("Inc");
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }

@@ -16,6 +16,8 @@ export interface DecodedTrace {
     inJson?: unknown;
     outJson?: unknown;
     caller: string;
+    // the registered entry's name when the IDL knows it, so a caller can label `fn#1` as `fn#1 (Get)`
+    entryName?: string;
     fields: StateField[];
     stateDiff: StateDiffLine[];
     logs: DecodedLog[];
@@ -37,6 +39,7 @@ export async function describeTrace(
     let output = entry.outHex ? "0x" + entry.outHex : "(none)";
     let inputJson: unknown;
     let outputJson: unknown;
+    let entryName: string | undefined;
     let caller = "(none)";
 
     if (entry.kind === 1 && !/^0+$/.test(entry.invocator)) {
@@ -58,6 +61,7 @@ export async function describeTrace(
         // A caller may hold only part of an IDL — the browser IDE has the cheat table and little else — so every section is optional.
         const registered = (entry.kind === 0 ? idl.functions : idl.procedures) ?? [];
         const metadata = registered.find((candidate) => candidate.inputType === entry.entry);
+        entryName = metadata?.name;
         // A migration's input is the old state, which carries no entry number — its layout is OldStateData.
         const inputType = entry.kind === MIGRATE ? idl.migration?.oldState : metadata?.input;
 
@@ -96,6 +100,7 @@ export async function describeTrace(
         ...(inputJson !== undefined ? { inJson: inputJson } : {}),
         ...(outputJson !== undefined ? { outJson: outputJson } : {}),
         caller,
+        ...(entryName !== undefined ? { entryName } : {}),
         fields,
         stateDiff,
         logs,
