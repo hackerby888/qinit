@@ -3,6 +3,8 @@
 #   checkout, so a breaking change in core's qpi.h / contract macros / ABI turns this red.
 # - deploy-smoke: builds the core wasm node from the branch, boots it, and runs a real on-chain deploy +
 #   read + write (Get->Inc->Get=1) — catches deploy-pipeline regressions the corpus (compile-only) can't.
+# - integrate-bare: `qinit new` + `qinit integrate` into a fresh qubic/core clone with no core headers or cache set up,
+#   the way a first-time user runs it.
 name: test
 
 on:
@@ -273,6 +275,31 @@ jobs:
 
   # contractverify every fixtures/*.h against the qpi.h protocol rules (the AST checker, not just a wasm
   # compile). The script self-fetches the cached verify tool; a fixture that drifts out of compliance reds it.
+  # the hand-off from a machine with nothing set up: no core headers, no cache. integrate-core builds core on Windows
+  # nightly; this clones core and runs the same integrate on every push, so a new dependency on local headers fails fast.
+  integrate-bare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install
+      - run: bun run build:bin
+      - name: Integrate the counter template into a fresh qubic/core clone
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          qinit="$GITHUB_WORKSPACE/dist/qinit"
+          "$qinit" new Counter
+          cd Counter
+          "$qinit" integrate --contract contracts/Counter.h --out ../core --asset COUNTER --construction-epoch 1
+          test -f ../core/src/contracts/Counter.h
+          test -f ../core/test/contract_counter.cpp
+          grep -q Counter_CONTRACT_INDEX ../core/src/contract_core/contract_def.h
+          [ "$(git -C ../core branch --show-current)" = "qinit/counter" ]
+
   verify-fixtures:
     runs-on: ubuntu-latest
     steps:
