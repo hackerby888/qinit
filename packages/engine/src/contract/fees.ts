@@ -71,9 +71,9 @@ export class FeeManager {
         }
     }
 
-    // Spec gate before fee-bearing entries: metered contracts need a positive reserve (always true when fees are off).
+    // Spec gate before fee-bearing entries: a positive reserve; with fees off one nobody set reads as the legacy constant, while a reserve a test starved to 0 stays starved, as in core's harness.
     reserveOk(slot: number): boolean {
-        return this.mode === "off" || this.getContractFeeReserve(slot) > 0n;
+        return this.reportedReserve(slot) > 0n;
     }
 
     // the credit lands on the value queryFeeReserve reports, so a contract reading before and after sees exactly the amount.
