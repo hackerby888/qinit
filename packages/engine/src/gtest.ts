@@ -6,7 +6,7 @@ import { Contract, CONTRACT_ENTRY_KIND, ContractAbort, ContractExecutionError, d
 import { initK12, k12Bytes } from "./support/k12";
 import { packTimestamp } from "./chain/oracle-engine";
 import { EntityRecord, M256i, MAX_TRANSACTION_SIZE, OracleSubscription } from "./protocol/wire";
-import { NO_ASSET_INDEX } from "./ledger/assets";
+import { NO_ASSET_INDEX, type LedgerRecord } from "./ledger/assets";
 import type { Id } from "./support/bytes";
 
 // OracleEngine::PendingContractQuery in the runner
@@ -294,6 +294,7 @@ export async function runContractTesting(
         return code;
     };
 
+    let universeView: [number, LedgerRecord][] = [];
     const thost = {
         q_reset: () => {
             deployAll();
@@ -369,9 +370,15 @@ export async function runContractTesting(
             pullShadowsFromEngine();
             return code;
         },
-        // the harness's assets[] mirror: the record at `position` in index order, written in core's 48-byte layout; returns its universe index, -1 past the end
+        // the harness's assets[] mirror: a count call fixes the index-ordered view the record calls then read
+        q_universe_count: (): number => {
+            universeView = (sim as any).assets.universeEntries();
+            return universeView.length;
+        },
+        q_universe_capacity: (): number => (sim as any).assets.universeCapacity(),
+        // the record at `position` of that view, written in core's 48-byte layout; returns its universe index, -1 past the end
         q_universe_record: (position: number, outPtr: number): number => {
-            const entry = (sim as any).assets.universeEntries()[position >>> 0];
+            const entry = universeView[position >>> 0];
             if (!entry) {
                 return -1;
             }

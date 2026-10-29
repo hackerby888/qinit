@@ -1007,6 +1007,15 @@ export class AssetLedger {
         return [...this.table].sort(([left], [right]) => left - right);
     }
 
+    universeCount(): number {
+        return this.table.size;
+    }
+
+    // the extent of core's assets[] table, so a harness scan covers every index a record can sit at
+    universeCapacity(): number {
+        return ASSET_CAPACITY;
+    }
+
     // a harness test edits a record in place, as core's does by writing into assets[]: every field is taken as written, and the
     // index links stay, so a changed key is found by neither node, exactly as in core
     writeRecord(index: number, record: LedgerRecord): boolean {

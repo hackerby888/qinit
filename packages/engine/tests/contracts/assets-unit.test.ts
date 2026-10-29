@@ -233,3 +233,12 @@ test("writeRecord: a renamed issuance answers to its new name, an edited holding
     const empty = [...Array(16).keys()].find((index) => !entries.some(([used]) => used === index))!;
     expect(a.writeRecord(empty, issuance)).toBe(false);
 });
+
+test("universeCount follows the records held; universeCapacity is core's table extent", () => {
+    const a = ledger();
+    expect(a.universeCount()).toBe(0);
+    expect(a.universeCapacity()).toBe(1 << 24);
+    expect(a.issueAsset(1, NAME, contractId(1), 2, 1000n, 0n, contractId(1))).toBe(1000n);
+    expect(a.universeCount()).toBe(3);
+    expect(a.universeEntries().map(([index]) => index)).toEqual(a.universeEntries().map(([index]) => index).sort((l, r) => l - r));
+});
