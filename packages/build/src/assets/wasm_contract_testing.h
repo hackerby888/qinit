@@ -101,51 +101,45 @@ static unsigned long long qbct_universe_capacity() {
 }
 #define ASSETS_CAPACITY (qbct_universe_capacity())
 
-// the occupied records in index order plus one zeroed spare slot that stands in for every empty index
-static AssetRecord* qbct_universe_mirror = nullptr;
-static AssetRecord* qbct_universe_seen = nullptr;
-static unsigned int* qbct_universe_index = nullptr;
-static unsigned int qbct_universe_slots = 0;
-static unsigned int qbct_universe_count = 0;
+// one node per occupied index, so a record keeps its address across reloads as on core's array; `seen` is the last load the flush diffs against
+struct QbctSlot {
+    AssetRecord live;
+    AssetRecord seen;
+    unsigned int loaded;
+};
+static_assert(offsetof(QbctSlot, seen) == sizeof(AssetRecord), "live and seen are zeroed as one span");
+static std::map<unsigned int, QbctSlot> qbct_universe;
+// one zeroed record stands in for every empty index; a write into it fails the test naming that index
+static AssetRecord qbct_universe_spare;
+static const AssetRecord qbct_universe_empty = {};
 static unsigned int qbct_universe_last_miss = 0;
-// bumped after every host call that can touch the universe; the mirror reloads on its next read
+static bool qbct_universe_used = false;
+// bumped after every host call that can touch the universe; a test that has read assets[] gets the mirror reloaded right there, so a held reference stays current as on core
 static unsigned int qbct_call_serial = 1;
 static unsigned int qbct_mirror_serial = 0;
 
-static void qbct_universe_reserve(unsigned int slots) {
-    if (slots <= qbct_universe_slots) return;
-    free(qbct_universe_mirror);
-    free(qbct_universe_seen);
-    free(qbct_universe_index);
-    qbct_universe_mirror = (AssetRecord*)malloc(sizeof(AssetRecord) * slots);
-    qbct_universe_seen = (AssetRecord*)malloc(sizeof(AssetRecord) * slots);
-    qbct_universe_index = (unsigned int*)malloc(sizeof(unsigned int) * slots);
-    qbct_universe_slots = slots;
-}
-
 static inline void qbct_universe_refresh() {
     const unsigned int n = bq_universe_count();
-    qbct_universe_reserve(n + 1);
-    for (unsigned int i = 0; i < n; ++i) qbct_universe_index[i] = (unsigned int)bq_universe_record(i, &qbct_universe_mirror[i]);
-    setMem(&qbct_universe_mirror[n], sizeof(AssetRecord), 0);
-    qbct_universe_count = n;
-    copyMem(qbct_universe_seen, qbct_universe_mirror, sizeof(AssetRecord) * (n + 1));
+    AssetRecord record;
+    for (unsigned int i = 0; i < n; ++i) {
+        const unsigned int index = (unsigned int)bq_universe_record(i, &record);
+        QbctSlot& slot = qbct_universe[index];
+        copyMem(&slot.live, &record, sizeof(AssetRecord));
+        copyMem(&slot.seen, &record, sizeof(AssetRecord));
+        slot.loaded = qbct_call_serial;
+    }
+    // a node the engine no longer reports (the universe was reset) reads EMPTY at its old address, as core's zeroed array does
+    for (auto& entry : qbct_universe) if (entry.second.loaded != qbct_call_serial) setMem(&entry.second, sizeof(AssetRecord) * 2, 0);
     qbct_mirror_serial = qbct_call_serial;
 }
 
-// the mirror position of a universe index, or -1 when the engine holds no record there; the index table is sorted
-static int qbct_universe_position(unsigned int index) {
-    unsigned int low = 0;
-    unsigned int high = qbct_universe_count;
-    while (low < high) {
-        const unsigned int middle = (low + high) / 2;
-        if (qbct_universe_index[middle] < index) low = middle + 1; else high = middle;
-    }
-    return low < qbct_universe_count && qbct_universe_index[low] == index ? (int)low : -1;
+static inline void qbct_universe_reload() {
+    ++qbct_call_serial;
+    if (qbct_universe_used) qbct_universe_refresh();
 }
 
 // reported through gtest, which is declared further down
-static void qbct_universe_overflow();
+static void qbct_universe_overflow(unsigned int index);
 
 static inline bool qbct_universe_same(const AssetRecord& a, const AssetRecord& b) {
     const unsigned char* x = (const unsigned char*)&a;
@@ -156,32 +150,38 @@ static inline bool qbct_universe_same(const AssetRecord& a, const AssetRecord& b
 
 static inline void qbct_universe_flush() {
     if (qbct_mirror_serial != qbct_call_serial) return;
-    for (unsigned int i = 0; i < qbct_universe_count; ++i) {
-        if (qbct_universe_same(qbct_universe_mirror[i], qbct_universe_seen[i])) continue;
-        bq_universe_write(qbct_universe_index[i], &qbct_universe_mirror[i]);
-        copyMem(&qbct_universe_seen[i], &qbct_universe_mirror[i], sizeof(AssetRecord));
+    for (auto& entry : qbct_universe) {
+        QbctSlot& slot = entry.second;
+        if (qbct_universe_same(slot.live, slot.seen)) continue;
+        // the engine refuses a record it does not hold; the mirror drops the edit, as the spare does
+        if (!bq_universe_write(entry.first, &slot.live)) {
+            qbct_universe_overflow(entry.first);
+            setMem(&slot.live, sizeof(AssetRecord), 0);
+        }
+        copyMem(&slot.seen, &slot.live, sizeof(AssetRecord));
     }
-    // the spare slot has no record behind it; say so rather than drop the edit
-    if (!qbct_universe_same(qbct_universe_mirror[qbct_universe_count], qbct_universe_seen[qbct_universe_count])) {
-        qbct_universe_overflow();
-        setMem(&qbct_universe_mirror[qbct_universe_count], sizeof(AssetRecord), 0);
+    if (!qbct_universe_same(qbct_universe_spare, qbct_universe_empty)) {
+        qbct_universe_overflow(qbct_universe_last_miss);
+        setMem(&qbct_universe_spare, sizeof(AssetRecord), 0);
     }
 }
 
 struct QbctUniverse {
     AssetRecord& operator[](unsigned int i) {
+        qbct_universe_used = true;
         if (qbct_mirror_serial != qbct_call_serial) qbct_universe_refresh();
-        const int position = qbct_universe_position(i);
-        if (position < 0) qbct_universe_last_miss = i;
-        return qbct_universe_mirror[position < 0 ? qbct_universe_count : position];
+        const auto it = qbct_universe.find(i);
+        if (it != qbct_universe.end()) return it->second.live;
+        qbct_universe_last_miss = i;
+        return qbct_universe_spare;
     }
 };
 static QbctUniverse assets;
 
-// flushes the test's universe edits before a host call and marks the mirror stale after it
+// flushes the test's universe edits before a host call and reloads the mirror after it
 struct QbctUniverseScope {
     QbctUniverseScope() { qbct_universe_flush(); }
-    ~QbctUniverseScope() { ++qbct_call_serial; }
+    ~QbctUniverseScope() { qbct_universe_reload(); }
 };
 
 #undef QBCT_IMPORT
@@ -476,6 +476,9 @@ public:
     ContractTesting() {
         bq_reset();
         setMem(contractError, sizeof(contractError), 0);
+        // the reset wiped the universe and with it any edit not yet flushed, as core's does
+        setMem(&qbct_universe_spare, sizeof(AssetRecord), 0);
+        qbct_universe_reload();
     }
 
     void initEmptySpectrum() {
@@ -1121,8 +1124,8 @@ namespace qinit_gtest {
 #define ASSERT_NEAR(a, b, error) switch (0) case 0: default: if (::qinit_gtest::recNear(__FILE__, __LINE__, "ASSERT_NEAR(" #a ", " #b ", " #error ")", (a), (b), (error))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 #define ADD_FAILURE() switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ADD_FAILURE()", false)) ; else ::qinit_gtest::Sink()
 
-static void qbct_universe_overflow() {
-    ADD_FAILURE() << "assets[" << qbct_universe_last_miss << "] was written, but the engine holds no record at that index and the harness cannot create one";
+static void qbct_universe_overflow(unsigned int index) {
+    ADD_FAILURE() << "assets[" << index << "] was written, but the engine holds no record at that index and the harness cannot create one";
 }
 #define FAIL() switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "FAIL()", false)) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 #define SUCCEED() ::qinit_gtest::NullSink()
