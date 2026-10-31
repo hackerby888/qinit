@@ -74,8 +74,6 @@ export async function runContractTesting(
 
     let sim: QubicSimulator;
     let handles: Record<number, Contract> = {};
-    let spectrumIds: string[] = [];
-    let spectrumBytes: Uint8Array[] = [];
     let runner: WebAssembly.Instance;
     // runner-side copies of unshared contract states by slot, and the ones the test may have written since the last push
     const shadows = new Map<number, { dst: number; len: number }>();
@@ -163,8 +161,6 @@ export async function runContractTesting(
         sim.prevSpectrumDigestOverride = new Uint8Array(32);
         syncClockFromRunner();
         handles = {};
-        spectrumIds = [];
-        spectrumBytes = [];
         shadows.clear();
         shadowsToPush.clear();
         for (const [idx, wasm] of Object.entries(contracts)) {
@@ -464,27 +460,10 @@ export async function runContractTesting(
             ) as bigint;
         },
 
-        // Native spectrumIndex: -1 when the identity has no spectrum record, which corpora gate invocations on — an unknown user cannot invoke at all.
-        q_spectrum: (idPtr: number): number => {
-            if (!sim.getEntity(id32(idPtr))) return -1;
-            const h = hex(id32(idPtr));
-            let i = spectrumIds.indexOf(h);
-            if (i < 0) {
-                i = spectrumIds.length;
-                spectrumIds.push(h);
-                spectrumBytes.push(id32(idPtr));
-            }
-            return i;
-        },
-
-        q_decrease: (idx: number, amount: bigint): number => {
-            const b = spectrumBytes[idx >>> 0];
-            return b && sim.decreaseEnergy(sim.spectrumIndex(b), BigInt(amount)) ? 1 : 0;
-        },
-        q_energy: (idx: number): bigint => {
-            const b = spectrumBytes[idx >>> 0];
-            return b ? sim.balance(b) : 0n;
-        },
+        // core's spectrumIndex: the id's slot in the spectrum, -1 when it has no record yet, which corpora gate invocations on
+        q_spectrum: (idPtr: number): number => sim.spectrumIndex(id32(idPtr)),
+        q_decrease: (idx: number, amount: bigint): number => (sim.decreaseEnergy(idx >>> 0, BigInt(amount)) ? 1 : 0),
+        q_energy: (idx: number): bigint => sim.energy(idx >>> 0),
 
         q_shares: (issuerPtr: number, assetName: bigint): bigint => {
             const issuerHex = hex(id32(issuerPtr));
