@@ -1,9 +1,10 @@
 // Verifies tick and epoch lifecycle hooks, including boundary ordering.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12 } from "../../src/support/k12";
+import { initK12, toHex } from "../../src/support/k12";
 import { DEFAULT_EPOCH_LENGTH, QubicSimulator } from "../../src/qubic-simulator";
 import { VirtualNode } from "../../src/transport";
+import { contractId } from "../support/helpers";
 
 const GET = 1; // REGISTER_USER_FUNCTION(Get, 1)
 
@@ -134,4 +135,34 @@ test("a node reports the epoch's stored first tick and core's last tick", async 
     expect(node.epochInfo()).toMatchObject({ epoch: 2, initialTick: firstTick, epochLastTick: firstTick + 9, duration: 10 });
     expect(node.advanceEpoch()).toMatchObject({ fromEpoch: 2, toEpoch: 3, tick: firstTick + 11, initialTick: firstTick + 11, switched: true });
     expect(node.epochInfo()).toMatchObject({ epoch: 3, initialTick: firstTick + 11, epochLastTick: firstTick + 20 });
+});
+
+// core sets the prev digests from the post-END_EPOCH ledgers and counts the new tick's transactions before BEGIN_EPOCH runs.
+test("BEGIN_EPOCH reads the digests END_EPOCH left behind and the switch tick's own transaction count", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ epochLength: 4, mempool: true });
+    const user = new Uint8Array(32).fill(0x63);
+    const epochBefore = sim.currentEpoch;
+    sim.deploy(28, await wasm("EpochWitness"));
+    sim.fund(contractId(28), 10n);
+    sim.fund(user, 100n);
+
+    const seen = () => {
+        const output = sim.query(28, 1);
+        const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+        return { prevSpectrum: toHex(output.subarray(80, 112)), txCount: view.getBigInt64(112, true) };
+    };
+
+    // one plain transfer lands in the tick before the switch, none in the switch tick itself
+    for (let i = 0; i < 3; i++) {
+        sim.advance();
+    }
+    sim.enqueueTx(sim.currentTick + 1, user, new Uint8Array(32).fill(0x64), 1n, 0, new Uint8Array(0), "before-the-switch");
+    sim.advance();
+    expect(sim.balance(user)).toBe(99n);
+
+    sim.advance();
+    expect(sim.currentEpoch).toBe(epochBefore + 1);
+    expect(sim.balanceOf(28)).toBe(9n);
+    expect(seen()).toEqual({ prevSpectrum: toHex(sim.getSpectrumDigest()), txCount: 0n });
 });

@@ -1,4 +1,5 @@
-// records what a contract reads of the chain clock inside END_EPOCH and BEGIN_EPOCH, and at the first BEGIN_TICK after a switch.
+// records what a contract reads of the chain clock inside END_EPOCH and BEGIN_EPOCH, and at the first BEGIN_TICK after a switch;
+// END_EPOCH moves a qu when it has one, so BEGIN_EPOCH's prev spectrum digest shows whether the switch refreshed it.
 using namespace QPI;
 
 struct EpochWitness2
@@ -21,6 +22,8 @@ struct EpochWitness : public ContractBase
         Reading firstBeginTick;
         uint64 switches;
         uint64 awaitingBeginTick;
+        id beginEpochPrevSpectrum;
+        sint64 beginEpochTxCount;
     };
 
     struct Seen_input {};
@@ -30,6 +33,8 @@ struct EpochWitness : public ContractBase
         Reading beginEpoch;
         Reading firstBeginTick;
         uint64 switches;
+        id beginEpochPrevSpectrum;
+        sint64 beginEpochTxCount;
     };
 
     PUBLIC_FUNCTION(Seen)
@@ -38,6 +43,8 @@ struct EpochWitness : public ContractBase
         output.beginEpoch = state.get().beginEpoch;
         output.firstBeginTick = state.get().firstBeginTick;
         output.switches = state.get().switches;
+        output.beginEpochPrevSpectrum = state.get().beginEpochPrevSpectrum;
+        output.beginEpochTxCount = state.get().beginEpochTxCount;
     }
 
     END_EPOCH()
@@ -45,6 +52,7 @@ struct EpochWitness : public ContractBase
         state.mut().endEpoch.tick = qpi.tick();
         state.mut().endEpoch.epoch = qpi.epoch();
         state.mut().endEpoch.initialTick = qpi.initialTick();
+        qpi.transfer(qpi.arbitrator(), 1);
     }
 
     BEGIN_EPOCH()
@@ -54,6 +62,8 @@ struct EpochWitness : public ContractBase
         state.mut().beginEpoch.initialTick = qpi.initialTick();
         state.mut().switches++;
         state.mut().awaitingBeginTick = 1;
+        state.mut().beginEpochPrevSpectrum = qpi.getPrevSpectrumDigest();
+        state.mut().beginEpochTxCount = qpi.numberOfTickTransactions();
     }
 
     BEGIN_TICK()

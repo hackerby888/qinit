@@ -1484,6 +1484,9 @@ export class QubicSimulator {
             this.enterNextTick();
             this.endEpoch();
             this.logStore?.finalizeTick(this.currentTick);
+            // core sets the prev digests from the post-END_EPOCH ledgers and counts the new tick's transactions before BEGIN_EPOCH runs
+            this.ticking.refreshPrevDigests();
+            this.tickTxCount = this.txpool.dueCount(this.currentTick);
             this.currentEpoch++;
             this.initialTick = this.currentTick;
             this.beginEpoch();

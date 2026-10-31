@@ -78,14 +78,17 @@ export class TickConsensus {
         return this.lastDigests.computer;
     }
 
+    // The roots the next tick's contracts read as prev*Digest; the epoch switch refreshes them after END_EPOCH too, as core does.
+    refreshPrevDigests(): { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array } {
+        this.lastDigests = { spectrum: this.host.getSpectrumDigest(), universe: this.host.getUniverseDigest(), computer: this.host.getComputerDigest() };
+        return this.lastDigests;
+    }
+
     // The leader (computor[tick % N]) packs the tick's per-tx digests into a signed TickData; each computor signs a Tick vote with K12(TickData).
     finalizeTick(): void {
         const tick = this.host.tick();
         const epoch = this.host.epoch();
-        const spectrum = this.host.getSpectrumDigest();
-        const universe = this.host.getUniverseDigest();
-        const computer = this.host.getComputerDigest();
-        this.lastDigests = { spectrum, universe, computer }; // the next tick's contracts read these as prev*Digest
+        const { spectrum, universe, computer } = this.refreshPrevDigests();
 
         const txDigests = this.host.tickTransactionDigests(tick);
 
