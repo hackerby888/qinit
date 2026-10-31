@@ -1830,11 +1830,16 @@ export class QubicSimulator {
             "contract-procedure",
             () => {
                 // like core's test harness: the reward comes out of the invocator, and a caller who cannot pay does not get the procedure run
-                if (reward > 0n && options.transferReward !== false) {
-                    if (!this.transferBalance(invocator, this.contractId(slot), reward)) {
-                        return EMPTY;
+                if (options.transferReward !== false) {
+                    if (reward > 0n) {
+                        if (!this.transferBalance(invocator, this.contractId(slot), reward)) {
+                            return EMPTY;
+                        }
+                        this.notifyContractOfIncomingTransfer(this.contractId(slot), invocator, reward, TRANSFER_TYPE_PROCEDURE_TRANSACTION);
+                    } else {
+                        // core's harness credits the contract even with nothing, which creates its spectrum record
+                        this.increaseEnergy(this.contractId(slot), 0n);
                     }
-                    this.notifyContractOfIncomingTransfer(this.contractId(slot), invocator, reward, TRANSFER_TYPE_PROCEDURE_TRANSACTION);
                 }
 
                 return this.processTickTransactionContractProcedure(slot, inputType, input ?? new Uint8Array(0), invocator, originator, reward);

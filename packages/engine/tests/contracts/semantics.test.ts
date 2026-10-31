@@ -137,3 +137,16 @@ test("BEGIN_TICK lifecycle sweep runs each tick, all contracts", async () => {
     expect(get(sim, 28).tickCount).toBe(3n);
     expect(get(sim, 29).tickCount).toBe(3n);
 });
+
+// core's harness credits the contract even at amount 0, so a free call leaves it with a spectrum record and no callback.
+test("a zero reward still creates the contract's spectrum record", async () => {
+    await initK12();
+    const sim = new QubicSimulator();
+    sim.deploy(28, await wasm("Vault"));
+    expect(sim.spectrumIndex(contractId(28))).toBe(-1);
+
+    sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 0n });
+    expect(sim.spectrumIndex(contractId(28))).toBeGreaterThanOrEqual(0);
+    expect(sim.balanceOf(28)).toBe(0n);
+    expect(get(sim, 28).incomingCount).toBe(0n);
+});

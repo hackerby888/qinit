@@ -292,10 +292,11 @@ TEST(HarnessProbe, InvokeWithoutASpectrumRecordIsRefused)
     EXPECT_FALSE(t.set(user, 9));
     EXPECT_EQ(t.read(), 0ull);
 
-    // a record with a zero balance is enough for a free invocation, not for a reward
+    // a record with a zero balance is enough for a free invocation, not for a reward; the contract gets its own record from it
     increaseEnergy(user, 0);
     EXPECT_TRUE(t.set(user, 9));
     EXPECT_EQ(t.read(), 9ull);
+    EXPECT_GE(spectrumIndex(id(HarnessProbe_CONTRACT_INDEX, 0, 0, 0)), 0);
     EXPECT_FALSE(t.set(user, 10, 1));
     EXPECT_EQ(t.read(), 9ull);
 }
