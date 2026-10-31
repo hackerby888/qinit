@@ -912,60 +912,68 @@ static inline void notifyContractOfIncomingTransfer(const QPI::id& source, const
 
 static inline unsigned long long assetNameFromString(const char* s);  // defined below; used by issueAsset
 
-// The native harness returns opaque asset-universe indices from issueAsset and threads them into the index-based
-// transferShareOwnershipAndPossession. The engine keys assets by holding (issuer+name / owner / possessor), so
-namespace qbctidx {
-    struct Holding {
-        unsigned long long name;
-        QPI::id issuer;
-        QPI::id owner;
-        unsigned int mgmt;
-    };
+// records are found the way core's assets.h places them: from the key's hash, probing forward until an empty slot
+static inline bool qbctSameAssetName(const char* stored, unsigned long long name) {
+    unsigned long long value = 0;
+    copyMem(&value, stored, 7);
+    return value == (name & 0xFFFFFFFFFFFFFFull);
+}
 
-    static inline std::vector<Holding>& table() {
-        static std::vector<Holding> t(1);
-        return t;
+static inline int qbctFindIssuance(const QPI::id& issuer, unsigned long long name) {
+    const unsigned int mask = (unsigned int)(ASSETS_CAPACITY - 1);
+    for (unsigned int i = issuer.m256i_u32[0] & mask; assets[i].varStruct.issuance.type != EMPTY; i = (i + 1) & mask) {
+        const auto& issuance = assets[i].varStruct.issuance;
+        // core keys an issuance by the issuer's low 192 bits; QX and QSWAP put the asset name in the top word
+        if (issuance.type == ISSUANCE && qbctSameAssetName(issuance.name, name) && issuance.publicKey.m256i_u64[0] == issuer.m256i_u64[0] && issuance.publicKey.m256i_u64[1] == issuer.m256i_u64[1] && issuance.publicKey.m256i_u64[2] == issuer.m256i_u64[2]) return (int)i;
     }
+    return -1;
+}
 
-    static inline int record(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, unsigned int mgmt) {
-        Holding h;
-        h.name = name;
-        h.issuer = issuer;
-        h.owner = owner;
-        h.mgmt = mgmt;
-        table().push_back(h);
-        return (int)table().size() - 1;
+static inline int qbctFindOwnership(unsigned int start, int issuanceIndex, const QPI::id& owner, unsigned short managingContract) {
+    const unsigned int mask = (unsigned int)(ASSETS_CAPACITY - 1);
+    for (unsigned int i = start & mask; assets[i].varStruct.ownership.type != EMPTY; i = (i + 1) & mask) {
+        const auto& ownership = assets[i].varStruct.ownership;
+        if (ownership.type == OWNERSHIP && ownership.issuanceIndex == (unsigned int)issuanceIndex && ownership.managingContractIndex == managingContract && ownership.publicKey == owner) return (int)i;
     }
+    return -1;
+}
 
-    static inline bool isZeroId(const QPI::id& a) {
-        const unsigned char* p = (const unsigned char*)&a;
-        for (int i = 0; i < 32; ++i)
-            if (p[i]) return false;
-        return true;
+static inline int qbctFindPossession(unsigned int start, int ownershipIndex, const QPI::id& possessor, unsigned short managingContract) {
+    const unsigned int mask = (unsigned int)(ASSETS_CAPACITY - 1);
+    for (unsigned int i = start & mask; assets[i].varStruct.possession.type != EMPTY; i = (i + 1) & mask) {
+        const auto& possession = assets[i].varStruct.possession;
+        if (possession.type == POSSESSION && possession.ownershipIndex == (unsigned int)ownershipIndex && possession.managingContractIndex == managingContract && possession.publicKey == possessor) return (int)i;
     }
+    return -1;
 }
 
 // Mint an asset for a test; name/unit are short ASCII strings. A NULL_ID issuer is the QX contract-share
-// convention, which the engine's contract-facing issueAsset rejects, so route it through the holding-based
+// convention, which the engine's contract-facing issueAsset rejects, so route it through the holding-based mint.
+// The index outputs are core's universe indices: the issuance at the issuer's hash, ownership and possession at the next free slots.
 static inline long long issueAsset(const QPI::id& issuer, const char* name, signed char decimals, const char* unit,
                                    long long numberOfShares, unsigned short managingContract,
                                    int* issuanceIndex, int* ownershipIndex, int* possessionIndex) {
-    QbctUniverseScope qbctUniverseScope;
     const unsigned long long assetName = assetNameFromString(name);
+    const bool existed = qbctFindIssuance(issuer, assetName) >= 0;
 
     long long issued;
-    if (qbctidx::isZeroId(issuer)) {
-        bq_mint_contract_shares(assetName, numberOfShares, (unsigned int)managingContract);
-        issued = numberOfShares;
-    } else {
-        issued = bq_issue_asset(&issuer, assetName, (int)decimals, numberOfShares, assetNameFromString(unit), (unsigned int)managingContract);
+    {
+        QbctUniverseScope qbctUniverseScope;
+        if (issuer == m256i::zero()) {
+            bq_mint_contract_shares(assetName, numberOfShares, (unsigned int)managingContract);
+            issued = numberOfShares;
+        } else {
+            issued = bq_issue_asset(&issuer, assetName, (int)decimals, numberOfShares, assetNameFromString(unit), (unsigned int)managingContract);
+        }
     }
 
-    const int idx = qbctidx::record(assetName, issuer, issuer, (unsigned int)managingContract);
-    if (issuanceIndex) *issuanceIndex = idx;
-    if (ownershipIndex) *ownershipIndex = idx;
-    if (possessionIndex) *possessionIndex = idx;
-
+    const int ii = qbctFindIssuance(issuer, assetName);
+    if (issuanceIndex) *issuanceIndex = ii;
+    // a repeated issuance leaves the ownership and possession outputs alone, as core does
+    if (existed) return issued;
+    const int oi = qbctFindOwnership((unsigned int)ii + 1, ii, issuer, managingContract);
+    if (ownershipIndex) *ownershipIndex = oi;
+    if (possessionIndex) *possessionIndex = qbctFindPossession((unsigned int)oi + 1, oi, issuer, managingContract);
     return issued;
 }
 
@@ -994,7 +1002,6 @@ static inline QPI::sint64 numberOfShares(const QPI::Asset& a,
 }
 
 // Issue a contract's shares (NULL_ID issuer convention, managed by QX) and transfer them to the initial owners.
-// The native harness uses the index-based issueAsset + transferShareOwnershipAndPossession; the engine models
 static inline void issueContractShares(unsigned int contractIndex, std::vector<std::pair<m256i, unsigned int>>& initialOwnerShares, bool warnOnTooFewShares = true) {
     (void)warnOnTooFewShares;
     const unsigned long long assetName = assetNameFromString(contractDescriptions[contractIndex].assetName);
@@ -1012,33 +1019,38 @@ static inline void issueContractShares(unsigned int contractIndex, std::vector<s
     EXPECT_EQ(numberOfShares(QPI::Asset{ nullId, assetName }), (QPI::sint64)NUMBER_OF_COMPUTORS);
 }
 
-// Move shares from a prior issuance or transfer result to a new owner.
-// The engine transfers ownership and possession together.
+// Move shares to a new owner by universe index, as core does: the source records name the asset, its owner and the
+// managing contract, and the destination records sit at the new owner's hash.
 static inline bool transferShareOwnershipAndPossession(int sourceOwnershipIndex, int sourcePossessionIndex,
                                                        const QPI::id& newOwner, long long numberOfShares,
                                                        int* destinationOwnershipIndex, int* destinationPossessionIndex,
                                                        bool lock) {
-    (void)sourcePossessionIndex;
+    // core's universe mutex; the harness is single-threaded
     (void)lock;
+    if (numberOfShares <= 0) return false;
+    const auto& ownership = assets[(unsigned int)sourceOwnershipIndex].varStruct.ownership;
+    const auto& possession = assets[(unsigned int)sourcePossessionIndex].varStruct.possession;
+    if (ownership.type != OWNERSHIP || ownership.numberOfShares < numberOfShares || possession.type != POSSESSION || possession.numberOfShares < numberOfShares || possession.ownershipIndex != (unsigned int)sourceOwnershipIndex) return false;
 
-    std::vector<qbctidx::Holding>& t = qbctidx::table();
-    if (sourceOwnershipIndex <= 0 || (size_t)sourceOwnershipIndex >= t.size()) {
-        if (destinationOwnershipIndex) *destinationOwnershipIndex = 0;
-        if (destinationPossessionIndex) *destinationPossessionIndex = 0;
-        return false;
+    const auto& issuance = assets[ownership.issuanceIndex].varStruct.issuance;
+    unsigned long long assetName = 0;
+    copyMem(&assetName, issuance.name, 7);
+    const QPI::id issuer = issuance.publicKey;
+    const QPI::id owner = ownership.publicKey;
+    const unsigned short managingContract = ownership.managingContractIndex;
+    const int issuanceIndex = (int)ownership.issuanceIndex;
+
+    long long remaining;
+    {
+        QbctUniverseScope qbctUniverseScope;
+        remaining = bq_transfer_holding(assetName, &issuer, &owner, &newOwner, numberOfShares, managingContract);
     }
+    if (remaining < 0) return false;
 
-    const qbctidx::Holding src = t[sourceOwnershipIndex];
-    const long long remaining = bq_transfer_holding(src.name, &src.issuer, &src.owner, &newOwner, numberOfShares, src.mgmt);
-    const bool ok = remaining >= 0;
-
-    int dst = 0;
-    if (ok)
-        dst = qbctidx::record(src.name, src.issuer, newOwner, src.mgmt);
-    if (destinationOwnershipIndex) *destinationOwnershipIndex = dst;
-    if (destinationPossessionIndex) *destinationPossessionIndex = dst;
-
-    return ok;
+    const int dstOi = qbctFindOwnership(newOwner.m256i_u32[0], issuanceIndex, newOwner, managingContract);
+    if (destinationOwnershipIndex) *destinationOwnershipIndex = dstOi;
+    if (destinationPossessionIndex) *destinationPossessionIndex = qbctFindPossession(newOwner.m256i_u32[0], dstOi, newOwner, managingContract);
+    return true;
 }
 
 // Support stream suffixes such as `EXPECT_EQ(a, b) << "note"`. Only the failing branch reaches the chain,
