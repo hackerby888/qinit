@@ -399,6 +399,7 @@ struct QpiContextUserProcedureNotificationCall : public QPI::QpiContextProcedure
             return;
         }
 
+        QbctUniverseScope qbctUniverseScope;
         const unsigned int errorCode = bq_call_notification(_currentContractIndex, notif.procedure, inputPtr, notif.inputSize);
         if (errorCode) {
             contractError[_currentContractIndex] = errorCode;
@@ -413,10 +414,12 @@ struct QpiContextSystemProcedureCall : public QPI::QpiContextProcedureCall {
         : QPI::QpiContextProcedureCall(contractIndex, QPI::id::zero(), 0, systemProcId) {}
 
     void call() {
+        QbctUniverseScope qbctUniverseScope;
         record(bq_sysproc(_currentContractIndex, _entryPoint));
     }
 
     void call(QPI::PostIncomingTransfer_input& input) {
+        QbctUniverseScope qbctUniverseScope;
         const QPI::id contract(_currentContractIndex, 0, 0, 0);
         record(bq_fire_pit(&input.sourceId, &contract, input.amount, input.type));
     }
@@ -1003,6 +1006,7 @@ static inline QPI::sint64 numberOfShares(const QPI::Asset& a,
 
 // Issue a contract's shares (NULL_ID issuer convention, managed by QX) and transfer them to the initial owners.
 static inline void issueContractShares(unsigned int contractIndex, std::vector<std::pair<m256i, unsigned int>>& initialOwnerShares, bool warnOnTooFewShares = true) {
+    QbctUniverseScope qbctUniverseScope;
     (void)warnOnTooFewShares;
     const unsigned long long assetName = assetNameFromString(contractDescriptions[contractIndex].assetName);
     bq_mint_contract_shares(assetName, NUMBER_OF_COMPUTORS, QX_CONTRACT_INDEX);
