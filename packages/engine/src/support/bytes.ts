@@ -55,14 +55,18 @@ export function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
     return output;
 }
 
-export function first32BytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-    for (let index = 0; index < 32; index++) {
+export function leadingBytesEqual(left: Uint8Array, right: Uint8Array, length: number): boolean {
+    for (let index = 0; index < length; index++) {
         if (left[index] !== right[index]) {
             return false;
         }
     }
 
     return true;
+}
+
+export function first32BytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+    return leadingBytesEqual(left, right, 32);
 }
 
 export function isZeroId(id: Id): boolean {

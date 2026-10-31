@@ -37,6 +37,19 @@ test("issueAsset: mints all shares to the issuer; validates name + issuer", () =
     expect(a.issueAsset(1, 0x5852n, userId(9), 2, 1n, 0n, userId(8))).toBe(0n); // issuer != contract && != invocator
 });
 
+// core keys an issuance by the issuer's low 192 bits, since QX and QSWAP build asset keys with the name in the top word.
+test("issuers equal in their first 24 bytes cannot share a name", () => {
+    const a = ledger();
+    const issuer = userId(9);
+    const twin = userId(9);
+    twin[31] = 1;
+    const other = userId(10);
+    expect(a.issueAsset(1, NAME, issuer, 0, 1000n, 0n, issuer)).toBe(1000n);
+    expect(a.issueAsset(1, NAME, twin, 0, 1000n, 0n, twin)).toBe(0n);
+    expect(a.issueAsset(1, NAME, other, 0, 1000n, 0n, other)).toBe(1000n);
+    expect(a.issueAsset(1, 0x5852n, twin, 0, 1000n, 0n, twin)).toBe(1000n);
+});
+
 // core compares the caller's uint64 as given against the 7-byte stored name, and issueAsset rejects a name or unit above 56 bits.
 test("a name with junk in byte 7 finds nothing and cannot be issued", () => {
     const a = ledger();

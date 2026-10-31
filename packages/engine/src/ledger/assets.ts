@@ -2,7 +2,7 @@ import { toHex, k12Bytes } from "../support/k12";
 import { SparseMerkle } from "./merkle";
 import { AssetRecord, ASSET_RECORD_SIZE, ASSETS_DEPTH } from "../protocol/wire";
 import { Asset, AssetSelect } from "../contract/abi";
-import { first32BytesEqual, isZeroId, type Id } from "../support/bytes";
+import { first32BytesEqual, isZeroId, leadingBytesEqual, type Id } from "../support/bytes";
 import {
     encodeAssetIssuanceLog,
     encodeAssetOwnershipChangeLog,
@@ -287,7 +287,8 @@ export class AssetLedger {
                 break;
             }
 
-            if (record.type === ISSUANCE && record.name === name && first32BytesEqual(record.publicKey, issuer)) {
+            // core keys an issuance by the issuer's low 192 bits: QX and QSWAP build asset keys with the name in the top word
+            if (record.type === ISSUANCE && record.name === name && leadingBytesEqual(record.publicKey, issuer, 24)) {
                 return 0n;
             }
 
