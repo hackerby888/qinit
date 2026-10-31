@@ -1389,7 +1389,8 @@ export class QubicSimulator {
 
     private enterNextTick(): void {
         this.currentTick++;
-        this.tickClockMs = Date.now();
+        // a tick's timestamp never goes back, as core's etalonTick is forced forward by a millisecond
+        this.tickClockMs = Math.max(Date.now(), (this.tickClockMs ?? 0) + 1);
     }
 
     // Charge the phase that just ended. Core's deduction belongs to no transaction, so it goes in the tick's BEGIN_TICK range.
