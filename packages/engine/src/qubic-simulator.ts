@@ -718,7 +718,12 @@ export class QubicSimulator {
     }
 
     private transfer(slot: number, destination: Id, amount: bigint, type: number, originator?: Id): bigint {
-        if (this.pitDepth > 0 && this.contractSlotOf(destination) >= 0) {
+        const destinationSlot = this.contractSlotOf(destination);
+        if (this.pitDepth > 0 && destinationSlot >= 0) {
+            return INVALID_AMOUNT;
+        }
+        // core's __transfer: a contract that cannot run its callback (errored, or outside its epochs) takes nothing
+        if (destinationSlot >= 0 && (this.contractErrorOf(destinationSlot) !== 0 || !this.isActiveThisEpoch(destinationSlot))) {
             return INVALID_AMOUNT;
         }
         if (amount < 0n || amount > MAX_AMOUNT) {
@@ -1043,6 +1048,10 @@ export class QubicSimulator {
 
         const contract = this.contracts.get(slot)!;
         if (!contract.hasSysproc(SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER)) {
+            return;
+        }
+        // as on core, a contract in an error state or outside its epochs is not told
+        if (this.contractErrorOf(slot) !== 0 || !this.isActiveThisEpoch(slot)) {
             return;
         }
 

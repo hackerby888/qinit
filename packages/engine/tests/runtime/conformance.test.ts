@@ -3,6 +3,7 @@ import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
+import { INVALID_AMOUNT } from "../../src/ledger/assets";
 import { contractId, readUint64LE } from "../support/helpers";
 
 const GET = 1; // Counter/Hooks Get function
@@ -389,4 +390,44 @@ test("a failed ipo takes a contract's epoch hooks away too", async () => {
         sim.advance();
     }
     expect(hookFaultSeen(sim).slice(0, 4)).toEqual([0n, 0n, 0n, 0n]);
+});
+
+// Vault Send: { id dest; sint64 amount } -> sint64 remaining
+function vaultSend(sim: QubicSimulator, dest: Uint8Array, amount: bigint): bigint {
+    const input = new Uint8Array(40);
+    input.set(dest.subarray(0, 32), 0);
+    new DataView(input.buffer).setBigInt64(32, amount, true);
+    const output = sim.procedure(28, 2, input);
+    return new DataView(output.buffer, output.byteOffset, output.byteLength).getBigInt64(0, true);
+}
+
+// core's __transfer refuses a destination contract that cannot run its callback, and its notify skips such a contract on every other path.
+test("a contract's transfer to an errored or dormant contract is refused, and neither is notified", async () => {
+    await initK12();
+    const sim = new QubicSimulator({ haltOnContractFault: false });
+    const user = new Uint8Array(32).fill(0x65);
+    sim.deploy(28, await wasm("Vault"));
+    sim.deploy(29, await wasm("HookFault"));
+    sim.fund(user, 1000n);
+    sim.procedure(28, 1, new Uint8Array(0), { invocator: user, reward: 100n });
+
+    expect(() => sim.procedure(29, 1)).toThrow(/abort/);
+    expect(vaultSend(sim, contractId(29), 30n)).toBe(INVALID_AMOUNT);
+    expect(sim.balanceOf(28)).toBe(100n);
+    expect(sim.balanceOf(29)).toBe(0n);
+    expect(hookFaultSeen(sim)[4]).toBe(0n);
+
+    const dormant = new QubicSimulator();
+    dormant.deploy(28, await wasm("Vault"));
+    dormant.deploy(29, await wasm("HookFault"));
+    dormant.setContractLifetime(29, 5, 6);
+    dormant.fund(user, 1000n);
+    dormant.procedure(28, 1, new Uint8Array(0), { invocator: user, reward: 100n });
+    expect(vaultSend(dormant, contractId(29), 30n)).toBe(INVALID_AMOUNT);
+    expect(dormant.balanceOf(29)).toBe(0n);
+
+    // a reward that reaches it through the harness path lands without a callback
+    dormant.procedure(29, 2, new Uint8Array(0), { invocator: user, reward: 10n });
+    expect(dormant.balanceOf(29)).toBe(10n);
+    expect(hookFaultSeen(dormant)[4]).toBe(0n);
 });
