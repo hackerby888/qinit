@@ -1,6 +1,6 @@
 // The schema-checked encode path has its own validation the schema-free one never reaches, so a dropped check survives there.
 import { test, expect } from "bun:test";
-import { encodeInputJson, parseInputJson, decodeAbi, zeroInputFormat, encodeInputFormat } from "../../src/abi";
+import { encodeInputJson, parseInputJson, decodeAbi, zeroInputFormat, encodeInputFormat, jsonToInputFormat } from "../../src/abi";
 import { AbiScalarKind, AbiTypeKind, type AbiStruct, type AbiType } from "../../src/contract-idl";
 import { arr, bit, named, st, u8, u32, u64, i32, i64, id, validated } from "./abi-builders";
 
@@ -152,4 +152,27 @@ test("a format wider than the bytes names both sizes", async () => {
     await expect(decodeAbi(new Uint8Array(8), "id")).rejects.toThrow("id reads 32 bytes, only 8 returned");
     // A narrower format still reads the leading bytes: --out stays an escape hatch for a stale IDL.
     expect(await decodeAbi(new Uint8Array([7, 0, 0, 0, 1, 0, 0, 0]), "uint32")).toBe(7);
+});
+
+// BigInt() used to coerce "", "0x10", true and [] to numbers, and a double past 2^53 arrives already rounded; a spec typo must fail, not encode something else.
+test("a typed integer takes a bigint, an exact number or a decimal string and nothing else", async () => {
+    const one = named(["n", u32]);
+    const wide = named(["n", u64]);
+
+    expect(await decodeAbi(await encodeInputJson(wide, { n: 9007199254740993n }), wide)).toBe(9007199254740993n);
+    expect(await decodeAbi(await encodeInputJson(wide, { n: "9007199254740993" }), wide)).toBe(9007199254740993n);
+    await expect(encodeInputJson(wide, { n: 2 ** 53 + 2 })).rejects.toThrow("uint64 needs a safe integer, got 9007199254740994: pass a bigint or a decimal string past 2^53");
+    for (const bad of ["", "0x10", true, [], 1.5]) {
+        await expect(encodeInputJson(one, { n: bad })).rejects.toThrow("uint32 needs an integer");
+    }
+});
+
+test("the value dialect printed from JSON refuses the same spellings", () => {
+    const fields = [{ name: "n", type: "uint32" }];
+
+    expect(jsonToInputFormat(fields, { n: "7" })).toBe("7uint32");
+    expect(jsonToInputFormat([{ name: "b", type: "bit" }], { b: true })).toBe("1bit");
+    for (const bad of ["", "0x10", true, [], 2 ** 53 + 2]) {
+        expect(() => jsonToInputFormat(fields, { n: bad })).toThrow(/uint32 needs an? (safe )?integer/);
+    }
 });

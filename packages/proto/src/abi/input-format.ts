@@ -172,17 +172,21 @@ async function encodeAbiScalar(view: DataView, offset: number, scalar: AbiScalar
     }
 }
 
-function integerValue(value: any, scalar: AbiScalarKind): bigint {
+// a json integer: a bigint, a number while it is exact, or a decimal string; floats, hex, booleans and blanks are refused instead of coerced
+function integerValue(value: any, scalar: string): bigint {
     if (value === undefined || value === null) {
         throw new Error(`missing value for '${scalar}'`);
     }
-    try {
-        return BigInt(value);
-    } catch {
-        throw new Error(
-            `${scalar} needs an integer, got '${String(value)}'${scalar === AbiScalarKind.UINT64 ? " (an asset name is written asset:MYTOK)" : ""}`,
-        );
+    if (typeof value === "bigint") {
+        return value;
     }
+    if (typeof value === "number" && Number.isInteger(value) && !Number.isSafeInteger(value)) {
+        throw new Error(`${scalar} needs a safe integer, got ${value}: pass a bigint or a decimal string past 2^53`);
+    }
+    if (Number.isSafeInteger(value) || (typeof value === "string" && /^-?\d+$/.test(value.trim()))) {
+        return BigInt(value);
+    }
+    throw new Error(`${scalar} needs an integer, got '${String(value)}'${scalar === AbiScalarKind.UINT64 ? " (an asset name is written asset:MYTOK)" : ""}`);
 }
 
 function scalarBits(scalar: AbiScalarKind): 8 | 16 | 32 | 64 | 128 {
@@ -419,17 +423,12 @@ function jsonValueToInputFormat(typeTok: string, value: any): string {
         const s = String(value).replace(/^0x/, "");
         return `${s}${typeTok}`; // encodeToken validates the identity/hex shape
     }
-    if (typeof value === "boolean") return `${value ? 1 : 0}${typeTok}`;
-    if (value === undefined || value === null) throw new Error(`missing value for '${typeTok}'`);
+    if (typeTok === "bit" && typeof value === "boolean") return `${value ? 1 : 0}bit`;
     if (typeTok === "uint64") {
         const asset = assetMarkerValue(value);
         if (asset !== undefined) return `${asset}uint64`;
     }
-    try {
-        return `${BigInt(value)}${typeTok}`; // number / bigint / numeric-string; rejects floats
-    } catch {
-        throw new Error(`${typeTok} needs an integer, got '${String(value)}'${typeTok === "uint64" ? " (an asset name is written asset:MYTOK)" : ""}`);
-    }
+    return `${integerValue(value, typeTok)}${typeTok}`;
 }
 
 // the schema an input is encoded against: the IDL's { name, type } list, or an AbiType when the caller has one
