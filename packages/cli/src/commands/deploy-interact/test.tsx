@@ -126,8 +126,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                         engineSrv = new EngineServer(new VirtualNode(loadCoreWasmSlotLayout(core)));
                         engineSrv.engine.onLog = testRunLogSink((line) => add("node", null, line));
                         activeRpc = (await engineSrv.start()).rpcBaseUrl;
-                        // A test run reads assertions, not traces — skip the per-call state snapshot a node keeps.
-                        engineSrv.engine.setDebug(false);
+                        // tracing is the default: a spec's procedure output and trap code come from the trace entry; QINIT_TRACE=0 is the one escape for very large states.
+                        engineSrv.engine.setDebug(process.env.QINIT_TRACE !== "0");
                         add("node", true, `simulator @ ${activeRpc}`);
                     }
                 } else {
