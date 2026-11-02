@@ -78,6 +78,8 @@ test("pruneFinalized removes transaction records outside the history window", ()
 
     expect(pool.pruneFinalized(5, 2)).toEqual(["old"]);
     expect(pool.txByHash("old")).toBeUndefined();
+    expect(pool.isPruned(3)).toBe(true);
+    expect(pool.isPruned(4)).toBe(false);
     expect(pool.tickTransactions(3)).toEqual([]);
     expect(pool.txByHash("first-retained")).toBeDefined();
     expect(pool.txByHash("latest")).toBeDefined();

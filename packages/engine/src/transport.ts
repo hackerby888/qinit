@@ -549,6 +549,10 @@ export class VirtualNode implements NodeTransport {
     }
 
     async txStatus(tick: number, txId: string): Promise<TxStatus> {
+        // the http client throws on a 404 for the same tick; a caller must not read "not held" as "not included" and resend
+        if (this.sim.txHistoryPruned(tick)) {
+            throw new Error(`tick ${tick} is no longer held`);
+        }
         const transaction = this.sim.txByHash(txId);
         const currentTick = this.sim.isFaulted() ? this.sim.finalizedTick() : this.sim.currentTick;
         const processed = currentTick > tick;

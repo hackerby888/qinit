@@ -608,6 +608,8 @@ test("transaction records and raw bytes share the finalized tick history window"
     engine.advanceTick(2);
     expect(engine.rawTx(transactionId)).toBeUndefined();
     expect(engine.sim.txByHash(transactionId)).toBeUndefined();
+    // a pruned tick has no verdict; "not found" there would make a client resend a tx that ran
+    await expect(engine.txStatus(1, transactionId)).rejects.toThrow("tick 1 is no longer held");
 });
 
 // core saves a tx-status record only for a source it has a spectrum entry for; the tx still sits in its tick for the explorer and the peers.

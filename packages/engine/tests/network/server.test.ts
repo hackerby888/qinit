@@ -545,3 +545,24 @@ test("a routed upgrade defers its MIGRATE the same way, and an embedder's own de
         handle.stop();
     }
 });
+
+// core-lite answers 404 for a tick outside its tx-status window; found:false there would read as "dropped, resend".
+test("/tx-status answers 404 for a tick the history window no longer holds", async () => {
+    const engine = await VirtualNode.create({ historyTicks: 2 });
+    const handle = await new EngineServer(engine).start(0);
+    try {
+        engine.advanceTick(1);
+        engine.advanceTick(2);
+        expect(engine.sim.txHistoryPruned(1)).toBe(true);
+
+        const pruned = await fetch(`${handle.rpcBaseUrl}/live/v1/tx-status/1/${"0".repeat(64)}`);
+        expect(pruned.status).toBe(404);
+        expect(await pruned.json()).toEqual({ code: 404, message: "tick 1 is no longer held" });
+
+        const held = await fetch(`${handle.rpcBaseUrl}/live/v1/tx-status/${engine.sim.currentTick - 1}/${"0".repeat(64)}`);
+        expect(held.status).toBe(200);
+        expect(await held.json()).toMatchObject({ found: false, processed: true });
+    } finally {
+        handle.stop();
+    }
+});

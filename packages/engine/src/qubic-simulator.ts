@@ -2026,6 +2026,10 @@ export class QubicSimulator {
         return transaction;
     }
 
+    txHistoryPruned(tick: number): boolean {
+        return this.txpool.isPruned(tick);
+    }
+
     takePrunedTransactionIds(): string[] {
         const ids = this.prunedTransactionIds;
         this.prunedTransactionIds = [];

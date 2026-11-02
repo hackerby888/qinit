@@ -273,8 +273,12 @@ export class EngineServer {
 
         if (path.startsWith("/live/v1/tx-status/")) {
             const parts = path.split("/");
+            const tick = Number(parts[4]);
+            if (engine.sim.txHistoryPruned(tick)) {
+                return json({ code: 404, message: `tick ${tick} is no longer held` }, 404);
+            }
 
-            return json(await engine.txStatus(Number(parts[4]), parts[5] ?? ""));
+            return json(await engine.txStatus(tick, parts[5] ?? ""));
         }
 
         if (path === "/live/v1/broadcast-transaction" && request.method === "POST") {

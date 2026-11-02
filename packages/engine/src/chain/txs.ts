@@ -29,6 +29,13 @@ export class TxPool {
     private byId = new Map<string, TxRecord>();
     private mempool = new Map<number, QueuedTx[]>(); // keyed by scheduled tick
     private knownIds = new Set<string>();
+    // the newest tick pruneFinalized dropped; a tx-status question about it has no answer
+    private prunedThroughTick = -1;
+
+    isPruned(tick: number): boolean {
+        return tick <= this.prunedThroughTick;
+    }
+
     has(txId: string): boolean {
         return this.knownIds.has(txId);
     }
@@ -99,6 +106,7 @@ export class TxPool {
 
     pruneFinalized(finalizedTick: number, historyTicks: number): string[] {
         const firstRetainedTick = finalizedTick - Math.max(1, historyTicks) + 1;
+        this.prunedThroughTick = Math.max(this.prunedThroughTick, firstRetainedTick - 1);
         const removedIds: string[] = [];
 
         for (const [tick, records] of this.byTick) {
