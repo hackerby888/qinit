@@ -818,7 +818,7 @@ layout the node reports. The system-contract wasm cache carries the profile in i
 (`system-wasm/testnet-lite/<compiler>`), so a CLI built before the profile applied never
 seeds stale layouts. A contract deployed by an older CLI keeps its old layout until it is
 redeployed; `qinit system add` redeploys a system contract whose code hash changed.
-The one exception is a system contract's own corpus (`qinit gtest --system`, `test:sc:light`):
+The one exception is a system contract's own corpus (`qinit gtest --corpus`, `test:sc:light`):
 core compiles its contract gtests with its default constants, so the runner and the contracts
 under test drop the profile again (`profile: "core-gtest"`, `loadQpiHeader(core, "core-gtest")`).
 
