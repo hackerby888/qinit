@@ -597,7 +597,11 @@ function CallOneShot({
                                 ["tx", txs],
                                 ["tick", String(tick)],
                             ],
-                            err: (await nodeErr()) || (!r.ok ? r.message : undefined) || (ranNothing ? `${unregistered}: the transaction was processed and ran nothing` : undefined),
+                            err:
+                                (await nodeErr()) ||
+                                (!r.ok ? r.message : undefined) ||
+                                (ranNothing ? `${unregistered}: the transaction was processed and ran nothing` : undefined) ||
+                                (r.duplicateTxIds ? `⚠ executed ${r.duplicateTxIds.length + 1} times — the other copies: ${r.duplicateTxIds.join(", ")}` : undefined),
                         });
                         const after = detail === "processed" ? await feeReserve() : undefined;
                         if (after !== undefined && after <= 0n) {

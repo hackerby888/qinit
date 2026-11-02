@@ -85,6 +85,7 @@ export type SubmittedTx = BroadcastResult & {
     failedCallees?: DebugEntry[];
     output?: unknown;
     executed?: boolean; // the trace showed the procedure body ran; false when it did not, undefined when the node serves no trace
+    duplicateTxIds?: string[]; // every other resent copy the node also included
 };
 
 interface SubmitOptions {
@@ -172,6 +173,7 @@ async function broadcastAndConfirm(buildTx: TransactionBuilder, opts: SubmitOpti
     const rpc = opts.rpc ?? new LiteRpc(opts.rpcBaseUrl);
     const resends = opts.resends ?? MAX_TX_RESENDS;
     let tick = opts.tick;
+    const earlier: { txId: string; tick: number }[] = [];
 
     for (let attempt = 0; ; attempt++) {
         const tx = await buildTx(tick);
@@ -196,17 +198,45 @@ async function broadcastAndConfirm(buildTx: TransactionBuilder, opts: SubmitOpti
         }
 
         if (processed.found || attempt >= resends) {
+            // a copy reported as missed can still land by the time the verdict is read, so every copy is re-read and all that landed are reported
+            const landed = await landedCopies(rpc, earlier);
+            if (processed.found) {
+                landed.push({ txId: tx.id, tick, moneyFlew: processed.moneyFlew });
+            }
+            const first = landed[0];
+            if (!first) {
+                return { ...result, confirmed: true, included: false, moneyFlew: processed.moneyFlew };
+            }
+            const duplicates = landed.slice(1).map((copy) => copy.txId);
             return {
-                ...result,
+                ...broadcast,
+                txId: first.txId,
+                tick: first.tick,
                 confirmed: true,
-                included: processed.found,
-                moneyFlew: processed.moneyFlew,
+                included: true,
+                moneyFlew: first.moneyFlew,
+                ...(duplicates.length ? { duplicateTxIds: duplicates } : {}),
             };
         }
 
         // The tick came and went without the tx, so it is lost rather than pending: sign a fresh one further out.
+        earlier.push({ txId: tx.id, tick });
         tick = (await rpc.tickInfo()).tick + TX_TICK_OFFSET;
     }
+}
+
+// The resent copies the node did include after all; a status it cannot give leaves that copy out.
+async function landedCopies(rpc: LiteRpc, copies: { txId: string; tick: number }[]): Promise<{ txId: string; tick: number; moneyFlew: boolean }[]> {
+    const landed: { txId: string; tick: number; moneyFlew: boolean }[] = [];
+    for (const copy of copies) {
+        try {
+            const status = await rpc.txStatus(copy.tick, copy.txId);
+            if (status.processed && status.found) {
+                landed.push({ ...copy, moneyFlew: status.moneyFlew });
+            }
+        } catch {}
+    }
+    return landed;
 }
 
 // Send QU from a seed to a destination public key — a plain transfer, so no contract and no payload.

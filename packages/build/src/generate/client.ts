@@ -194,6 +194,7 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         lines.push(`  failedCallees?: QinitTraceEntry[];`);
         lines.push(`  output?: unknown;`);
         lines.push(`  executed?: boolean;`);
+        lines.push(`  duplicateTxIds?: string[];`);
         lines.push(`};`);
         lines.push(`export type QinitProcedureOutcome<Output> = Omit<QinitProcedureResult, "output"> & { output?: Output; trap?: string };`);
     }
@@ -280,6 +281,7 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         lines.push(`      traceEntry: r.traceEntry,`);
         lines.push(`      failedCallees: r.failedCallees,`);
         lines.push(`      executed: r.executed,`);
+        lines.push(`      duplicateTxIds: r.duplicateTxIds,`);
         lines.push(`      trap: r.traceEntry?.trap ?? r.failedCallees?.[0]?.trap,`);
         const mappedOutput = hasFields(entry.output) ? `${outputMapperName(entry.name)}(r.output)` : "{}";
         lines.push(`      output: r.output === undefined ? undefined : ${mappedOutput},`);

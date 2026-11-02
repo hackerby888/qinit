@@ -65,9 +65,12 @@ test("resolveDeploymentSlot ignores same-name and free entries outside the dynam
     });
 });
 
-// A node that answers tick-info, accepts broadcasts, and reports each tx as included or missed in order.
-function fakeNode(verdicts: ({ found: boolean } | "no-route")[]) {
+// A node that answers tick-info, accepts broadcasts, and reports each tx as included or missed in order; a verdict given as a function sees how often that tx was asked about.
+type Verdict = { found: boolean } | "no-route" | ((polls: number) => { found: boolean });
+function fakeNode(verdicts: Verdict[]) {
     const broadcasts: string[] = [];
+    const polled: string[] = [];
+    const polls = new Map<string, number>();
     let tick = 100;
     globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
         const path = new URL(String(url)).pathname;
@@ -82,10 +85,17 @@ function fakeNode(verdicts: ({ found: boolean } | "no-route")[]) {
             return json({ peersBroadcasted: 1, transactionId: `tx${broadcasts.length}` });
         }
         if (path.startsWith("/live/v1/tx-status/")) {
-            const verdict = verdicts[broadcasts.length - 1];
-            if (!verdict || verdict === "no-route") {
+            const txId = path.split("/")[5];
+            if (!polled.includes(txId)) {
+                polled.push(txId);
+            }
+            const asked = polls.get(txId) ?? 0;
+            polls.set(txId, asked + 1);
+            const chosen = verdicts[polled.indexOf(txId)];
+            if (!chosen || chosen === "no-route") {
                 return json({ code: 404 }, 404);
             }
+            const verdict = typeof chosen === "function" ? chosen(asked) : chosen;
             return json({ processed: true, found: verdict.found, moneyFlew: verdict.found, currentTick: tick });
         }
         return json({ code: 404 }, 404);
@@ -138,6 +148,45 @@ test("resends stop at the configured limit", async () => {
 
         expect(node.broadcasts.length).toBe(2);
         expect(result).toMatchObject({ confirmed: true, included: false });
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+// A copy reported as missed can still land once its tick is read again; the SDK then names every copy that ran instead of only the last one it sent.
+test("a resent transaction whose first copy landed late reports both copies", async () => {
+    const node = fakeNode([(polls) => ({ found: polls > 0 }), { found: true }]);
+
+    try {
+        const result = await transfer(new LiteRpc("http://node"));
+
+        expect(node.broadcasts.length).toBe(2);
+        expect(result).toMatchObject({ confirmed: true, included: true, tick: 108 });
+        expect(result.duplicateTxIds).toHaveLength(1);
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+test("a first copy that landed late is the included transaction when its resend missed", async () => {
+    const node = fakeNode([(polls) => ({ found: polls > 0 }), { found: false }]);
+
+    try {
+        const result = await sendTransfer({
+            seed: "a".repeat(55),
+            destination: new Uint8Array(32),
+            amount: 0,
+            rpcBaseUrl: "http://node",
+            rpc: new LiteRpc("http://node"),
+            tick: 108,
+            confirm: true,
+            confirmTimeoutMs: 2000,
+            resends: 1,
+        });
+
+        expect(node.broadcasts.length).toBe(2);
+        expect(result).toMatchObject({ confirmed: true, included: true, tick: 108 });
+        expect(result.duplicateTxIds).toBeUndefined();
     } finally {
         globalThis.fetch = realFetch;
     }
