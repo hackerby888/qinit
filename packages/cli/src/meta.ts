@@ -435,6 +435,7 @@ const commandMeta = {
         usage: "[ls | add <name…> | rm <name…>]",
         options: [
             stringOption("rpc", "<url>", "RPC URL"),
+            stringOption("core-dir", "<path>", "Core checkout"),
             stringOption("compiler", "<clang|typescript>", "simulator system-contract compiler"),
             stringOption("state", "<name>=<path>", "start a system contract from a raw state file (with add)", {
                 multiple: true,

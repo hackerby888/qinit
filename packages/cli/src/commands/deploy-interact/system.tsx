@@ -28,6 +28,7 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
         sub: commandArgs.positionals[0] ?? "",
         names: commandArgs.positionals.slice(1),
         rpc: commandArgs.get("rpc"),
+        coreDir: commandArgs.get("core-dir"),
         compiler: resolveCompilerBackend(commandArgs.get("compiler")),
     };
     const cfg = loadConfig();
@@ -43,7 +44,7 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
         (async () => {
             try {
                 const rpc = new LiteRpc(rpcBaseUrl);
-                const core = resolveCoreDir(undefined, cfg.coreDir);
+                const core = resolveCoreDir(o.coreDir, cfg.coreDir);
                 const catalog = systemCatalog(core);
 
                 if (o.sub && o.sub !== "ls" && o.sub !== "add" && o.sub !== "rm") {
