@@ -57,6 +57,32 @@ TEST(Counter, FreshStatePerTest) {
     ContractTestingCounter t;
     EXPECT_EQ(t.get().value, 0ull);
 }
+
+static bool tearDownRan = false;
+class CounterFixture : public ::testing::Test {
+protected:
+    ContractTestingCounter t;
+    id user;
+    void SetUp() override {
+        user = id::randomValue();
+        increaseEnergy(user, 1000000000);
+        t.inc(user);
+    }
+    void TearDown() override {
+        tearDownRan = true;
+    }
+};
+TEST_F(CounterFixture, SetUpRunsBeforeTheBody) {
+    EXPECT_EQ(t.get().value, 1ull);
+}
+TEST_F(CounterFixture, EachTestGetsAFreshFixture) {
+    EXPECT_EQ(t.get().value, 1ull);
+    t.inc(user);
+    EXPECT_EQ(t.get().value, 2ull);
+}
+TEST(Counter, TearDownRanForTheFixture) {
+    EXPECT_TRUE(tearDownRan);
+}
 TEST(Counter, StateAtSlot100RoundTrips) {
     ContractTestingCounter t;
     const id user = id::randomValue();
@@ -152,6 +178,9 @@ test.skipIf(!have)(
         const by = Object.fromEntries(results.map((result) => [result.name, result]));
         expect(by["Counter.IncrementsTwice"]?.passed).toBe(true);
         expect(by["Counter.FreshStatePerTest"]?.passed).toBe(true);
+        for (const name of ["CounterFixture.SetUpRunsBeforeTheBody", "CounterFixture.EachTestGetsAFreshFixture", "Counter.TearDownRanForTheFixture"]) {
+            expect(by[name]?.passed, `${name}: ${by[name]?.message}`).toBe(true);
+        }
         expect(by["Counter.StateAtSlot100RoundTrips"]?.passed, by["Counter.StateAtSlot100RoundTrips"]?.message).toBe(true);
         expect(by["Counter.ReportsFailures"]?.passed).toBe(false);
         expect(by["Counter.ReportsFailures"]?.message).toContain("EXPECT_EQ");

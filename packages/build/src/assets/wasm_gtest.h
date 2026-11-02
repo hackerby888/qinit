@@ -226,6 +226,14 @@ static inline Environment* AddGlobalTestEnvironment(Environment* e) {
     return e;
 }
 
+// the fixture base a TEST_F derives from: one instance per test, SetUp before the body, TearDown after it
+class Test {
+public:
+    virtual ~Test() {}
+    virtual void SetUp() {}
+    virtual void TearDown() {}
+};
+
 // the text a SCOPED_TRACE carries. the corpora stream only strings and integers into it.
 class Message {
 public:
@@ -299,6 +307,24 @@ struct ScopedTrace {
     static ::qinit_gtest::Registrar qinit_gtest_reg_##suite##_##name(#suite "." #name,                \
                                                                 &qinit_gtest_body_##suite##_##name); \
     static void qinit_gtest_body_##suite##_##name()
+
+// body and runner are members of a struct derived from the fixture, so protected SetUp/TearDown and fixture members are in reach;
+// a fatal failure in SetUp skips the body, TearDown runs either way, as in googletest
+#define TEST_F(fixture, name)                                                                   \
+    struct qinit_gtest_fixture_##fixture##_##name : public fixture {                           \
+        void qinit_gtest_body();                                                               \
+        static void qinit_gtest_run() {                                                        \
+            qinit_gtest_fixture_##fixture##_##name f;                                          \
+            f.SetUp();                                                                         \
+            if (!::qinit_gtest::g_ctx.failed) {                                                \
+                f.qinit_gtest_body();                                                          \
+            }                                                                                  \
+            f.TearDown();                                                                      \
+        }                                                                                      \
+    };                                                                                         \
+    static ::qinit_gtest::Registrar qinit_gtest_reg_##fixture##_##name(#fixture "." #name,        \
+                                                                  &qinit_gtest_fixture_##fixture##_##name::qinit_gtest_run); \
+    void qinit_gtest_fixture_##fixture##_##name::qinit_gtest_body()
 
 // the `fatal` argument is the statement run after a failure: `return` for ASSERT_, nothing for EXPECT_, so an EXPECT_ also compiles inside a value-returning helper
 #define QINIT_GTEST_FATAL return
