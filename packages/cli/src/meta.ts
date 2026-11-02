@@ -185,6 +185,7 @@ const commandMeta = {
             }),
             stringOption("compiler", "<clang|typescript>", "compiler for this run"),
             booleanOption("skip-verify", "skip compatibility checks (development only)"),
+            booleanOption("allow-state-carryover", "redeploy over a changed StateData layout without a MIGRATE handler, keeping the old state bytes"),
         ],
     },
     build: {
@@ -377,6 +378,7 @@ const commandMeta = {
             stringOption("compiler", "<clang|typescript>", "compiler for this run"),
             booleanOption("keep-node", "leave the started Core node running"),
             booleanOption("skip-verify", "skip compatibility checks (development only)"),
+            booleanOption("allow-state-carryover", "redeploy over a changed StateData layout without a MIGRATE handler, keeping the old state bytes"),
         ],
     },
     gtest: {

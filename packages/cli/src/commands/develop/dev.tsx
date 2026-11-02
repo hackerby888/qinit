@@ -32,6 +32,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     const dynCallees = parseCallees(commandArgs.getAll("callee"));
     const seed = commandArgs.get("seed");
     const skipVerify = commandArgs.has("skip-verify");
+    const allowStateCarryover = commandArgs.has("allow-state-carryover");
     const compiler = resolveCompilerBackend(commandArgs.get("compiler"));
     const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
     const slotOverride = requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot);
@@ -86,6 +87,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
                         explicitCallees: dynCallees,
                         slotOverride,
                         skipVerify,
+                        allowStateCarryover,
                         compiler,
                     },
                     emit,

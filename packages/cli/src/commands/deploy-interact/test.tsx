@@ -77,6 +77,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
     const filter = commandArgs.get("filter");
     const timeout = commandArgs.get("timeout") || "60000";
     const skipVerify = commandArgs.has("skip-verify");
+    const allowStateCarryover = commandArgs.has("allow-state-carryover");
     const keepNode = commandArgs.has("keep-node");
     const [s, setS] = useState<State>({ phase: "setup", spin: "starting", lines: [] });
 
@@ -191,6 +192,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                         explicitCallees,
                         slotOverride: requestedSlot === undefined ? undefined : parseContractSlot(requestedSlot),
                         skipVerify,
+                        allowStateCarryover,
                         compiler: resolveCompilerBackend(requestedCompiler),
                     },
                     (e: DeploymentEvent) => {
