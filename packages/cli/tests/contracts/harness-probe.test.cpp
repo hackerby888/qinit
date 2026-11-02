@@ -418,3 +418,15 @@ TEST(HarnessProbe, WrongStructSizesAreReported)
     ContractTestingHarnessProbe t;
     t.readWithWrongSizes();
 }
+
+// core's INIT_CONTRACT hands out a fresh zeroed state each time it runs, the pointer a test kept included
+TEST(HarnessProbe, InitContractZeroesTheState)
+{
+    ContractTestingHarnessProbe t;
+    HarnessProbe::StateData& kept = t.state();
+    kept.value = 9;
+    EXPECT_EQ(t.read(), 9ull);
+    INIT_CONTRACT(HarnessProbe);
+    EXPECT_EQ(kept.value, 0ull);
+    EXPECT_EQ(t.read(), 0ull);
+}

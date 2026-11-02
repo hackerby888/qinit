@@ -309,8 +309,13 @@ export async function runContractTesting(
         q_reset: () => {
             deployAll();
         },
-        q_init: (_idx: number) => {
-            /* contracts pre-deployed in deployAll */
+        // core's INIT_CONTRACT mallocs a fresh zeroed state each time; the fixture's own callSystemProcedure runs INITIALIZE
+        q_init: (idx: number) => {
+            const contract = handles[idx >>> 0];
+            if (!contract) return;
+            contract.zeroState();
+            const shadow = shadows.get(idx >>> 0);
+            if (shadow) write(shadow.dst, contract.stateView(shadow.len));
         },
 
         // A contract failure inside a dispatch comes back as its code, as in the native harness; only an engine error fails the CURRENT TEST via `trap()`.
