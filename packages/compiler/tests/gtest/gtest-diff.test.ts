@@ -494,7 +494,7 @@ describe.skipIf(!HAS_CORE)("differential gtest — my contract vs native test lo
                 { name: "Scout.EtalonTickIsTheContractsClock", passed: true, message: "" },
                 { name: "Scout.UpdateTimeReadsTheWallClock", passed: true, message: "" },
                 { name: "Scout.PassingMacrosStream", passed: true, message: "" },
-                { name: "Scout.SkipReturnsEarly", passed: true, message: "" },
+                { name: "Scout.SkipReturnsEarly", passed: true, message: "\n    not today" },
             ]);
             const reported = results.find((result) => result.name === "Scout.FailureMacrosReport");
             expect(reported?.passed).toBe(false);

@@ -17,6 +17,7 @@ const NOTIFICATION_CONTRACT_INDEX_SHIFT = 22;
 export interface TestResult {
     name: string; // "Suite.Name"
     passed: boolean;
+    skipped?: boolean; // GTEST_SKIP() left the body; passed stays true, message carries the reason
     message: string; // failure detail (empty when passed)
     ms?: number; // wall time of the test body
     output?: string; // what the body printed through printf, std::cout or std::cerr
@@ -674,10 +675,12 @@ export async function runContractTesting(
         },
 
         // A trap the test never asserted on would otherwise report as a pass, so it fails the test here.
-        t_report: (namePtr: number, nameLen: number, passed: number, msgPtr: number, msgLen: number) => {
+        t_report: (namePtr: number, nameLen: number, status: number, msgPtr: number, msgLen: number) => {
+            const clean = trapNotes.length === 0;
             results.push({
                 name: dec.decode(read(namePtr, nameLen)),
-                passed: passed >>> 0 !== 0 && trapNotes.length === 0,
+                passed: status >>> 0 !== 0 && clean,
+                ...(status >>> 0 === 2 && clean ? { skipped: true } : {}),
                 message: [dec.decode(read(msgPtr, msgLen)), ...trapNotes.map((n) => `\n  ${n}`)].join(""),
                 ...(testOutput ? { output: testOutput } : {}),
             });

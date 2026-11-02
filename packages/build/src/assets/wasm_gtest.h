@@ -5,7 +5,7 @@
 // The simulator receives one final result for each registered test.
 #define QINIT_TEST_IMPORT(name) __attribute__((import_module("thost"), import_name(#name)))
 extern "C" {
-QINIT_TEST_IMPORT(t_report) void th_report(const void* name, unsigned int nameLen, unsigned int passed, const void* msg, unsigned int msgLen);
+QINIT_TEST_IMPORT(t_report) void th_report(const void* name, unsigned int nameLen, unsigned int status, const void* msg, unsigned int msgLen);
 }
 #undef QINIT_TEST_IMPORT
 
@@ -26,6 +26,7 @@ struct Ctx {
     unsigned int msgLen;
     bool         failed;
     bool         truncated;
+    bool         skipped;
 };
 static Ctx g_ctx;
 
@@ -316,7 +317,7 @@ struct ScopedTrace {
         static void qinit_gtest_run() {                                                        \
             qinit_gtest_fixture_##fixture##_##name f;                                          \
             f.SetUp();                                                                         \
-            if (!::qinit_gtest::g_ctx.failed) {                                                \
+            if (!::qinit_gtest::g_ctx.failed && !::qinit_gtest::g_ctx.skipped) {              \
                 f.qinit_gtest_body();                                                          \
             }                                                                                  \
             f.TearDown();                                                                      \
@@ -429,6 +430,7 @@ unsigned int run_test(unsigned int i) {
     ::qinit_gtest::g_ctx.failed = false;
     ::qinit_gtest::g_ctx.msgLen = 0;
     ::qinit_gtest::g_ctx.truncated = false;
+    ::qinit_gtest::g_ctx.skipped = false;
     ::qinit_gtest::g_tests[i].fn();
     // A message that hit the buffer cap ends in a marker, so a clipped failure never reads as complete.
     if (::qinit_gtest::g_ctx.truncated) {
@@ -439,9 +441,10 @@ unsigned int run_test(unsigned int i) {
         }
     }
     const char* nm = ::qinit_gtest::g_tests[i].name;
-    const unsigned int passed = ::qinit_gtest::g_ctx.failed ? 0u : 1u;
-    th_report(nm, ::qinit_gtest::slen(nm), passed, ::qinit_gtest::g_ctx.msg, ::qinit_gtest::g_ctx.msgLen);
-    return passed;
+    // 0 failed, 1 passed, 2 skipped; a failure recorded before GTEST_SKIP still fails the test, as in googletest
+    const unsigned int status = ::qinit_gtest::g_ctx.failed ? 0u : ::qinit_gtest::g_ctx.skipped ? 2u : 1u;
+    th_report(nm, ::qinit_gtest::slen(nm), status, ::qinit_gtest::g_ctx.msg, ::qinit_gtest::g_ctx.msgLen);
+    return status;
 }
 } // extern "C"
 

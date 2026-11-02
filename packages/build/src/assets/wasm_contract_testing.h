@@ -1191,9 +1191,10 @@ namespace qinit_gtest {
         failAt(f, l, w); appendStr(" ("); appendVal(a); appendStr(" vs "); appendVal(b); appendStr(")");
         return false;
     }
-    // SUCCEED() and GTEST_SKIP() stream into this, so their text never lands in a failure message.
+    // SUCCEED() streams into this, so its text never lands in a failure message.
     struct NullSink { template <class T> NullSink& operator<<(const T&) { return *this; } };
-    struct SkipSink { void operator=(const NullSink&) const {} };
+    // GTEST_SKIP() streams its reason into a Sink, then marks the test skipped
+    struct SkipSink { void operator=(const Sink&) const { g_ctx.skipped = true; } };
 }
 #undef EXPECT_NEAR
 #undef ASSERT_NEAR
@@ -1210,8 +1211,7 @@ static void qbct_universe_overflow(unsigned int index) {
 }
 #define FAIL() switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "FAIL()", false)) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 #define SUCCEED() ::qinit_gtest::NullSink()
-// the result has no skipped state, so a skipped test reports as passed.
-#define GTEST_SKIP() return ::qinit_gtest::SkipSink() = ::qinit_gtest::NullSink()
+#define GTEST_SKIP() return ::qinit_gtest::SkipSink() = ::qinit_gtest::Sink()
 
 static inline long long numberOfPossessedShares(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, const QPI::id& possessor, unsigned int om, unsigned int pm) {
     QbctUniverseScope qbctUniverseScope;

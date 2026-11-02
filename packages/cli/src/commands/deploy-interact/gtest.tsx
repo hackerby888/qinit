@@ -39,6 +39,13 @@ function fmtTimings(t?: Record<string, number>): string | undefined {
     return `${parts.join(" · ")} · total ${total}ms`;
 }
 
+// "12/12 passed", with the skipped share named so a green run is not mistaken for a full one
+function fmtPassed(results: readonly TestResult[]): string {
+    const pass = results.filter((t) => t.passed).length;
+    const skipped = results.filter((t) => t.skipped).length;
+    return `${pass}/${results.length} passed${skipped ? ` (${skipped} skipped)` : ""}`;
+}
+
 // Name the three slowest tests when any of them is worth noticing; a suite of uniformly fast tests says nothing.
 function fmtSlowest(results: readonly TestResult[]): string | undefined {
     const timed = results.filter((t) => (t.ms ?? 0) >= 250).sort((a, b) => (b.ms ?? 0) - (a.ms ?? 0));
@@ -135,7 +142,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                     const results = run.results;
                     const pass = results.filter((t) => t.passed).length;
                     const ok = results.length > 0 && pass === results.length;
-                    add("tests", ok, results.length ? `${pass}/${results.length} passed` : noMatch());
+                    add("tests", ok, results.length ? fmtPassed(results) : noMatch());
                     const ctiming = fmtTimings(run.timings);
                     if (ctiming) note(`  compile   ${ctiming}`);
                     const cslow = fmtSlowest(results);
@@ -231,7 +238,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                 const rr = run.results;
                 const pass = rr.filter((t) => t.passed).length;
                 const ok = rr.length > 0 && pass === rr.length;
-                add("tests", ok, rr.length ? `${pass}/${rr.length} passed` : noMatch());
+                add("tests", ok, rr.length ? fmtPassed(rr) : noMatch());
                 const slow = fmtSlowest(rr);
                 if (slow) note(`  slowest   ${slow}`);
                 return done(ok, [
@@ -261,7 +268,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                         error: s.ok ? null : failedStep && !tests.length ? `${failedStep.label}: ${failedStep.detail ?? "failed"}` : testsFailed,
                         summary: Object.fromEntries(s.rows),
                         ...(s.buildError ? { buildError: s.buildError } : {}),
-                        tests: tests.map((t) => ({ name: t.name, ok: t.passed, ms: t.ms ?? null, message: t.message || null, output: t.output ?? null })),
+                        tests: tests.map((t) => ({ name: t.name, ok: t.passed, ms: t.ms ?? null, message: t.message || null, output: t.output ?? null, skipped: t.skipped ?? false })),
                         notes: items.filter((item): item is Extract<Item, { kind: "note" }> => item.kind === "note").map((item) => item.text),
                     }) + "\n",
                 );
@@ -286,10 +293,10 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                         </Text>
                     ) : (
                         <Box key={i} flexDirection="column">
-                            <Text color={it.t.passed ? theme.ok : theme.err}>
-                                {it.t.passed ? "✓" : "✗"} {it.t.name}
+                            <Text color={it.t.skipped ? theme.warn : it.t.passed ? theme.ok : theme.err}>
+                                {it.t.skipped ? "↷" : it.t.passed ? "✓" : "✗"} {it.t.name}
                             </Text>
-                            {!it.t.passed && it.t.message ? <Text dimColor>{it.t.message.trim()}</Text> : null}
+                            {(!it.t.passed || it.t.skipped) && it.t.message ? <Text dimColor>{it.t.message.trim()}</Text> : null}
                             {it.t.output ? <Text dimColor>{it.t.output.trimEnd()}</Text> : null}
                         </Box>
                     )

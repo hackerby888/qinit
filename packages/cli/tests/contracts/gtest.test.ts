@@ -93,6 +93,10 @@ TEST(Counter, StringsCompare) {
 TEST(Counter, StringMismatchReports) {
     EXPECT_STREQ("abc", "abd");
 }
+TEST(Counter, SkipIsReported) {
+    GTEST_SKIP() << "not today";
+    FAIL() << "unreachable";
+}
 TEST(Counter, StateAtSlot100RoundTrips) {
     ContractTestingCounter t;
     const id user = id::randomValue();
@@ -197,6 +201,9 @@ test.skipIf(!have)(
         expect(by["Counter.StringsCompare"]?.passed, by["Counter.StringsCompare"]?.message).toBe(true);
         expect(by["Counter.StringMismatchReports"]?.passed).toBe(false);
         expect(by["Counter.StringMismatchReports"]?.message).toContain('EXPECT_STREQ("abc", "abd") ("abc" vs "abd")');
+        expect(by["Counter.SkipIsReported"]?.passed).toBe(true);
+        expect(by["Counter.SkipIsReported"]?.skipped).toBe(true);
+        expect(by["Counter.SkipIsReported"]?.message.trim()).toBe("not today");
     },
     120_000,
 );
