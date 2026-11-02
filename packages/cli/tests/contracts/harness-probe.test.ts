@@ -27,6 +27,7 @@ const PASSING = [
     "HarnessProbe.SystemEpochAndTickReachTheContract",
     "HarnessProbe.SecondFixtureResetsSpectrumAndUniverse",
     "HarnessProbe.FeeReserveRoundTrips",
+    "HarnessProbe.PrintsReachTheReport",
 ];
 // probes that must fail, with the text their failure has to carry
 const FAILING: Record<string, string> = {
@@ -57,6 +58,8 @@ test.skipIf(!have)(
             for (const name of PASSING) {
                 expect(by[name]?.passed, `${name}: ${by[name]?.message}`).toBe(true);
             }
+            expect(by["HarnessProbe.PrintsReachTheReport"]?.output).toContain("probe printf 1\nprobe cout 2\nprobe stderr\n");
+            expect(by["HarnessProbe.FeeReserveRoundTrips"]?.output).toBeUndefined();
             for (const [name, text] of Object.entries(FAILING)) {
                 expect(by[name]?.passed, name).toBe(false);
                 expect(by[name]?.message, name).toContain(text);

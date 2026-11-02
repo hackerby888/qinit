@@ -19,6 +19,7 @@ export interface TestResult {
     passed: boolean;
     message: string; // failure detail (empty when passed)
     ms?: number; // wall time of the test body
+    output?: string; // what the body printed through printf, std::cout or std::cerr
 }
 
 // Run a core-lite gtest Wasm module against contracts mapped by slot.
@@ -42,6 +43,14 @@ export async function runContractTesting(
     const dec = new TextDecoder();
     const results: TestResult[] = [];
     // Traps caught inside a dispatch, cleared before each test so they attribute to the test that caused them.
+    // the current test's prints, capped so a chatty loop cannot swell the report
+    const OUTPUT_CAP = 16384;
+    let testOutput = "";
+    const appendOutput = (bytes: Uint8Array): void => {
+        if (testOutput.length >= OUTPUT_CAP) return;
+        testOutput += dec.decode(bytes);
+        if (testOutput.length > OUTPUT_CAP) testOutput = `${testOutput.slice(0, OUTPUT_CAP)}\n…[output truncated]`;
+    };
     const trapNotes: string[] = [];
     const trap = (what: string, e: unknown): void => {
         const note = `${what} trapped: ${String((e as any)?.message ?? e).slice(0, 120)}`;
@@ -663,6 +672,7 @@ export async function runContractTesting(
                 name: dec.decode(read(namePtr, nameLen)),
                 passed: passed >>> 0 !== 0 && trapNotes.length === 0,
                 message: [dec.decode(read(msgPtr, msgLen)), ...trapNotes.map((n) => `\n  ${n}`)].join(""),
+                ...(testOutput ? { output: testOutput } : {}),
             });
         },
     };
@@ -929,13 +939,16 @@ export async function runContractTesting(
     // env: PRNG (global in the runner) + contract-specific symbols.
     const envObj: Record<string, Function> = { ...env };
 
-    // wasi: fd_write with correct byte-count reporting (avoids ostream hang), clock_time_get for QTRY/Nostromo.
+    // wasi: fd_write keeps what the test prints for its report and reports the byte count (an under-count hangs ostream), clock_time_get for QTRY/Nostromo.
     const wasiObj: Record<string, Function> = {
         fd_write: (_fd: number, iovs: number, iovsLen: number, nwritten: number): number => {
             const dv = new DataView(mem().buffer);
             let total = 0;
             for (let k = 0; k < iovsLen >>> 0; k++) {
-                total += dv.getUint32((iovs >>> 0) + k * 8 + 4, true);
+                const ptr = dv.getUint32((iovs >>> 0) + k * 8, true);
+                const len = dv.getUint32((iovs >>> 0) + k * 8 + 4, true);
+                appendOutput(read(ptr, len));
+                total += len;
             }
             dv.setUint32(nwritten >>> 0, total >>> 0, true);
             return 0;
@@ -1011,13 +1024,14 @@ export async function runContractTesting(
         const before = results.length;
         const tt = now();
         trapNotes.length = 0;
+        testOutput = "";
         // A trap escaping the harness rather than a dispatch would reject the whole run; report it as this test's failure and keep going.
         try {
             (runner.exports.run_test as Function)(i);
         } catch (e: any) {
             const stack = (globalThis as any).process?.env?.QINIT_GTEST_TRAP_STACK ? `\n${e?.stack ?? ""}` : "";
             const why = [`test body trapped: ${String(e?.message ?? e).slice(0, 200)}${stack}`, ...trapNotes];
-            results.push({ name: traceName(i), passed: false, message: why.join("\n  ") });
+            results.push({ name: traceName(i), passed: false, message: why.join("\n  "), ...(testOutput ? { output: testOutput } : {}) });
         }
         const ms = Math.round(now() - tt);
         for (let k = before; k < results.length; k++) {

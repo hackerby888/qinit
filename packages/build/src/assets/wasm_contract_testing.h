@@ -186,10 +186,12 @@ struct QbctUniverseScope {
 
 #undef QBCT_IMPORT
 
-// ---- std::cout / std::cerr / std::endl: no-op sinks ----
-// The wasm TU has no <iostream>; corpora stream PRINT_TEST_INFO debug output through std::cout.
+// ---- std::cout / std::cerr / std::endl ----
+// A project test gets the real streams, which reach the report through fd_write; a corpus keeps the no-op sinks its PRINT_TEST_INFO output went to, unless it includes <iostream> itself.
 
-#ifndef QINIT_HAVE_IOSTREAM
+#ifdef QINIT_HAVE_IOSTREAM
+#include <iostream>
+#else
 
 namespace std {
 

@@ -261,7 +261,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                         error: s.ok ? null : failedStep && !tests.length ? `${failedStep.label}: ${failedStep.detail ?? "failed"}` : testsFailed,
                         summary: Object.fromEntries(s.rows),
                         ...(s.buildError ? { buildError: s.buildError } : {}),
-                        tests: tests.map((t) => ({ name: t.name, ok: t.passed, ms: t.ms ?? null, message: t.message || null })),
+                        tests: tests.map((t) => ({ name: t.name, ok: t.passed, ms: t.ms ?? null, message: t.message || null, output: t.output ?? null })),
                         notes: items.filter((item): item is Extract<Item, { kind: "note" }> => item.kind === "note").map((item) => item.text),
                     }) + "\n",
                 );
@@ -290,6 +290,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
                                 {it.t.passed ? "✓" : "✗"} {it.t.name}
                             </Text>
                             {!it.t.passed && it.t.message ? <Text dimColor>{it.t.message.trim()}</Text> : null}
+                            {it.t.output ? <Text dimColor>{it.t.output.trimEnd()}</Text> : null}
                         </Box>
                     )
                 }

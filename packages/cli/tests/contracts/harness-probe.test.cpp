@@ -3,6 +3,7 @@
 #define NO_UEFI
 
 #include "contract_testing.h"
+#include <cstdio>
 
 class ContractTestingHarnessProbe : protected ContractTesting
 {
@@ -382,4 +383,14 @@ TEST(HarnessProbe, ReadingAnUndeployedSlotFailsLoud)
     ContractTestingHarnessProbe t;
     volatile uint64 value = ((HarnessProbe::StateData*)contractStates[HarnessProbe_CONTRACT_INDEX + 1])->value;
     (void)value;
+}
+
+// core prints to the terminal; here whatever the body prints travels with the result
+TEST(HarnessProbe, PrintsReachTheReport)
+{
+    ContractTestingHarnessProbe t;
+    printf("probe printf %d\n", 1);
+    std::cout << "probe cout " << 2 << std::endl;
+    fprintf(stderr, "probe stderr\n");
+    EXPECT_EQ(t.read(), 0ull);
 }

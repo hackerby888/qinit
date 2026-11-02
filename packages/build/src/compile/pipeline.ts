@@ -178,8 +178,8 @@ export async function buildCorpusRunner(o: {
         extraCompileFlags.push("-Wno-error=return-mismatch");
     }
 
-    // When the corpus pulls real <iostream> itself, suppress the harness's std::cout stubs so they do not collide with the real stream objects.
-    if (/^#include\s*<(iostream|ostream)>/m.test(raw)) {
+    // a project test gets the real streams; a corpus does only when it pulls <iostream> itself, so the harness stubs do not collide with the real stream objects
+    if (o.contractKind !== "system" || /^#include\s*<(iostream|ostream)>/m.test(raw)) {
         extraCompileFlags.push("-DQINIT_HAVE_IOSTREAM");
     }
 
