@@ -1130,6 +1130,18 @@ namespace qinit_gtest {
 QBCT_REC_CMP(Eq, ==) QBCT_REC_CMP(Ne, !=) QBCT_REC_CMP(Lt, <) QBCT_REC_CMP(Le, <=) QBCT_REC_CMP(Gt, >) QBCT_REC_CMP(Ge, >=)
 namespace qinit_gtest {
     static inline bool recBool(const char* f, int l, const char* w, bool cond) { if (!cond) failAt(f, l, w); return cond; }
+    // googletest's C-string compare: two nulls are equal, a null and a string are not
+    static inline bool cStrEq(const char* a, const char* b) {
+        if (!a || !b) { return a == b; }
+        while (*a && *a == *b) { ++a; ++b; }
+        return *a == *b;
+    }
+    static inline void appendCStr(const char* s) { if (s) { appendStr("\""); appendStr(s); appendStr("\""); } else { appendStr("(null)"); } }
+    static inline bool recStr(const char* f, int l, const char* w, const char* a, const char* b, bool wantEqual) {
+        if (cStrEq(a, b) == wantEqual) { return true; }
+        failAt(f, l, w); appendStr(" ("); appendCStr(a); appendStr(" vs "); appendCStr(b); appendStr(")");
+        return false;
+    }
 }
 #define QBCT_EXPECT(suffix, a, b, label)                                                                     \
     switch (0) case 0: default:                                                                              \
@@ -1187,6 +1199,10 @@ namespace qinit_gtest {
 #undef ASSERT_NEAR
 #define EXPECT_NEAR(a, b, error) switch (0) case 0: default: if (::qinit_gtest::recNear(__FILE__, __LINE__, "EXPECT_NEAR(" #a ", " #b ", " #error ")", (a), (b), (error))) ; else ::qinit_gtest::Sink()
 #define ASSERT_NEAR(a, b, error) switch (0) case 0: default: if (::qinit_gtest::recNear(__FILE__, __LINE__, "ASSERT_NEAR(" #a ", " #b ", " #error ")", (a), (b), (error))) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+#define EXPECT_STREQ(a, b) switch (0) case 0: default: if (::qinit_gtest::recStr(__FILE__, __LINE__, "EXPECT_STREQ(" #a ", " #b ")", (a), (b), true)) ; else ::qinit_gtest::Sink()
+#define EXPECT_STRNE(a, b) switch (0) case 0: default: if (::qinit_gtest::recStr(__FILE__, __LINE__, "EXPECT_STRNE(" #a ", " #b ")", (a), (b), false)) ; else ::qinit_gtest::Sink()
+#define ASSERT_STREQ(a, b) switch (0) case 0: default: if (::qinit_gtest::recStr(__FILE__, __LINE__, "ASSERT_STREQ(" #a ", " #b ")", (a), (b), true)) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
+#define ASSERT_STRNE(a, b) switch (0) case 0: default: if (::qinit_gtest::recStr(__FILE__, __LINE__, "ASSERT_STRNE(" #a ", " #b ")", (a), (b), false)) ; else return ::qinit_gtest::FatalSink() = ::qinit_gtest::Sink()
 #define ADD_FAILURE() switch (0) case 0: default: if (::qinit_gtest::recBool(__FILE__, __LINE__, "ADD_FAILURE()", false)) ; else ::qinit_gtest::Sink()
 
 static void qbct_universe_overflow(unsigned int index) {

@@ -83,6 +83,16 @@ TEST_F(CounterFixture, EachTestGetsAFreshFixture) {
 TEST(Counter, TearDownRanForTheFixture) {
     EXPECT_TRUE(tearDownRan);
 }
+TEST(Counter, StringsCompare) {
+    EXPECT_STREQ("abc", "abc");
+    EXPECT_STRNE("abc", "abd");
+    const char* none = nullptr;
+    EXPECT_STREQ(none, nullptr);
+    ASSERT_STRNE(none, "abc");
+}
+TEST(Counter, StringMismatchReports) {
+    EXPECT_STREQ("abc", "abd");
+}
 TEST(Counter, StateAtSlot100RoundTrips) {
     ContractTestingCounter t;
     const id user = id::randomValue();
@@ -184,6 +194,9 @@ test.skipIf(!have)(
         expect(by["Counter.StateAtSlot100RoundTrips"]?.passed, by["Counter.StateAtSlot100RoundTrips"]?.message).toBe(true);
         expect(by["Counter.ReportsFailures"]?.passed).toBe(false);
         expect(by["Counter.ReportsFailures"]?.message).toContain("EXPECT_EQ");
+        expect(by["Counter.StringsCompare"]?.passed, by["Counter.StringsCompare"]?.message).toBe(true);
+        expect(by["Counter.StringMismatchReports"]?.passed).toBe(false);
+        expect(by["Counter.StringMismatchReports"]?.message).toContain('EXPECT_STREQ("abc", "abd") ("abc" vs "abd")');
     },
     120_000,
 );
