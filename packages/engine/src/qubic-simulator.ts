@@ -1945,6 +1945,7 @@ export class QubicSimulator {
                         inputType,
                         moneyFlew,
                         digest,
+                        statusRecorded: sourceIndex >= 0,
                     });
                     return { moneyFlew };
                 } finally {

@@ -610,6 +610,20 @@ test("transaction records and raw bytes share the finalized tick history window"
     expect(engine.sim.txByHash(transactionId)).toBeUndefined();
 });
 
+// core saves a tx-status record only for a source it has a spectrum entry for; the tx still sits in its tick for the explorer and the peers.
+test("a transaction from a source with no spectrum record is in its tick but has no tx-status verdict", async () => {
+    const engine = await VirtualNode.create({ verifySigs: false });
+    const tx = wrapTx(0, new Uint8Array(0), new Uint8Array(32).fill(0x77), 1);
+    new DataView(tx.buffer).setUint32(72, 1, true);
+
+    const result = await engine.broadcastTx(tx);
+    expect(result.ok).toBe(true);
+    engine.advanceTick(2);
+
+    expect(await engine.tickTransactions(1)).toHaveLength(1);
+    expect(await engine.txStatus(1, result.transactionId!)).toMatchObject({ found: false, processed: true });
+});
+
 test("a fault hides raw and indexed transactions from its unfinalized tick", async () => {
     const engine = await VirtualNode.create({ verifySigs: false });
     engine.deploy(28, await wasm("Trap"), "Trap");

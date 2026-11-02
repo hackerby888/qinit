@@ -10,6 +10,7 @@ export interface TxRecord {
     inputType: number;
     moneyFlew: boolean;
     digest: Uint8Array; // K12(full signed tx) — the tick's TickData transactionDigests entry
+    statusRecorded: boolean; // false for a source with no spectrum record: the tx is in the tick, but core keeps no tx-status entry for it
 }
 
 // A broadcast tx awaiting its scheduled tick (mempool mode). Holds the decoded processTickTransaction arguments.
@@ -28,7 +29,6 @@ export class TxPool {
     private byId = new Map<string, TxRecord>();
     private mempool = new Map<number, QueuedTx[]>(); // keyed by scheduled tick
     private knownIds = new Set<string>();
-
     has(txId: string): boolean {
         return this.knownIds.has(txId);
     }

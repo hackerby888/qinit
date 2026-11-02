@@ -557,7 +557,7 @@ export class VirtualNode implements NodeTransport {
             tick,
             currentTick,
             txId,
-            found: transaction !== undefined,
+            found: transaction !== undefined && transaction.statusRecorded,
             moneyFlew: transaction?.moneyFlew ?? false,
             processed,
         };

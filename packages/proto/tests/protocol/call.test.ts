@@ -347,3 +347,30 @@ test("a halted node is reported at once and the tx is never resent", async () =>
         globalThis.fetch = realFetch;
     }
 });
+
+// included says the tx was in the tick; whether the body ran is known only from the trace, so a tx with no dispatch in it is reported as not executed.
+test("an included procedure with no dispatch in the trace reports executed false", async () => {
+    devNode({ before: [], afterBroadcast: [] });
+
+    try {
+        const result = await invoke(true);
+
+        expect(result).toMatchObject({ included: true, executed: false });
+        expect(result.traceEntry).toBeUndefined();
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+test("executed stays unknown when the node serves no trace", async () => {
+    devNode({ before: [], afterBroadcast: [], traceRoute: false });
+
+    try {
+        const result = await invoke(true);
+
+        expect(result.included).toBe(true);
+        expect(result.executed).toBeUndefined();
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});

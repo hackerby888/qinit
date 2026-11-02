@@ -85,7 +85,8 @@ test("a zero-amount transaction from a missing entity does not invoke a contract
 
     expect(result.moneyFlew).toBe(false);
     expect(new DataView(sim.query(28, 1).buffer).getBigUint64(0, true)).toBe(0n);
-    expect(sim.txByHash("missing-source")).toBeDefined();
+    // the tx is in the tick, but core keeps a tx-status record only for a source with a spectrum entry
+    expect(sim.txByHash("missing-source")?.statusRecorded).toBe(false);
 });
 
 test("contract procedure tx (real signed): source debited, procedure runs with invocationReward", async () => {

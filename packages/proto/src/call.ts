@@ -84,6 +84,7 @@ export type SubmittedTx = BroadcastResult & {
     traceEntry?: DebugEntry;
     failedCallees?: DebugEntry[];
     output?: unknown;
+    executed?: boolean; // the trace showed the procedure body ran; false when it did not, undefined when the node serves no trace
 };
 
 interface SubmitOptions {
@@ -315,6 +316,10 @@ export async function invokeProcedure(
     const rpc = opts.rpc ?? new LiteRpc(opts.rpcBaseUrl);
     const sinceSeq = opts.trace ? await armTrace(rpc) : undefined;
     const submitted = await broadcastAndConfirm(buildTx, { ...opts, rpc });
+    // included means the tx was in the tick; only the trace entry shows the body ran, an unfunded source or a dormant contract leaves none
+    if (submitted.included === false) {
+        return { ...submitted, executed: false };
+    }
     if (sinceSeq === undefined || !submitted.included || submitted.tick === undefined) {
         return submitted;
     }
@@ -327,11 +332,11 @@ export async function invokeProcedure(
         invocatorHex: (await deriveIdentity(opts.seed)).publicKeyHex.toLowerCase(),
     });
     if (!traced) {
-        return submitted;
+        return { ...submitted, executed: false };
     }
 
     const decodable = traced.traceEntry.ok && opts.outputType !== undefined;
     const output = decodable ? await decodeAbi(hexToBytes(traced.traceEntry.outHex), opts.outputType!) : undefined;
 
-    return { ...submitted, ...traced, output };
+    return { ...submitted, ...traced, executed: true, output };
 }

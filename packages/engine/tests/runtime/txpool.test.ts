@@ -12,6 +12,7 @@ function rec(txId: string, tick: number): TxRecord {
         inputType: 0,
         moneyFlew: true,
         digest: new Uint8Array(32),
+        statusRecorded: true,
     };
 }
 
