@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { resolve, join } from "node:path";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { loadConfig, projectContractName, projectContractPath, resolveCompilerBackend, resolveCoreDir, resolveRuntime, resolveRpc } from "../../config";
 import type { DeploymentEvent } from "../../ops/deploy";
 import { deployProjectContracts } from "../../ops/project-deploy";
@@ -221,6 +221,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                         stateType: contractStateType,
                     });
                 const sdkDir = join(root, "tests", ".qinit");
+                // rebuilt from scratch: a renamed contract must not leave its old client, with the old slot baked in, beside the new one
+                rmSync(sdkDir, { recursive: true, force: true });
                 mkdirSync(sdkDir, { recursive: true });
                 writeFileSync(join(sdkDir, "runtime.ts"), testRuntimeSource);
                 writeFileSync(join(sdkDir, `${contractName}.ts`), generateClient(idl, dep.slot, { runtimeImport: "./runtime" }));
