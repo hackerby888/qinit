@@ -122,6 +122,8 @@ export function traceDescendants(parent: DebugEntry, entries: readonly DebugEntr
 }
 const TRACE_POLL_ATTEMPTS = 10;
 const POLL_INTERVAL_MS = 300;
+const TRACE_WINDOW = 200;
+const TRACE_RING = 8192; // both engines keep at most this many entries
 
 type ProcessedVerdict = { found: boolean; moneyFlew: boolean } | { fault: EngineFaultInfo };
 
@@ -281,10 +283,11 @@ interface TraceMatch {
 
 // Find the dispatch a confirmed tx caused. Tick plus signer identifies it, so parallel calls to one procedure do not cross.
 async function collectTrace(rpc: LiteRpc, match: TraceMatch): Promise<{ traceEntry: DebugEntry; failedCallees: DebugEntry[] } | undefined> {
+    let limit = TRACE_WINDOW;
     for (let attempt = 0; attempt < TRACE_POLL_ATTEMPTS; attempt++) {
         let entries: DebugEntry[];
         try {
-            entries = (await rpc.debugTrace(match.sinceSeq, 200)).entries ?? [];
+            entries = (await rpc.debugTrace(match.sinceSeq, limit)).entries ?? [];
         } catch {
             return undefined;
         }
@@ -306,6 +309,11 @@ async function collectTrace(rpc: LiteRpc, match: TraceMatch): Promise<{ traceEnt
             return { traceEntry, failedCallees };
         }
 
+        // the node answers the newest entries after sinceSeq, so a full window can hide an older dispatch behind the frames of a busy tick
+        if (entries.length >= limit && limit < TRACE_RING) {
+            limit = TRACE_RING;
+            continue;
+        }
         await sleep(POLL_INTERVAL_MS);
     }
 

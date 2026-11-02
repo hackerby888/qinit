@@ -423,3 +423,24 @@ test("executed stays unknown when the node serves no trace", async () => {
         globalThis.fetch = realFetch;
     }
 });
+
+// both engines answer the newest entries after the armed seq, so 250 later frames in the same tick hide the dispatch from a 200-entry window
+test("a dispatch buried under a busy tick's later frames is still found", async () => {
+    const signerHex = (await deriveIdentity(SIGNER_SEED)).publicKeyHex;
+    devNode({
+        before: [],
+        afterBroadcast: [
+            traceEntry({ seq: 5, invocator: signerHex, outHex: OUTPUT_42, children: [] }),
+            ...Array.from({ length: 250 }, (_, i) => traceEntry({ seq: 6 + i, invocator: "c".repeat(64), outHex: "0100000000000000", children: [] })),
+        ],
+    });
+
+    try {
+        const result = await invoke(true);
+
+        expect(result).toMatchObject({ included: true, executed: true, output: 42n });
+        expect(result.traceEntry?.seq).toBe(5);
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
