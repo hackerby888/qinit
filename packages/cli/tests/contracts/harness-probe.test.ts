@@ -29,6 +29,7 @@ const PASSING = [
     "HarnessProbe.FeeReserveRoundTrips",
     "HarnessProbe.PrintsReachTheReport",
     "HarnessProbe.InitContractZeroesTheState",
+    "HarnessProbe.DescriptionsCarryTheStateSize",
 ];
 // probes that must fail, with the text their failure has to carry
 const FAILING: Record<string, string> = {

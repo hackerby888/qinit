@@ -474,7 +474,8 @@ struct QbStatesProxy {
 
 static QbStatesProxy contractStates;
 
-// Generated from the selected core's contract_def.h. State size stays engine-owned in Wasm mode.
+// Generated from the selected core's contract_def.h. The rows carry no state size (the header exists before the contracts are built);
+// a fixture fills it from the engine once the contracts are deployed.
 
 struct QbContractDescription {
     char assetName[8];
@@ -483,7 +484,7 @@ struct QbContractDescription {
     unsigned long long stateSize;
 };
 
-static const QbContractDescription contractDescriptions[MAX_NUMBER_OF_CONTRACTS] = {
+static QbContractDescription contractDescriptions[MAX_NUMBER_OF_CONTRACTS] = {
 __QINIT_CONTRACT_DESCRIPTIONS__
 };
 
@@ -533,6 +534,9 @@ class ContractTesting {
 public:
     ContractTesting() {
         bq_reset();
+        for (unsigned int i = 0; i < contractCount; i++) {
+            contractDescriptions[i].stateSize = bq_state_size(i);
+        }
         setMem(contractError, sizeof(contractError), 0);
         // the reset wiped the universe and with it any edit not yet flushed, as core's does
         setMem(&qbct_universe_spare, sizeof(AssetRecord), 0);

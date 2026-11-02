@@ -430,3 +430,11 @@ TEST(HarnessProbe, InitContractZeroesTheState)
     EXPECT_EQ(kept.value, 0ull);
     EXPECT_EQ(t.read(), 0ull);
 }
+
+// core's contract_def.h rows carry each state's size; here the engine supplies it once a fixture deployed the contracts
+TEST(HarnessProbe, DescriptionsCarryTheStateSize)
+{
+    ContractTestingHarnessProbe t;
+    EXPECT_GE(contractDescriptions[HarnessProbe_CONTRACT_INDEX].stateSize, (unsigned long long)sizeof(HarnessProbe::StateData));
+    EXPECT_EQ(contractDescriptions[HarnessProbe_CONTRACT_INDEX + 1].stateSize, 0ull);
+}
