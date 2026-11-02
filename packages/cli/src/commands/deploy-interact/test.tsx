@@ -136,7 +136,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     const runningBackend = ticking ? (await new LiteRpc(activeRpc).whoami()).backend : undefined;
                     if (!ticking || runningBackend !== "core") {
                         spin("starting core node");
-                        // Reuse a compatible ticking Core node; otherwise launch the selected binary.
+                        // Reuse a compatible ticking Core node; otherwise launch the selected binary. --keep-node keeps what this run starts and never replaces a foreign node.
                         const requestedNodeBinary = commandArgs.get("node-bin");
                         let nodeBinary = requestedNodeBinary ? resolve(requestedNodeBinary) : "";
                         let nodeNote = "";
@@ -148,7 +148,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                             nodeBinary = r.nodeBinaryPath;
                             if (r.cached) nodeNote = ` · cached ${r.version}`;
                         }
-                        if (keepNode) {
+                        if (keepNode && ticking) {
                             add("node", false, `${activeRpc} is not a ticking core node and --keep-node forbids replacing it`);
                             setS({ phase: "done", lines, ok: false, output: "", rows: [] });
                             return;
