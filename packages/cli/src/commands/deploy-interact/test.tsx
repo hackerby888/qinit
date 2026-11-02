@@ -200,11 +200,11 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                     (e: DeploymentEvent) => {
                         if ("note" in e) return;
                         if (e.state === "active" && e.detail) spin(`deploy · ${STEP_LABEL[e.step] ?? e.step}: ${e.detail}`);
-                        if (e.step === "build" && e.state === "fail") depDetail = e.detail ?? "build failed";
+                        if (e.state === "fail" && e.detail) depDetail = `${STEP_LABEL[e.step] ?? e.step}: ${e.detail}`;
                     },
                 );
                 if (!dep.ok || dep.slot === undefined) {
-                    add("deploy", false, dep.error || depDetail || "failed");
+                    add("deploy", false, dep.error || dep.detail || dep.reason || depDetail || "failed");
                     setS({ phase: "done", lines, ok: false, output: "", rows: [] });
                     return;
                 }
