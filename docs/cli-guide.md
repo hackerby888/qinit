@@ -2155,6 +2155,12 @@ The test file is compiled for wasm32, so `long`, `size_t` and pointers are 4 byt
 there and 8 on core. A chain value held in a `long` is cut in half without a
 warning; keep amounts, ticks and indices in `sint64`/`uint64`, as the contracts do.
 
+Macros the harness provides: `TEST`, `TEST_F` (a `::testing::Test` fixture with
+`SetUp`/`TearDown`), `EXPECT_`/`ASSERT_` `EQ NE LT LE GT GE TRUE FALSE NEAR STREQ STRNE`,
+`SCOPED_TRACE`, `ADD_FAILURE`, `FAIL`, `SUCCEED` and `GTEST_SKIP`, which reports the test
+as skipped with its reason. Not provided: `TEST_P`, `EXPECT_THROW` (exceptions are off in
+wasm), `EXPECT_DEATH` and the float macros.
+
 ## 15. RPC boundary map
 
 The HTTP client is [`LiteRpc`](../packages/core/src/net/rpc/client.ts); its
