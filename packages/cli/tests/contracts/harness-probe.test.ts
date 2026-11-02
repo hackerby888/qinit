@@ -28,8 +28,11 @@ const PASSING = [
     "HarnessProbe.SecondFixtureResetsSpectrumAndUniverse",
     "HarnessProbe.FeeReserveRoundTrips",
 ];
-// the one probe that must fail: a write into an index the engine holds no record at
-const REFUSED_WRITE = "HarnessProbe.WriteIntoAnEmptyIndexIsRefused";
+// probes that must fail, with the text their failure has to carry
+const FAILING: Record<string, string> = {
+    "HarnessProbe.WriteIntoAnEmptyIndexIsRefused": "assets[5] was written",
+    "HarnessProbe.ReadingAnUndeployedSlotFailsLoud": "contractStates[101]: no contract deployed in slot 101",
+};
 
 test.skipIf(!have)(
     "a gtest probing the harness's direct-access surface sees core's behaviour",
@@ -49,14 +52,16 @@ test.skipIf(!have)(
                 scratch,
             });
             expect(run.runnerOk, run.buildError).toBe(true);
-            expect(run.results.map((result) => result.name).sort()).toEqual([...PASSING, REFUSED_WRITE].sort());
+            expect(run.results.map((result) => result.name).sort()).toEqual([...PASSING, ...Object.keys(FAILING)].sort());
             const by = Object.fromEntries(run.results.map((result) => [result.name, result]));
             for (const name of PASSING) {
                 expect(by[name]?.passed, `${name}: ${by[name]?.message}`).toBe(true);
             }
-            expect(by[REFUSED_WRITE]?.passed).toBe(false);
-            expect(by[REFUSED_WRITE]?.message).toContain("assets[5] was written");
-            expect(by[REFUSED_WRITE]?.message).not.toContain("EXPECT_");
+            for (const [name, text] of Object.entries(FAILING)) {
+                expect(by[name]?.passed, name).toBe(false);
+                expect(by[name]?.message, name).toContain(text);
+                expect(by[name]?.message, name).not.toContain("EXPECT_");
+            }
         } finally {
             rmSync(scratch, { recursive: true, force: true });
         }

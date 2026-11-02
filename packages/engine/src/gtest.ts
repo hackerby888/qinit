@@ -518,7 +518,7 @@ export async function runContractTesting(
 
         q_state_in: (slot: number, dst: number, len: number) => {
             const contract = handles[slot];
-            if (!contract) return;
+            if (!contract) throw new Error(`contractStates[${slot}]: no contract deployed in slot ${slot}; add it to the callees or check the slot constant`);
             // copy on first use or a new destination only; pullShadowsFromEngine keeps an existing shadow current
             const shadow = shadows.get(slot);
             if (!shadow || shadow.dst !== dst) {

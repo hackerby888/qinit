@@ -375,3 +375,11 @@ TEST(HarnessProbe, FeeReserveRoundTrips)
     setContractFeeReserve(HarnessProbe_CONTRACT_INDEX, 123);
     EXPECT_EQ(getContractFeeReserve(HarnessProbe_CONTRACT_INDEX), 123LL);
 }
+
+// core's contractStates[] holds nullptr for a slot nothing deployed to and the read segfaults; the engine names the slot instead
+TEST(HarnessProbe, ReadingAnUndeployedSlotFailsLoud)
+{
+    ContractTestingHarnessProbe t;
+    volatile uint64 value = ((HarnessProbe::StateData*)contractStates[HarnessProbe_CONTRACT_INDEX + 1])->value;
+    (void)value;
+}
