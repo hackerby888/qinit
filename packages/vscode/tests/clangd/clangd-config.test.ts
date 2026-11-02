@@ -335,4 +335,4 @@ test.if(hasFixture)("a root the developer already occupies is worked around, nev
         writeFileSync(join(dir, "compile_commands.json"), theirDb(dir));
     });
     expect(staleMarker.relocated).toBe(true);
-});
+}, 30_000); // seven configurations on a windows runner take longer than bun's 5 s default
