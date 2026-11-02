@@ -2151,6 +2151,10 @@ come from the `QINIT_GTEST_FILTER` environment variable. Skipping is not free of
 ordering effects: tick, epoch, timebase, and digests survive the per-test reset,
 so a filtered run can differ from a full one for an order-dependent test.
 
+The test file is compiled for wasm32, so `long`, `size_t` and pointers are 4 bytes
+there and 8 on core. A chain value held in a `long` is cut in half without a
+warning; keep amounts, ticks and indices in `sint64`/`uint64`, as the contracts do.
+
 ## 15. RPC boundary map
 
 The HTTP client is [`LiteRpc`](../packages/core/src/net/rpc/client.ts); its
