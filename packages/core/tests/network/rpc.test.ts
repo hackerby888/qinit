@@ -122,3 +122,10 @@ test("LiteRpc.get: an HTTP error is a real answer -> NOT retried", async () => {
     await expect(new LiteRpc("http://node").tickInfo()).rejects.toThrow(/HTTP 500/);
     expect(n).toBe(1);
 });
+
+// a mainnet build has no dev routes; a 404 used to come back as { ok: undefined } and resolveOracle() quietly returned false
+test("LiteRpc.oracleResolve fails loud when the node has no oracle dev route", async () => {
+    globalThis.fetch = (async () => json({ code: 404, message: "not found" }, 404)) as unknown as typeof fetch;
+
+    await expect(new LiteRpc().oracleResolve(1n, new Uint8Array(8))).rejects.toThrow("oracle-resolve: the node has no oracle dev route (simulator or TESTNET build only)");
+});

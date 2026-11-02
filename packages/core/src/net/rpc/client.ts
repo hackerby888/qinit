@@ -231,11 +231,14 @@ export class LiteRpc implements NodeTransport {
 
     /** Answer a pending query as an oracle machine would (POST /live/v1/dev/oracle-resolve). A node still runs its commit, quorum and reveal steps. */
     async oracleResolve(queryId: bigint, reply: Uint8Array, status?: number): Promise<{ ok: boolean; status?: number; message?: string }> {
-        const { json } = await this.post<{ ok: boolean; status?: number; message?: string }>("/live/v1/dev/oracle-resolve", {
+        const { status: http, json } = await this.post<{ ok: boolean; status?: number; message?: string }>("/live/v1/dev/oracle-resolve", {
             queryId: queryId.toString(),
             reply: Buffer.from(reply).toString("base64"),
             status,
         });
+        if (http === 404) {
+            throw new Error("oracle-resolve: the node has no oracle dev route (simulator or TESTNET build only)");
+        }
         return json;
     }
 
