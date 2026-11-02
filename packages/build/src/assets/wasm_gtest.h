@@ -300,11 +300,14 @@ struct ScopedTrace {
                                                                 &qinit_gtest_body_##suite##_##name); \
     static void qinit_gtest_body_##suite##_##name()
 
+// the `fatal` argument is the statement run after a failure: `return` for ASSERT_, nothing for EXPECT_, so an EXPECT_ also compiles inside a value-returning helper
+#define QINIT_GTEST_FATAL return
+#define QINIT_GTEST_NONFATAL ((void)0)
 #define QINIT_GTEST_BOOL(cond, what, fatal)                                                       \
     do {                                                                                        \
         if (!(cond)) {                                                                          \
             ::qinit_gtest::failAt(__FILE__, __LINE__, what);                                       \
-            if (fatal) return;                                                                  \
+            fatal;                                                                              \
         }                                                                                       \
     } while (0)
 
@@ -319,7 +322,7 @@ struct ScopedTrace {
             ::qinit_gtest::appendStr(" vs ");                                                      \
             ::qinit_gtest::appendVal(qinit_gtest_vb);                                                 \
             ::qinit_gtest::appendStr(")");                                                         \
-            if (fatal) return;                                                                  \
+            fatal;                                                                              \
         }                                                                                       \
     } while (0)
 
@@ -329,23 +332,23 @@ struct ScopedTrace {
     ::qinit_gtest::ScopedTrace QINIT_GTEST_JOIN(qinit_gtest_trace_, __LINE__)(__FILE__, __LINE__, \
                                                                           ::testing::Message() << (message))
 
-#define EXPECT_TRUE(x)  QINIT_GTEST_BOOL((x), "EXPECT_TRUE(" #x ")", false)
-#define EXPECT_FALSE(x) QINIT_GTEST_BOOL(!(x), "EXPECT_FALSE(" #x ")", false)
-#define ASSERT_TRUE(x)  QINIT_GTEST_BOOL((x), "ASSERT_TRUE(" #x ")", true)
-#define ASSERT_FALSE(x) QINIT_GTEST_BOOL(!(x), "ASSERT_FALSE(" #x ")", true)
+#define EXPECT_TRUE(x)  QINIT_GTEST_BOOL((x), "EXPECT_TRUE(" #x ")", QINIT_GTEST_NONFATAL)
+#define EXPECT_FALSE(x) QINIT_GTEST_BOOL(!(x), "EXPECT_FALSE(" #x ")", QINIT_GTEST_NONFATAL)
+#define ASSERT_TRUE(x)  QINIT_GTEST_BOOL((x), "ASSERT_TRUE(" #x ")", QINIT_GTEST_FATAL)
+#define ASSERT_FALSE(x) QINIT_GTEST_BOOL(!(x), "ASSERT_FALSE(" #x ")", QINIT_GTEST_FATAL)
 
-#define EXPECT_EQ(a, b) QINIT_GTEST_CMP(a, b, ==, "EXPECT_EQ", false)
-#define EXPECT_NE(a, b) QINIT_GTEST_CMP(a, b, !=, "EXPECT_NE", false)
-#define EXPECT_LT(a, b) QINIT_GTEST_CMP(a, b, <,  "EXPECT_LT", false)
-#define EXPECT_LE(a, b) QINIT_GTEST_CMP(a, b, <=, "EXPECT_LE", false)
-#define EXPECT_GT(a, b) QINIT_GTEST_CMP(a, b, >,  "EXPECT_GT", false)
-#define EXPECT_GE(a, b) QINIT_GTEST_CMP(a, b, >=, "EXPECT_GE", false)
-#define ASSERT_EQ(a, b) QINIT_GTEST_CMP(a, b, ==, "ASSERT_EQ", true)
-#define ASSERT_NE(a, b) QINIT_GTEST_CMP(a, b, !=, "ASSERT_NE", true)
-#define ASSERT_LT(a, b) QINIT_GTEST_CMP(a, b, <,  "ASSERT_LT", true)
-#define ASSERT_LE(a, b) QINIT_GTEST_CMP(a, b, <=, "ASSERT_LE", true)
-#define ASSERT_GT(a, b) QINIT_GTEST_CMP(a, b, >,  "ASSERT_GT", true)
-#define ASSERT_GE(a, b) QINIT_GTEST_CMP(a, b, >=, "ASSERT_GE", true)
+#define EXPECT_EQ(a, b) QINIT_GTEST_CMP(a, b, ==, "EXPECT_EQ", QINIT_GTEST_NONFATAL)
+#define EXPECT_NE(a, b) QINIT_GTEST_CMP(a, b, !=, "EXPECT_NE", QINIT_GTEST_NONFATAL)
+#define EXPECT_LT(a, b) QINIT_GTEST_CMP(a, b, <,  "EXPECT_LT", QINIT_GTEST_NONFATAL)
+#define EXPECT_LE(a, b) QINIT_GTEST_CMP(a, b, <=, "EXPECT_LE", QINIT_GTEST_NONFATAL)
+#define EXPECT_GT(a, b) QINIT_GTEST_CMP(a, b, >,  "EXPECT_GT", QINIT_GTEST_NONFATAL)
+#define EXPECT_GE(a, b) QINIT_GTEST_CMP(a, b, >=, "EXPECT_GE", QINIT_GTEST_NONFATAL)
+#define ASSERT_EQ(a, b) QINIT_GTEST_CMP(a, b, ==, "ASSERT_EQ", QINIT_GTEST_FATAL)
+#define ASSERT_NE(a, b) QINIT_GTEST_CMP(a, b, !=, "ASSERT_NE", QINIT_GTEST_FATAL)
+#define ASSERT_LT(a, b) QINIT_GTEST_CMP(a, b, <,  "ASSERT_LT", QINIT_GTEST_FATAL)
+#define ASSERT_LE(a, b) QINIT_GTEST_CMP(a, b, <=, "ASSERT_LE", QINIT_GTEST_FATAL)
+#define ASSERT_GT(a, b) QINIT_GTEST_CMP(a, b, >,  "ASSERT_GT", QINIT_GTEST_FATAL)
+#define ASSERT_GE(a, b) QINIT_GTEST_CMP(a, b, >=, "ASSERT_GE", QINIT_GTEST_FATAL)
 
 #define QINIT_GTEST_NEAR(a, b, error, label, fatal)                                                \
     do {                                                                                        \
@@ -358,12 +361,12 @@ struct ScopedTrace {
             ::qinit_gtest::appendStr(" vs ");                                                      \
             ::qinit_gtest::appendVal(qinit_gtest_vb);                                                 \
             ::qinit_gtest::appendStr(")");                                                         \
-            if (fatal) return;                                                                  \
+            fatal;                                                                              \
         }                                                                                       \
     } while (0)
 
-#define EXPECT_NEAR(a, b, error) QINIT_GTEST_NEAR(a, b, error, "EXPECT_NEAR", false)
-#define ASSERT_NEAR(a, b, error) QINIT_GTEST_NEAR(a, b, error, "ASSERT_NEAR", true)
+#define EXPECT_NEAR(a, b, error) QINIT_GTEST_NEAR(a, b, error, "EXPECT_NEAR", QINIT_GTEST_NONFATAL)
+#define ASSERT_NEAR(a, b, error) QINIT_GTEST_NEAR(a, b, error, "ASSERT_NEAR", QINIT_GTEST_FATAL)
 
 // ---- runner exports the engine calls to enumerate + run tests ----
 extern "C" {

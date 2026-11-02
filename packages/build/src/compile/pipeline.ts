@@ -172,7 +172,11 @@ export async function buildCorpusRunner(o: {
     // overflow silently overwrote it, and once wasm-ld placed the stack first (LLVM 22) it trapped. Give the runner a real stack.
     // A test that calls a private function hands it `X_locals locals{}`, whose padding `{}` leaves as stack garbage; a contract that K12s
     // its locals (QDuel's GetWinnerPlayer) then hashes whatever an earlier frame left. Zeroed like the engine's locals, it stays stable.
-    const extraCompileFlags = ["-O2", "-Wno-error=return-mismatch", "-DQINIT_CORPUS_RUNNER", "-Wl,-z,stack-size=8388608", "-ftrivial-auto-var-init=zero"];
+    const extraCompileFlags = ["-O2", "-DQINIT_CORPUS_RUNNER", "-Wl,-z,stack-size=8388608", "-ftrivial-auto-var-init=zero"];
+    // a few core corpora return without a value from non-void helpers; a project test keeps native's hard error, so an ASSERT_ inside a value-returning helper cannot compile
+    if (o.contractKind === "system") {
+        extraCompileFlags.push("-Wno-error=return-mismatch");
+    }
 
     // When the corpus pulls real <iostream> itself, suppress the harness's std::cout stubs so they do not collide with the real stream objects.
     if (/^#include\s*<(iostream|ostream)>/m.test(raw)) {

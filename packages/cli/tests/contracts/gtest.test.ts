@@ -159,6 +159,46 @@ test.skipIf(!have)(
     120_000,
 );
 
+// a bare `return;` in a value-returning helper: core's corpora get the relaxed diagnostic, a project test keeps native's error
+const RETURN_MISMATCH_SOURCE = `#define NO_UEFI
+#include "contract_testing.h"
+
+static bool helper(int x) {
+    if (x) return;
+    return true;
+}
+
+TEST(Counter, UsesTheHelper) {
+    EXPECT_TRUE(helper(0));
+}
+`;
+
+test.skipIf(!have)(
+    "a project test returning nothing from a value-returning helper does not compile",
+    async () => {
+        const outDir = mkdtempSync(join(tmpdir(), "qinit-gtest-return-"));
+        try {
+            const testPath = join(outDir, "Counter.test.cpp");
+            writeFileSync(testPath, RETURN_MISMATCH_SOURCE);
+            const runner = await buildCorpusRunner({
+                corpusPath: testPath,
+                contractPath: CONTRACT,
+                contractName: "Counter",
+                stateType: "Counter",
+                slot: SLOT,
+                corePath: CORE,
+                outDir: join(outDir, "runner"),
+                arenaSizeBytes: 64 * 1024 * 1024,
+            });
+            expect(runner.ok).toBe(false);
+            expect(runner.stderr).toContain("return-mismatch");
+        } finally {
+            rmSync(outDir, { recursive: true, force: true });
+        }
+    },
+    120_000,
+);
+
 const ORACLE_PROBE = `${import.meta.dir}/../../../../fixtures/OracleProbe.h`;
 // core's oracle globals as core's own tests use them: the engine, the tick storage, the registry and the notification context.
 const ORACLE_TEST_SOURCE = `#define NO_UEFI
