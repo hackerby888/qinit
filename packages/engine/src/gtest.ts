@@ -300,6 +300,11 @@ export async function runContractTesting(
     };
 
     let universeView: [number, LedgerRecord][] = [];
+    const entryOf = (idx: number, isProcedure: number, it: number) => {
+        const kind = isProcedure ? CONTRACT_ENTRY_KIND.PROCEDURE : CONTRACT_ENTRY_KIND.FUNCTION;
+        return handles[idx >>> 0]?.entries.find((candidate) => candidate.kind === kind && candidate.inputType === it >>> 0);
+    };
+
     const thost = {
         q_reset: () => {
             deployAll();
@@ -313,12 +318,9 @@ export async function runContractTesting(
             runProcedure(idx, it, inPtr, inLen, amount, originPtr, outPtr, outCap, true),
         q_call_procedure: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number =>
             runProcedure(idx, it, inPtr, inLen, amount, originPtr, outPtr, outCap, false),
-        // the registered output size of a function (0) or procedure (1), which core's call contexts expose as outputSize
-        q_output_size: (idx: number, isProcedure: number, it: number): number => {
-            const kind = isProcedure ? CONTRACT_ENTRY_KIND.PROCEDURE : CONTRACT_ENTRY_KIND.FUNCTION;
-            const entry = handles[idx >>> 0]?.entries.find((candidate) => candidate.kind === kind && candidate.inputType === it >>> 0);
-            return (entry?.outputSizeBytes ?? 0) >>> 0;
-        },
+        // the registered input and output sizes of a function (0) or procedure (1), which core's harness compares with the test's structs
+        q_input_size: (idx: number, isProcedure: number, it: number): number => (entryOf(idx, isProcedure, it)?.inputSizeBytes ?? 0) >>> 0,
+        q_output_size: (idx: number, isProcedure: number, it: number): number => (entryOf(idx, isProcedure, it)?.outputSizeBytes ?? 0) >>> 0,
 
         q_query: (idx: number, it: number, inPtr: number, inLen: number, outPtr: number, outCap: number): number => {
             pushShadowsToEngine();

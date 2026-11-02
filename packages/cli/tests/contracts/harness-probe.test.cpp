@@ -59,6 +59,14 @@ public:
     {
         return *(HarnessProbe::StateData*)contractStates[HarnessProbe_CONTRACT_INDEX];
     }
+
+    // Read with one byte too many in and a one-byte out: both sizes differ from what the contract registered
+    void readWithWrongSizes() const
+    {
+        struct { HarnessProbe::Read_input in; unsigned char extra; } wideIn{};
+        unsigned char narrowOut = 0;
+        callFunction(HarnessProbe_CONTRACT_INDEX, 3, wideIn, narrowOut, true, false);
+    }
 };
 
 static const char* const UNIT = "0000000";
@@ -402,4 +410,11 @@ TEST(HarnessProbe, UnwiredImportFailsTheTest)
 {
     ContractTestingHarnessProbe t;
     EXPECT_EQ(probeUnwired(), 0u);
+}
+
+// core EXPECTs the structs a test passes to match what the contract registered; the engine would pad or cut them silently
+TEST(HarnessProbe, WrongStructSizesAreReported)
+{
+    ContractTestingHarnessProbe t;
+    t.readWithWrongSizes();
 }

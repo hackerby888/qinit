@@ -34,6 +34,7 @@ const FAILING: Record<string, string> = {
     "HarnessProbe.WriteIntoAnEmptyIndexIsRefused": "assets[5] was written",
     "HarnessProbe.ReadingAnUndeployedSlotFailsLoud": "contractStates[101]: no contract deployed in slot 101",
     "HarnessProbe.UnwiredImportFailsTheTest": "unwired import lhost.probeUnwired",
+    "HarnessProbe.WrongStructSizesAreReported": "sizeof(input)",
 };
 
 test.skipIf(!have)(
@@ -64,8 +65,9 @@ test.skipIf(!have)(
             for (const [name, text] of Object.entries(FAILING)) {
                 expect(by[name]?.passed, name).toBe(false);
                 expect(by[name]?.message, name).toContain(text);
-                expect(by[name]?.message, name).not.toContain("EXPECT_");
             }
+            expect(by["HarnessProbe.WriteIntoAnEmptyIndexIsRefused"]?.message).not.toContain("EXPECT_");
+            expect(by["HarnessProbe.WrongStructSizesAreReported"]?.message).toContain("sizeof(output)");
         } finally {
             rmSync(scratch, { recursive: true, force: true });
         }

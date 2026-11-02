@@ -26,6 +26,7 @@ QBCT_IMPORT(q_invoke)    unsigned int  bq_invoke(unsigned int idx, unsigned int 
 // runs only the procedure: the reward is visible to it but not moved, as in core's QpiContextUserProcedureCall
 QBCT_IMPORT(q_call_procedure) unsigned int bq_call_procedure(unsigned int idx, unsigned int it, const void* in, unsigned int inLen, long long amount, const void* origin32, void* out, unsigned int outCap);
 QBCT_IMPORT(q_output_size) unsigned int bq_output_size(unsigned int idx, unsigned int isProcedure, unsigned int it);
+QBCT_IMPORT(q_input_size) unsigned int bq_input_size(unsigned int idx, unsigned int isProcedure, unsigned int it);
 QBCT_IMPORT(q_query)     unsigned int  bq_query(unsigned int idx, unsigned int it, const void* in, unsigned int inLen, void* out, unsigned int outCap);
 QBCT_IMPORT(q_sysproc)   unsigned int  bq_sysproc(unsigned int idx, unsigned int sp);
 QBCT_IMPORT(q_fund)      void          bq_fund(const void* id32, long long amount);
@@ -473,6 +474,58 @@ struct QbStatesProxy {
 
 static QbStatesProxy contractStates;
 
+// Generated from the selected core's contract_def.h. State size stays engine-owned in Wasm mode.
+
+struct QbContractDescription {
+    char assetName[8];
+    unsigned short constructionEpoch;
+    unsigned short destructionEpoch;
+    unsigned long long stateSize;
+};
+
+static const QbContractDescription contractDescriptions[MAX_NUMBER_OF_CONTRACTS] = {
+__QINIT_CONTRACT_DESCRIPTIONS__
+};
+
+static const unsigned int contractCount = __QINIT_CONTRACT_COUNT__;
+
+// core's harness EXPECTs contractStates[contractIndex] != nullptr before a call; here the engine knows which slots hold a contract
+static inline bool qbct_deployed(unsigned int contractIndex, const char* file, int line) {
+    if (contractIndex < contractCount && bq_state_size(contractIndex) != 0) {
+        return true;
+    }
+    ::qinit_gtest::failAt(file, line, "no contract deployed in slot");
+    ::qinit_gtest::appendStr(" ");
+    ::qinit_gtest::appendU64(contractIndex);
+    return false;
+}
+
+// core EXPECTs the structs a test passes to match the sizes the contract registered, where the engine would pad or cut them silently;
+// an input type the contract never registered has no sizes to compare, its error code says so
+static inline void qbct_expect_sizes(unsigned int contractIndex, unsigned int isProcedure, unsigned int inputType, unsigned int inputSize, unsigned int outputSize, bool checkInputSize, const char* file, int line) {
+    const unsigned int registeredInput = bq_input_size(contractIndex, isProcedure, inputType);
+    const unsigned int registeredOutput = bq_output_size(contractIndex, isProcedure, inputType);
+    if (registeredInput == 0 && registeredOutput == 0) {
+        return;
+    }
+    if (checkInputSize && registeredInput != inputSize) {
+        ::qinit_gtest::failAt(file, line, "sizeof(input) differs from the input size the contract registered");
+        ::qinit_gtest::appendStr(" (");
+        ::qinit_gtest::appendU64(inputSize);
+        ::qinit_gtest::appendStr(" vs ");
+        ::qinit_gtest::appendU64(registeredInput);
+        ::qinit_gtest::appendStr(")");
+    }
+    if (registeredOutput != outputSize) {
+        ::qinit_gtest::failAt(file, line, "sizeof(output) differs from the output size the contract registered");
+        ::qinit_gtest::appendStr(" (");
+        ::qinit_gtest::appendU64(outputSize);
+        ::qinit_gtest::appendStr(" vs ");
+        ::qinit_gtest::appendU64(registeredOutput);
+        ::qinit_gtest::appendStr(")");
+    }
+}
+
 // ---- ContractTesting class: same public surface as core-lite ContractTesting ----
 
 
@@ -495,6 +548,8 @@ public:
     template <typename InputType, typename OutputType>
     unsigned int callFunction(unsigned int contractIndex, unsigned short fnInputType, const InputType& input, OutputType& output, bool checkInputSize = true, bool expectSuccess = true) const {
         QbctUniverseScope qbctUniverseScope;
+        qbct_deployed(contractIndex, __FILE__, __LINE__);
+        qbct_expect_sizes(contractIndex, 0, fnInputType, sizeof(input), sizeof(output), checkInputSize, __FILE__, __LINE__);
         setMem(&output, sizeof(output), 0);
         const unsigned int errorCode = bq_query(contractIndex, fnInputType, &input, sizeof(input), &output, sizeof(output));
         if (expectSuccess) {
@@ -506,6 +561,8 @@ public:
     template <typename InputType, typename OutputType>
     bool invokeUserProcedure(unsigned int contractIndex, unsigned short procInputType, const InputType& input, OutputType& output, const QPI::id& user, QPI::sint64 amount, bool checkInputSize = true, bool expectSuccess = true) {
         QbctUniverseScope qbctUniverseScope;
+        qbct_deployed(contractIndex, __FILE__, __LINE__);
+        qbct_expect_sizes(contractIndex, 1, procInputType, sizeof(input), sizeof(output), checkInputSize, __FILE__, __LINE__);
         setMem(&output, sizeof(output), 0);
         // Mirror core-lite contract_testing.h: the invocation fails (no procedure run, nothing transferred)
         // when the user has NO spectrum record at all (spectrumIndex < 0 — even with amount 0), or can't
@@ -527,6 +584,7 @@ public:
 
     void callSystemProcedure(unsigned int contractIndex, SystemProcedureID sysProcId, bool expectSuccess = true) {
         QbctUniverseScope qbctUniverseScope;
+        qbct_deployed(contractIndex, __FILE__, __LINE__);
         const unsigned int errorCode = bq_sysproc(contractIndex, (unsigned int)sysProcId);
         if (errorCode) {
             contractError[contractIndex] = errorCode;
@@ -638,21 +696,6 @@ static void setContractFeeReserve(unsigned int contractIndex, long long newValue
 // ---- static constants from contract_def.h / assets.h needed by corpora (QTRY/Nostromo) ----
 
 static constexpr char CONTRACT_ASSET_UNIT_OF_MEASUREMENT[7] = { 0, 0, 0, 0, 0, 0, 0 };
-
-// Generated from the selected core's contract_def.h. State size stays engine-owned in Wasm mode.
-
-struct QbContractDescription {
-    char assetName[8];
-    unsigned short constructionEpoch;
-    unsigned short destructionEpoch;
-    unsigned long long stateSize;
-};
-
-static const QbContractDescription contractDescriptions[MAX_NUMBER_OF_CONTRACTS] = {
-__QINIT_CONTRACT_DESCRIPTIONS__
-};
-
-static const unsigned int contractCount = __QINIT_CONTRACT_COUNT__;
 
 static inline bool isPublicKeyOfContract(const m256i& publicKey) {
     return !publicKey.u64._3 && !publicKey.u64._2 && !publicKey.u64._1 &&
