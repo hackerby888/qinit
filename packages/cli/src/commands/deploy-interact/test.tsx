@@ -21,6 +21,8 @@ import { parseContractSlot } from "../../contracts/registry";
 import { output, type CommandArguments } from "../../args";
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// lines of bun test output shown on screen; the whole run is in tests/.qinit/last-run.log
+const OUTPUT_TAIL = 28;
 const STEP_LABEL: Record<string, string> = {
     tick: "node",
     slot: "slot",
@@ -276,6 +278,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                 const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
                 await p.exited;
                 const output = stripAnsi((out + err).trim());
+                writeFileSync(join(sdkDir, "last-run.log"), output + "\n");
                 const ok = p.exitCode === 0;
                 add("tests", ok, ok ? "all passed" : "failures (see below)");
 
@@ -349,12 +352,13 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                             <Box flexDirection="column">
                                 {s.output
                                     .split("\n")
-                                    .slice(-28)
+                                    .slice(-OUTPUT_TAIL)
                                     .map((ln, i) => (
                                         <Text key={i} dimColor>
                                             {ln}
                                         </Text>
                                     ))}
+                                {s.output.split("\n").length > OUTPUT_TAIL && <Text dimColor>full output: tests/.qinit/last-run.log</Text>}
                             </Box>
                         </Panel>
                     )}
