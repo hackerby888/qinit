@@ -33,6 +33,7 @@ const PASSING = [
 const FAILING: Record<string, string> = {
     "HarnessProbe.WriteIntoAnEmptyIndexIsRefused": "assets[5] was written",
     "HarnessProbe.ReadingAnUndeployedSlotFailsLoud": "contractStates[101]: no contract deployed in slot 101",
+    "HarnessProbe.UnwiredImportFailsTheTest": "unwired import lhost.probeUnwired",
 };
 
 test.skipIf(!have)(

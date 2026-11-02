@@ -394,3 +394,12 @@ TEST(HarnessProbe, PrintsReachTheReport)
     fprintf(stderr, "probe stderr\n");
     EXPECT_EQ(t.read(), 0ull);
 }
+
+// a QPI function the harness does not wire: core links the real one, the engine refuses the call by name instead of returning zero
+__attribute__((import_module("lhost"), import_name("probeUnwired"))) unsigned int probeUnwired();
+
+TEST(HarnessProbe, UnwiredImportFailsTheTest)
+{
+    ContractTestingHarnessProbe t;
+    EXPECT_EQ(probeUnwired(), 0u);
+}

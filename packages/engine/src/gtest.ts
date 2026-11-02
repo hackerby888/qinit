@@ -960,15 +960,19 @@ export async function runContractTesting(
         },
     };
 
-    // Fill in explicit safeNoop stubs for every import the module declares but we have not wired, so no Proxy is needed in the import object Bun sees.
+    // Fill in explicit stubs for every import the module declares but we have not wired, so no Proxy is needed in the import object Bun sees.
+    // core's corpora link against globals the harness never models, so they get zero and one stderr line; a project test calling an unwired QPI function fails instead.
+    const strictQpi = opts.profile !== "core-gtest";
     for (const imp of WebAssembly.Module.imports(mod)) {
         const entry = imp.module === "lhost" ? lhost : imp.module === "env" ? envObj : imp.module === "wasi_snapshot_preview1" ? wasiObj : null;
         if (entry && !(imp.name in entry)) {
-            const results: string[] = ((imp as any).type?.results ?? []) as string[];
-            const zero = results.includes("i64") ? noopBig : noopVal;
-            // A stub is indistinguishable from a host function legitimately returning zero, so say so on first call; a never-called import stays quiet.
+            const resultTypes: string[] = ((imp as any).type?.results ?? []) as string[];
+            const zero = resultTypes.includes("i64") ? noopBig : noopVal;
             let warned = false;
             (entry as any)[imp.name] = (...args: unknown[]) => {
+                if (strictQpi && imp.module === "lhost") {
+                    throw new Error(`unwired import ${imp.module}.${imp.name}: the test called a host function the harness does not provide; drive the contract through callFunction or invokeUserProcedure instead`);
+                }
                 if (!warned) {
                     warned = true;
                     (globalThis as any).process?.stderr?.write?.(`[gtest] unwired import ${imp.module}.${imp.name} — stubbed to zero\n`);
