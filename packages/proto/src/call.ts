@@ -124,6 +124,10 @@ const TRACE_POLL_ATTEMPTS = 10;
 const POLL_INTERVAL_MS = 300;
 const TRACE_WINDOW = 200;
 const TRACE_RING = 8192; // both engines keep at most this many entries
+// the simulator refuses a tick a sibling call has already hurried it past; the node never had the tx, so a fresh one is safe.
+// every sibling hurry moves the floor again, so a burst of parallel calls needs its own budget, not the three resends of a lost tx.
+const STALE_TICK = /^transaction tick \d+ is outside /;
+const STALE_TICK_RETRIES = 50;
 
 type ProcessedVerdict = { found: boolean; moneyFlew: boolean } | { fault: EngineFaultInfo };
 
@@ -175,12 +179,19 @@ async function broadcastAndConfirm(buildTx: TransactionBuilder, opts: SubmitOpti
     const rpc = opts.rpc ?? new LiteRpc(opts.rpcBaseUrl);
     const resends = opts.resends ?? MAX_TX_RESENDS;
     let tick = opts.tick;
+    let staleRetries = 0;
     const earlier: { txId: string; tick: number }[] = [];
 
     for (let attempt = 0; ; attempt++) {
         const tx = await buildTx(tick);
         const broadcast = await broadcastTx(tx.bytes, opts.rpcBaseUrl);
         const result = { ...broadcast, txId: tx.id, tick };
+        if (!broadcast.ok && staleRetries < STALE_TICK_RETRIES && STALE_TICK.test(broadcast.message ?? "")) {
+            staleRetries++;
+            attempt--;
+            tick = (await rpc.tickInfo()).tick + TX_TICK_OFFSET;
+            continue;
+        }
 
         // The tx is in the mempool now, so a dev node can be pulled straight past the tick that executes it.
         const hurried = rpc.hurryToTick(tick + 1);

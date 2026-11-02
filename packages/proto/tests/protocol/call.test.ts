@@ -67,7 +67,7 @@ test("resolveDeploymentSlot ignores same-name and free entries outside the dynam
 
 // A node that answers tick-info, accepts broadcasts, and reports each tx as included or missed in order; a verdict given as a function sees how often that tx was asked about.
 type Verdict = { found: boolean } | "no-route" | ((polls: number) => { found: boolean });
-function fakeNode(verdicts: Verdict[]) {
+function fakeNode(verdicts: Verdict[], options: { staleBroadcasts?: number } = {}) {
     const broadcasts: string[] = [];
     const polled: string[] = [];
     const polls = new Map<string, number>();
@@ -82,6 +82,9 @@ function fakeNode(verdicts: Verdict[]) {
         if (path === "/live/v1/broadcast-transaction") {
             broadcasts.push(String(JSON.parse(String(init?.body)).encodedTransaction));
             tick += 10;
+            if (broadcasts.length <= (options.staleBroadcasts ?? 0)) {
+                return json({ ok: false, peersBroadcasted: 0, code: 1, message: `transaction tick 108 is outside ${tick + 1}..2700` });
+            }
             return json({ peersBroadcasted: 1, transactionId: `tx${broadcasts.length}` });
         }
         if (path.startsWith("/live/v1/tx-status/")) {
@@ -187,6 +190,30 @@ test("a first copy that landed late is the included transaction when its resend 
         expect(node.broadcasts.length).toBe(2);
         expect(result).toMatchObject({ confirmed: true, included: true, tick: 108 });
         expect(result.duplicateTxIds).toBeUndefined();
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
+// On the simulator a sibling call's hurry can move the node past this tx's tick before it arrives; the node refused it, so a fresh tick is safe.
+test("a broadcast the simulator refused for a stale tick is signed again for a later one", async () => {
+    const node = fakeNode([{ found: true }], { staleBroadcasts: 2 });
+
+    try {
+        const result = await sendTransfer({
+            seed: "a".repeat(55),
+            destination: new Uint8Array(32),
+            amount: 0,
+            rpcBaseUrl: "http://node",
+            rpc: new LiteRpc("http://node"),
+            tick: 108,
+            confirm: true,
+            confirmTimeoutMs: 2000,
+            resends: 1,
+        });
+
+        expect(node.broadcasts.length).toBe(3);
+        expect(result).toMatchObject({ ok: true, confirmed: true, included: true, tick: 123 });
     } finally {
         globalThis.fetch = realFetch;
     }
