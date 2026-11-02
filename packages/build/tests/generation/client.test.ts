@@ -274,6 +274,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     expect(client).toContain("trap: r.traceEntry?.trap ?? r.failedCallees?.[0]?.trap,");
     expect(client).toContain("fault: r.fault,");
     expect(client).toContain("executed: r.executed,");
+    expect(client).toContain("message: r.message,");
     expect(client).toContain("duplicateTxIds: r.duplicateTxIds,");
 
     // an empty output gets no mapper: its unused parameter fails a strict typecheck of the client.

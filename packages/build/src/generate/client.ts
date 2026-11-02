@@ -184,6 +184,8 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         lines.push(`export type QinitFault = { message: string; phase: string; failedTick: number; slot?: number; entry?: number; txId?: string };`);
         lines.push(`type QinitProcedureResult = {`);
         lines.push(`  ok: boolean;`);
+        lines.push(`  code?: number;`);
+        lines.push(`  message?: string;`);
         lines.push(`  txId?: string;`);
         lines.push(`  tick?: number;`);
         lines.push(`  confirmed?: boolean;`);
@@ -272,6 +274,8 @@ export function generateClient(idl: ContractIdl, index: number, options?: { runt
         );
         lines.push(`    return {`);
         lines.push(`      ok: r.ok,`);
+        lines.push(`      code: r.code,`);
+        lines.push(`      message: r.message,`);
         lines.push(`      txId: r.txId,`);
         lines.push(`      tick: r.tick,`);
         lines.push(`      confirmed: r.confirmed,`);
