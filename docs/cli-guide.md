@@ -2037,7 +2037,7 @@ resolve, slot, and build the complete project graph
   -> bun install @types/bun when node_modules lacks it (QINIT_NO_UPDATE skips)
   -> spawn bun test through the running executable (BUN_BE_BUN=1), so no separate Bun is needed
   -> inject QINIT_RPC, QINIT_SEED, QINIT_CONTRACT
-  -> append a source backtrace on failure when possible
+  -> write the whole bun test output to tests/.qinit/last-run.log; the screen shows the last 28 lines
   -> stop a node that this command owns, unless --keep-node
 ```
 
@@ -2051,20 +2051,36 @@ deletes it there), or the child starts as Bun and answers `Script not found`.
 Its in-process simulator is not the detached `node run` simulator. It has no
 peer port and uses the engine server's faster default tick interval.
 
+One run is one deployment: every spec file shares the contract's state and the
+node's tick, so a spec that needs a known starting point sets it in a `beforeAll`
+instead of assuming a fresh contract. `tests/.qinit/` is deleted and regenerated
+on every run, so a renamed contract leaves no stale client behind (`qinit new`
+lists it in `.gitignore`). `rpc()` gives a spec the dev routes: `advanceTick(n)`,
+`advanceEpoch()`, `advanceToLast()`, `stateBytes(slot)`, `stateRead(slot, off, len)`,
+`fundedSeed()`, `undeploy(slot)` and `directDeploy(...)`; `resolveOracle()` throws
+on a node without the oracle dev route rather than returning `false`.
+
 A procedure call in a spec resolves to more than the confirmation. `provider()`
 turns the client's `trace` option on, so each call reads its own dispatch back
 from the node's debug trace, matched on tick, slot, procedure, and signer:
 
-| Field           | Meaning                                                                         |
-| --------------- | ------------------------------------------------------------------------------- |
-| `output`        | the procedure's output struct, decoded and typed; absent when it trapped        |
-| `trap`          | the trap message of the procedure, or of the first callee that trapped under it |
-| `traceEntry`    | the dispatch record itself: `ok`, `outHex`, `logs`, ...                         |
-| `failedCallees` | frames under the procedure (by the trace's `children`) that trapped and recovered |
-| `fault`         | the node halted; returned at once with `confirmed: false`, and never resent     |
+| Field            | Meaning                                                                         |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `ok`             | the node accepted the broadcast; says nothing about execution                   |
+| `confirmed`      | the verdict is final: the node ticked past the tx's tick, or halted             |
+| `included`       | the tx was in its tick; true also for a tx whose body did not run (unfunded source, dormant contract) |
+| `executed`       | the trace holds the dispatch, so the body ran; `false` when included without one, `undefined` without a trace route |
+| `duplicateTxIds` | a resent copy the node reported as missed landed after all; every other copy that ran |
+| `output`         | the procedure's output struct, decoded and typed; absent when it trapped        |
+| `trap`           | the trap message of the procedure, or of the first callee that trapped under it |
+| `traceEntry`     | the dispatch record itself: `ok`, `outHex`, `logs`, ...                         |
+| `failedCallees`  | frames under the procedure (by the trace's `children`) that trapped and recovered |
+| `fault`          | the node halted; returned at once with `confirmed: false`, and never resent     |
 
-Tracing snapshots the contract state on every invoke, so a spec against a very
-large contract can run with `QINIT_TRACE=0`. A client from `qinit gen` leaves
+Tracing is the default for a test run: the in-process simulator starts with it
+armed, and `output`, `trap` and `executed` exist only through it. It snapshots
+the contract state on every invoke, so a spec against a very large contract can
+run with `QINIT_TRACE=0`. A client from `qinit gen` leaves
 `trace` off unless constructed with `{ trace: true }`: a public node serves no
 debug trace. `fault` needs no tracing. The in-process simulator's engine log is
 routed through `testRunLogSink`: its tick chatter is dropped, and a warning or
