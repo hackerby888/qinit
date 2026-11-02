@@ -8,11 +8,14 @@ beforeAll(async () => {
   who = (await deriveIdentity(provider().seed!)).identity;   // the signer's own identity is a handy key
 });
 
-test("CONTRACT_STATE_TYPE: starts empty, then holds one balance", async () => {
-  expect(await c.Stats()).toEqual({ total: 0n, population: 0n });
+// every spec file shares one deployment, so assert on what this call changes, not on an empty map
+test("CONTRACT_STATE_TYPE: sets one balance and the totals follow", async () => {
+  const stats = await c.Stats();
+  const had = (await c.BalanceOf({ who })).amount;
   const r = await c.Set({ who, amount: 42n });   // auto-confirms via the tx-status RPC
   expect(r.confirmed).toBe(true);
   expect(r.included).toBe(true);
+  expect(r.executed).toBe(true);   // the node's trace holds the dispatch: the body ran
   expect((await c.BalanceOf({ who })).amount).toBe(42n);
-  expect(await c.Stats()).toEqual({ total: 42n, population: 1n });
+  expect(await c.Stats()).toEqual({ total: stats.total + 42n, population: stats.population + (had === 0n ? 1n : 0n) });
 }, 60000);                // procedures are tick-bound (confirm waits ~8 ticks); give them room

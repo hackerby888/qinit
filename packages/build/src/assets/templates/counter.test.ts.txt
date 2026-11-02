@@ -4,10 +4,12 @@ import { CONTRACT_STATE_TYPE, provider } from "./.qinit";
 let c: CONTRACT_STATE_TYPE;
 beforeAll(() => { c = new CONTRACT_STATE_TYPE(provider()); });
 
-test("CONTRACT_STATE_TYPE: starts at zero and increments", async () => {
-  expect((await c.Get()).value).toBe(0n);
+// every spec file shares one deployment, so assert on what this call changes, not on a fresh contract
+test("CONTRACT_STATE_TYPE: increments by one", async () => {
+  const before = (await c.Get()).value;
   const r = await c.Inc();   // auto-confirms via the tx-status RPC (resolves once processed)
   expect(r.confirmed).toBe(true);  // node gave an exact verdict (not a tick guess)
-  expect(r.included).toBe(true);   // the tx actually landed on-chain
-  expect((await c.Get()).value).toBe(1n);
+  expect(r.included).toBe(true);   // the tx landed in its tick
+  expect(r.executed).toBe(true);   // the node's trace holds the dispatch: the body ran
+  expect((await c.Get()).value).toBe(before + 1n);
 }, 60000);                // procedures are tick-bound (confirm waits ~8 ticks); give them room
