@@ -17,6 +17,7 @@ interface Options {
     out: string;
     cacheDir: string;
     shardSize: number;
+    shard: { index: number; count: number };
     resume: boolean;
     exitZero: boolean;
 }
@@ -36,6 +37,7 @@ function parseArguments(argv: string[]): Options {
         out: value("--out") ?? "work/results.jsonl",
         cacheDir: value("--cache") ?? "work/cache",
         shardSize: Number(value("--shard-size") ?? 25),
+        shard: parseShard(value("--shard") ?? "0/1"),
         resume: !argv.includes("--no-resume"),
         // Open findings mean a clean run still has non-matching rows, so a caller that owns the
         // pass/fail decision — check-sweep.ts — asks for the scoreboard without the exit code.
@@ -43,10 +45,22 @@ function parseArguments(argv: string[]): Options {
     };
 }
 
+// `--shard i/n` for a sweep split across machines. A shard takes whole archetypes, every n-th in the listing order, so a
+// per-shard --strict gate judges the same per-archetype evidence the full run would.
+function parseShard(spec: string): { index: number; count: number } {
+    const match = /^(\d+)\/(\d+)$/.exec(spec);
+    const index = Number(match?.[1]);
+    const count = Number(match?.[2]);
+    if (!match || count < 1 || index >= count) throw new Error(`--shard must be <i>/<n> with 0 <= i < n, got "${spec}"`);
+    return { index, count };
+}
+
 function selectVariants(options: Options): Variant[] {
     const all = expandAll(options.tier, options.family ? (archetype) => archetype.family === options.family : undefined);
     if (options.single) return all.filter((variant) => variant.id === options.single || variant.archetype.name === options.single);
-    return all;
+    const names = [...new Set(all.map((variant) => variant.archetype.name))];
+    const mine = new Set(names.filter((_, position) => position % options.shard.count === options.shard.index));
+    return all.filter((variant) => mine.has(variant.archetype.name));
 }
 
 function requireEnvironment(): { corePath: string } {
@@ -191,7 +205,8 @@ async function main(): Promise<void> {
 
     const done = options.resume ? completedIds(options.out) : new Set<string>();
     const pending = selected.filter((variant) => !done.has(variant.id));
-    console.log(`selected ${selected.length} contracts · ${done.size} already done · ${pending.length} to run · tier ${options.tier}`);
+    const shard = options.shard.count > 1 ? ` · shard ${options.shard.index}/${options.shard.count}` : "";
+    console.log(`selected ${selected.length} contracts · ${done.size} already done · ${pending.length} to run · tier ${options.tier}${shard}`);
 
     if (pending.length === 0) {
         process.exit(options.exitZero || scoreboard(options.out) === 0 ? 0 : 1);

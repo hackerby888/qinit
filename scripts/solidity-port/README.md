@@ -26,7 +26,9 @@ variant.
 `--tier smoke` is one contract per archetype; `full` is the whole cross product. Two flags matter:
 `--no-resume`, because the runner otherwise resumes from the out file and silently skips rows a stale
 file already carries, and `--exit-zero`, because open findings mean a clean run still has non-matching
-rows — `corpus:gate` owns the pass/fail decision, not the runner.
+rows — `corpus:gate` owns the pass/fail decision, not the runner. `--shard i/n` takes every n-th
+archetype, whole, so a per-shard `--strict` gate is as valid as the full run's; CI runs the full tier as
+six shards.
 
 Both backends need a core-lite checkout (`QINIT_CORE`) and a WASI SDK (`WASM_CLANG`, `WASI_SYSROOT`).
 Without them the sweep skips rather than fails, so CI sets `QINIT_REQUIRE_CONTAINER_TOOLCHAINS=1`.
