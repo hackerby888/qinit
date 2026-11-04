@@ -527,6 +527,15 @@ static inline void qbct_expect_sizes(unsigned int contractIndex, unsigned int is
     }
 }
 
+// Stub disk I/O for corpora that define but never invoke persistence helpers.
+static inline long long load(const CHAR16*, unsigned long long, void*, const CHAR16* = nullptr) {
+    return -1;
+}
+
+static inline long long save(const CHAR16*, unsigned long long, const void*, const CHAR16* = nullptr) {
+    return -1;
+}
+
 // ---- ContractTesting class: same public surface as core-lite ContractTesting ----
 
 
@@ -547,6 +556,12 @@ public:
     }
 
     void initEmptyUniverse() {
+    }
+
+    // core's helper reads a state file of exactly the contract's size; disk io is a stub here, so it reports no file, as load does
+    bool loadContractState(unsigned int contractIndex, const CHAR16* filename) {
+        const unsigned long long stateSize = contractDescriptions[contractIndex].stateSize;
+        return load(filename, stateSize, contractStates[contractIndex]) == (long long)stateSize;
     }
 
     template <typename InputType, typename OutputType>
@@ -1275,15 +1290,6 @@ static std::ostream& operator<<(std::ostream& s, const m256i& v) {
     }
     identity[60] = 0;
     return s << identity;
-}
-
-// Stub disk I/O for corpora that define but never invoke persistence helpers.
-static inline long long load(const CHAR16*, unsigned long long, void*, const CHAR16* = nullptr) {
-    return -1;
-}
-
-static inline long long save(const CHAR16*, unsigned long long, const void*, const CHAR16* = nullptr) {
-    return -1;
 }
 
 // ---- INIT_CONTRACT macro ----
