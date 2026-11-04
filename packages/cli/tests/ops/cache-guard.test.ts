@@ -1,6 +1,6 @@
 // `QINIT_CACHE=. qinit clean` once emptied a project directory: the wipe has to prove the root is a qinit cache first.
 import { expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { join, parse, resolve } from "node:path";
@@ -85,10 +85,11 @@ test.skipIf(process.platform !== "linux")("wipeCache reports no kill for a Qubic
     const cache = join(dir, "cache");
     mkdirSync(cache);
     writeFileSync(join(cache, "current.json"), "{}");
-    // a process whose name really is Qubic, so the pgrep fallback sees it
+    // a process whose name really is Qubic, so the pgrep fallback sees it: a script keeps its file name as the process name,
+    // where a copied /bin/sleep refuses to run under another name on uutils coreutils (ubuntu 26.04)
     const qubic = join(dir, "Qubic");
-    copyFileSync("/bin/sleep", qubic);
-    const stranger = spawn(qubic, ["30"], { detached: true, stdio: "ignore" });
+    writeFileSync(qubic, "#!/bin/sh\nsleep 30\n", { mode: 0o755 });
+    const stranger = spawn(qubic, [], { detached: true, stdio: "ignore" });
     stranger.unref();
     try {
         await new Promise((resolveWait) => setTimeout(resolveWait, 200));
