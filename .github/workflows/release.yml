@@ -107,7 +107,7 @@ jobs:
         shell: pwsh
         run: ./install.ps1
 
-      # a user's first hour: the stamped version, a new project, a clang build, a spec run, and a detached simulator.
+      # a user's first hour: the stamped version, a new project, a clang build, a spec run, a core-style test, and a detached simulator.
       - name: Exercise the installed binary
         shell: bash
         run: |
@@ -118,6 +118,7 @@ jobs:
           cd "$RUNNER_TEMP" && qinit new probe && cd probe
           qinit build --compiler clang
           qinit test --runtime simulator --compiler typescript --json
+          qinit gtest
           qinit node run --runtime simulator --rpc http://127.0.0.1:47141 --peer-port 47142 --scratch-dir "$RUNNER_TEMP/qinit-node"
           qinit node stop --rpc http://127.0.0.1:47141 --scratch-dir "$RUNNER_TEMP/qinit-node" | tee stop.log
           grep -q "node stopped" stop.log

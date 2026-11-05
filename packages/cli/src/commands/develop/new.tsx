@@ -119,8 +119,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
                         name +
                         ".test.cpp on an isolated node\n" +
                         "qinit call      # interactive: pick contract -> fn/proc\n```\n\n" +
-                        "Config in `qinit.json` (contractName, contract, coreDir, rpc). Slot is auto-allocated by contract name.\n" +
-                        "`qinit gtest` needs a core-lite checkout (`test/contract_testing.h`): pass `--core-dir PATH` or set `QINIT_CORE`.\n",
+                        "Config in `qinit.json` (contractName, contract, coreDir, rpc). Slot is auto-allocated by contract name.\n",
                 );
 
                 add(`✓ created ${dir}/  (template: ${kind})`);

@@ -1,7 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
-import { generateWasmWrapperSource, WASM_CONTRACT_CLANG_FLAGS } from "./clang";
-import WASM_CONTRACT_TESTING_H from "../assets/wasm_contract_testing.h" with { type: "text" };
+import { generateWasmWrapperSource, WASM_CONTRACT_CLANG_FLAGS, WASM_CONTRACT_TESTING_HEADER } from "./clang";
 import { CORE_WASM_HEADERS, loadCoreWasmSlotLayout, wasiSdkPaths } from "@qinit/core";
 import { snapshotInputFiles } from "@qinit/compiler";
 
@@ -39,17 +38,13 @@ export async function buildSnapshot(corePath: string, outRoot: string, options: 
     writeFileSync(stubHeader, STUB);
 
     const slot = loadCoreWasmSlotLayout(corePath).slotBase;
+    const stub = { contractPath: stubHeader, contractName: "Stub", slot, corePath, outDir: snapshotScratchDir };
     const wrapperPath = join(snapshotScratchDir, "Stub.wrapper.cpp");
-    writeFileSync(
-        wrapperPath,
-        generateWasmWrapperSource({
-            contractPath: stubHeader,
-            contractName: "Stub",
-            slot,
-            corePath,
-            outDir: snapshotScratchDir,
-        }),
-    );
+    writeFileSync(wrapperPath, generateWasmWrapperSource(stub));
+    // the gtest harness pulls core headers a contract never does, so it gets a wrapper of its own, in the shape buildCorpusRunner compiles
+    const harnessWrapperPath = join(snapshotScratchDir, "Stub.gtest.wrapper.cpp");
+    writeFileSync(join(snapshotScratchDir, "wasm_contract_testing.h"), WASM_CONTRACT_TESTING_HEADER);
+    writeFileSync(harnessWrapperPath, generateWasmWrapperSource({ ...stub, testSource: '#include "wasm_contract_testing.h"\n' }));
 
     const platformIntrinsics = join(corePath, "src", CORE_WASM_HEADERS.sdk.platformIntrinsics);
 
@@ -66,24 +61,25 @@ export async function buildSnapshot(corePath: string, outRoot: string, options: 
         throw new Error("no complete wasi-sdk (WASM_CLANG + WASI_SYSROOT or a fetched SDK) — needed to snapshot the Wasm header closure");
     }
 
-    const clang = Bun.spawnSync([
-        wasmClang,
-        ...WASM_CONTRACT_CLANG_FLAGS,
-        `--sysroot=${sysroot}`,
-        "-include",
-        platformIntrinsics,
-        `-I${corePath}`,
-        `-I${join(corePath, "src")}`,
-        options.includeSdkHeaders ? "-M" : "-MM",
-        wrapperPath,
-    ]);
+    const includeClosure = (flag: "-M" | "-MM", source: string): string[] => {
+        const clang = Bun.spawnSync([
+            wasmClang,
+            ...WASM_CONTRACT_CLANG_FLAGS,
+            `--sysroot=${sysroot}`,
+            "-include",
+            platformIntrinsics,
+            `-I${corePath}`,
+            `-I${join(corePath, "src")}`,
+            flag,
+            source,
+        ]);
+        if (clang.exitCode !== 0) {
+            throw new Error(`wasm clang ${flag} failed:\n` + new TextDecoder().decode(clang.stderr));
+        }
+        return parseDependencies(new TextDecoder().decode(clang.stdout));
+    };
 
-    if (clang.exitCode !== 0) {
-        const stderr = new TextDecoder().decode(clang.stderr);
-        throw new Error("wasm clang -M failed:\n" + stderr);
-    }
-
-    const dependencies = parseDependencies(new TextDecoder().decode(clang.stdout));
+    const dependencies = includeClosure(options.includeSdkHeaders ? "-M" : "-MM", wrapperPath);
 
     const contractsDir = join(corePath, "src", "contracts");
     const extraFiles = readdirSync(contractsDir)
@@ -99,10 +95,8 @@ export async function buildSnapshot(corePath: string, outRoot: string, options: 
     for (const sharedHeader of Object.values(CORE_WASM_HEADERS.shared)) {
         extraFiles.push(join(corePath, "src", sharedHeader));
     }
-    // The gtest harness includes core headers a contract never pulls, so the stub's closure misses them and `qinit gtest` cannot build against a snapshot.
-    for (const [, include] of WASM_CONTRACT_TESTING_H.matchAll(/^#include\s+"([^"]+)"/gm)) {
-        extraFiles.push(join(corePath, "src", include));
-    }
+    // -MM even for the editor's bundle: the harness's libc++ headers are no use to a contract's editor
+    extraFiles.push(...includeClosure("-MM", harnessWrapperPath));
 
     const root = join(outRoot, "core-headers");
     rmSync(root, { recursive: true, force: true });
