@@ -56,8 +56,8 @@ export function resolveReleaseAssets(assets: Record<string, AssetRef>, repo: str
 
 // Pull the release manifest that pins {node, headers} for one version (ABI-consistent set).
 export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise<Manifest> {
-    const path = ref === "latest" ? "latest/download" : `download/${ref}`;
-    const url = `https://github.com/${repo}/releases/${path}/qinit-manifest.json`;
+    // "latest" is a fixed-name pointer release, not github's latest label, which any other release in the repo can take
+    const url = `https://github.com/${repo}/releases/download/${ref === "latest" ? "qinit-latest" : ref}/qinit-manifest.json`;
     const response = await fetchWithTimeout(url, undefined, 15000);
     if (!response.ok) {
         throw new Error(`manifest fetch failed (HTTP ${response.status}) from ${url}`);

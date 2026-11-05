@@ -182,7 +182,7 @@ Four steps (`setup.tsx:22-27`) and what each fetches on a Mac:
 
 | step | asset | size | lands in |
 |---|---|---|---|
-| core headers | `core-headers.tar.gz` from core-lite `releases/latest` (`qinit-v0.0.47`) | 535 KB | `<cache>/<version>/core-headers` (single buffered fetch) |
+| core headers | `core-headers.tar.gz` from the core-lite `qinit-latest` pointer release (`qinit-v0.0.47` when measured) | 535 KB | `<cache>/<version>/core-headers` (single buffered fetch) |
 | node binary | `Qubic-darwin-arm64` / `Qubic-darwin-x64` | 363 MB / 360 MB | `<cache>/<version>/node/Qubic`, `chmod +x` (`ops/node.ts:141-146`); resumes from `<cache>/<version>/node/Qubic.part` — **lacks the F73 fix**, see §4 |
 | WASI SDK | `wasi-sdk-29.0-arm64-macos.tar.gz` / `x86_64-macos` (`wasi-sdk.ts:10-17`) | 111 MB / 113 MB (the Windows one was 535 MB) | `<cache>/wasi-sdk/`; resumes from `<cache>/downloads/<asset>.tar.gz.part` |
 | verifier | `contractverify-darwin-universal2-…` (one binary for both arches, `verify-tool.ts:54-57`) | 1.9 MB | `<cache>/tools/contractverify` (single buffered fetch) |

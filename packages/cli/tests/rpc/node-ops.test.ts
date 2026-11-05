@@ -409,7 +409,7 @@ test("an explicit latest node request never falls back to the selected cache", a
         }) as unknown as typeof fetch;
 
         await expect(ensureNodeBinary("latest")).rejects.toThrow("manifest fetch failed");
-        expect(requests[0]).toContain("/releases/latest/download/qinit-manifest.json");
+        expect(requests[0]).toContain("/releases/download/qinit-latest/qinit-manifest.json");
     } finally {
         globalThis.fetch = originalFetch;
         if (originalCache === undefined) delete process.env.QINIT_CACHE;

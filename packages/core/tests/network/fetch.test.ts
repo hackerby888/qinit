@@ -88,6 +88,17 @@ test("release manifests expand asset filenames and preserve HTTPS URLs", async (
     expect(manifest.headers?.url).toBe(`${base}/core-headers.tar.gz`);
 });
 
+test("the latest manifest comes from the fixed pointer release", async () => {
+    let requested = "";
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        requested = String(input);
+        return Response.json({ version: "core-v1.2.3" });
+    }) as typeof fetch;
+
+    await loadManifest("latest", "new-org/core-lite");
+    expect(requested).toBe("https://github.com/new-org/core-lite/releases/download/qinit-latest/qinit-manifest.json");
+});
+
 test("release manifests reject unsafe asset references", async () => {
     for (const url of ["", "../Qubic", "bin/Qubic", "http://example.test/Qubic", "Qubic?raw=1"]) {
         globalThis.fetch = (async () =>
