@@ -141,7 +141,8 @@ export function deduceLibraryFunctionBindings(
             if (at) types.set(pt.name, at);
         }
     }
-    return { types, values, structs: new Map() };
+    const valueTypes = new Map(def.params.flatMap((parameter) => (parameter.kind === AstKind.TYPE ? [] : [[parameter.name, parameter.type] as const])));
+    return { types, values, structs: new Map(), valueTypes };
 }
 // Pick the overload whose parameter patterns best match concrete arguments.
 export function selectLibraryFunctionOverload(

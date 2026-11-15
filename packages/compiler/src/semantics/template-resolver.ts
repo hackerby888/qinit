@@ -55,6 +55,7 @@ export function matchTemplateSpecialization(
                     continue;
                 }
                 templateBindings.values.set(specializedParameter.name, programAnalysis.evalConstFromType(instantiationArg, parent));
+                (templateBindings.valueTypes ??= new Map()).set(specializedParameter.name, specializedParameter.type);
                 continue;
             }
             if (specializationArg.kind === AstKind.NAME || specializationArg.kind === AstKind.TEMPLATE_INSTANCE) {
@@ -102,7 +103,10 @@ export function instantiateTemplateBindings(
                   : undefined);
         if (!argument) continue;
         if (templateParam.kind === AstKind.TYPE) templateBindings.types.set(templateParam.name, argument);
-        else templateBindings.values.set(templateParam.name, programAnalysis.evalConstFromType(argument, parent));
+        else {
+            templateBindings.values.set(templateParam.name, programAnalysis.evalConstFromType(argument, parent));
+            (templateBindings.valueTypes ??= new Map()).set(templateParam.name, templateParam.type);
+        }
     }
     return templateBindings;
 }
@@ -306,7 +310,10 @@ export function bindContainer(
         if (!parameterArgument) continue;
         instanceArguments.push(parameterArgument);
         if (parameter.kind === AstKind.TYPE) out.types.set(parameter.name, parameterArgument);
-        else out.values.set(parameter.name, programAnalysis.evalConstFromType(parameterArgument, templateBindings));
+        else {
+            out.values.set(parameter.name, programAnalysis.evalConstFromType(parameterArgument, templateBindings));
+            (out.valueTypes ??= new Map()).set(parameter.name, parameter.type);
+        }
     }
     // Inside its own body a class template's bare name is the instantiation being compiled, so bind it: `const Key&` in Key<T> means `const Key<T>&`.
     if (!out.types.has(name)) out.types.set(name, { kind: AstKind.TEMPLATE_INSTANCE, name, callArguments: instanceArguments });

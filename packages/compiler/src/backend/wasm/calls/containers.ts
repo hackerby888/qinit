@@ -81,15 +81,19 @@ export function compileContainerMethod(
     if (explicitTemplateArgs.length) {
         const types = new Map(ownerBindings.types);
         const values = new Map(ownerBindings.values);
+        const valueTypes = new Map(ownerBindings.valueTypes);
         definition.params.forEach((parameter, index) => {
             const argument = explicitTemplateArgs[index];
             if (!argument) return;
             if (parameter.kind === AstKind.TYPE) {
                 types.set(parameter.name, argument);
                 explicitlyBoundTypeParams.add(parameter.name);
-            } else values.set(parameter.name, programAnalysis.valueOfTypeArg(argument, ownerBindings));
+            } else {
+                values.set(parameter.name, programAnalysis.valueOfTypeArg(argument, ownerBindings));
+                valueTypes.set(parameter.name, parameter.type);
+            }
         });
-        ownerBindings = { ...ownerBindings, types, values };
+        ownerBindings = { ...ownerBindings, types, values, valueTypes };
     }
     // Infer member-template types structurally from concrete call arguments instead of assigning semantics to specific method names.
     if (resolvedMethod.requiresMethodTemplateInference && definition.params.some((param) => param.kind === AstKind.TYPE)) {

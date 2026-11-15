@@ -89,6 +89,7 @@ export function emitFunction(
         hasStateParam: true,
         params,
         qpiContext,
+        entryTypes: new Map(fn?.params.flatMap((parameter) => (parameter.name ? [[parameter.name, programAnalysis.derefType(parameter.type)] as const] : []))),
         sourceNamespace: lookup.sourceNamespace,
         usingNamespaces: lookup.usingNamespaces,
         lowering: getFunctionLoweringServices(),

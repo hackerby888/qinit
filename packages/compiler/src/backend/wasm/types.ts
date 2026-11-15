@@ -64,6 +64,7 @@ export interface FunctionEmissionContext {
     sourceNamespace?: string; // lexical namespace/owner for unqualified free/static helper calls
     usingNamespaces?: string[]; // using-directives visible at the current function definition
     qpiContext?: QpiContextKind; // ambient entry context for QPI binding permission checks
+    entryTypes?: Map<string, TypeSpec>; // an entry's declared parameter types by name: `output` may be a scalar typedef, which its layout alone does not say
     lowering: FunctionLoweringServices;
 }
 

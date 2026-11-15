@@ -1,8 +1,11 @@
-import { AstKind, BinaryOp, UnaryOp } from "../../../shared/enums";
+import { AstKind, BinaryOp, PlatformPrimitiveKind, PrimitiveResultChannel, UnaryOp } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../semantics/program-analysis";
+import { resolvedScalarName } from "../../../semantics/declaration-index";
 import { SCALAR_SIZE, MATH_INTRINSIC_NAMES } from "../abi/tables";
+import { platformPrimitive } from "../calls/platform-primitives";
+import { EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { FunctionEmissionContext } from "../types";
-import type { TypeSpec, Expression } from "../../../ast";
+import type { TypeSpec, Expression, FunctionDecl, VariableDecl } from "../../../ast";
 // True for `auto` (or `auto*`) type specs, which take their real type from the initializer.
 export function isAutoType(type: TypeSpec): boolean {
     if (type.kind === AstKind.POINTER) {
@@ -35,24 +38,36 @@ export function unsignedScalar(type: TypeSpec | null | undefined): boolean {
 export function memberCallReturnType(context: FunctionEmissionContext, expression: Expression): TypeSpec | null {
     if (expression.kind !== AstKind.CALL || expression.callee.kind !== AstKind.MEMBER_ACCESS) return null;
     const calleeObjectType = context.lowering.resolveExpressionAddress(context, expression.callee.object)?.type;
-    const separator = calleeObjectType?.kind === AstKind.NAME ? calleeObjectType.name.lastIndexOf("::") : -1;
+    return methodReturnType(context.programAnalysis, calleeObjectType, expression.callee.member, expression.callArguments.length);
+}
+// the declared return type of `ownerType::method`, wherever the owner came from: an object, the enclosing class, or a bound template parameter.
+export function methodReturnType(programAnalysis: ProgramAnalysis, declaredOwner: TypeSpec | null | undefined, method: string, argumentCount?: number): TypeSpec | null {
+    // an owner spelled through a typedef (bit_4096 for a BitArray) is the class the alias names
+    const ownerType = declaredOwner ? resolveAliasType(programAnalysis, programAnalysis.derefType(declaredOwner)) : null;
+    const separator = ownerType?.kind === AstKind.NAME ? ownerType.name.lastIndexOf("::") : -1;
     const owner =
-        calleeObjectType?.kind === AstKind.NAME
+        ownerType?.kind === AstKind.NAME
             ? separator >= 0
-                ? calleeObjectType.name.slice(separator + 2)
-                : calleeObjectType.name
-            : calleeObjectType?.kind === AstKind.TEMPLATE_INSTANCE
-              ? calleeObjectType.name
+                ? ownerType.name.slice(separator + 2)
+                : ownerType.name
+            : ownerType?.kind === AstKind.TEMPLATE_INSTANCE
+              ? ownerType.name
               : null;
     if (!owner) return null;
-    const resolvedMethod = context.programAnalysis.resolveSourceMethodDefinition(
+    const resolvedMethod = programAnalysis.resolveSourceMethodDefinition(
         owner,
-        calleeObjectType?.kind === AstKind.TEMPLATE_INSTANCE ? calleeObjectType.callArguments : [],
-        expression.callee.member,
-        expression.callArguments.length,
+        ownerType?.kind === AstKind.TEMPLATE_INSTANCE ? ownerType.callArguments : [],
+        method,
+        argumentCount,
     );
-    if (!resolvedMethod) return null;
-    return context.programAnalysis.substInBindings(context.programAnalysis.derefType(resolvedMethod.definition.returnType), resolvedMethod.ownerBindings);
+    if (resolvedMethod) return programAnalysis.substInBindings(programAnalysis.derefType(resolvedMethod.definition.returnType), resolvedMethod.ownerBindings);
+    // a method defined out of line, or bound by the host, still declares its return type in the class or one of its bases
+    for (const name of programAnalysis.methodOwnerNames(owner)) {
+        const members = programAnalysis.structOf({ kind: AstKind.NAME, name })?.members;
+        const declaration = members?.find((candidate) => candidate.kind === AstKind.FUNCTION && (candidate as FunctionDecl).name === method) as FunctionDecl | undefined;
+        if (declaration) return programAnalysis.derefType(declaration.returnType);
+    }
+    return null;
 }
 // Best-effort signedness is unsigned when unsigned lvalue/params, casts, or suffixed literals are present.
 export function isUnsignedExpr(context: FunctionEmissionContext, expression: Expression): boolean {
@@ -183,6 +198,10 @@ export function scalarInfoOf(expression: Expression, leaves: ScalarLeaves): Scal
         case AstKind.MEMBER_ACCESS:
         case AstKind.SUBSCRIPT:
             return leaves.leafInfo(expression);
+        // size_t as core's 64-bit target has it; the 32-bit size_t of a wasm build is the width rule's concern, not this one's.
+        case AstKind.SIZEOF_TYPE:
+        case AstKind.SIZEOF_EXPR:
+            return { width: 8, unsigned: true };
         case AstKind.BINARY_OP: {
             if (ARITHMETIC_OPERATORS.includes(expression.operator)) return usualConversionOf(expression.left, expression.right, leaves);
             if (expression.operator === BinaryOp.SHIFT_LEFT || expression.operator === BinaryOp.SHIFT_RIGHT) return promoteInfoOf(expression.left, leaves);
@@ -197,12 +216,17 @@ export function scalarInfoOf(expression: Expression, leaves: ScalarLeaves): Scal
             if (expression.operator === UnaryOp.MINUS || expression.operator === UnaryOp.BITWISE_NOT || expression.operator === UnaryOp.PLUS)
                 return promoteInfoOf(expression.argument, leaves);
             if (expression.operator === UnaryOp.LOGICAL_NOT) return { width: 4, unsigned: false };
+            // `*p` is an lvalue like any other name: its declared type is the pointee's.
+            if (expression.operator === UnaryOp.DEREFERENCE) return leaves.leafInfo(expression);
             return null;
         }
         // ++x / x++ yield the operand's own type (no promotion).
         case AstKind.PREFIX_OP:
         case AstKind.POSTFIX_OP:
             return scalarInfoOf(expression.argument, leaves);
+        // an assignment used as a value is its left operand, as in `while ((i = next(i)) >= 0)`.
+        case AstKind.ASSIGN:
+            return scalarInfoOf(expression.left, leaves);
         case AstKind.CALL:
         case AstKind.TEMPLATE_CALL: {
             // Preserve the deduced scalar type of QPI safe-math calls.
@@ -298,7 +322,14 @@ export function contextLeaves(context: FunctionEmissionContext): ScalarLeaves {
     return leaves;
 }
 function contextLeafInfo(context: FunctionEmissionContext, expression: Expression): ScalarInfo | null {
-    const type =
+    const type = contextLeafType(context, expression);
+    if (!type) return null;
+    // an element declared through a template parameter (`DataT::Vote votes[N]`) is concrete only under this instance's bindings
+    return scalarStorageInfo(context.programAnalysis, context.thisBind ? context.programAnalysis.resolveType(type, context.thisBind) : type);
+}
+// the declared type a name, member or element resolves to, scalar or not.
+function contextLeafType(context: FunctionEmissionContext, expression: Expression): TypeSpec | null {
+    return (
         expression.kind === AstKind.IDENTIFIER
             ? // A class member hides a namespace-scope name of the same spelling, so the
               // addressable lookup runs before named constants — the order the value path uses.
@@ -306,18 +337,42 @@ function contextLeafInfo(context: FunctionEmissionContext, expression: Expressio
               context.refLocals?.get(expression.name) ??
               context.localVars.get(expression.name)?.type ??
               context.lowering.resolveExpressionAddress(context, expression)?.type ??
+              context.entryTypes?.get(expression.name) ??
+              context.thisBind?.valueTypes?.get(expression.name) ??
+              staticMemberType(context, context.thisType, expression.name) ??
               // A template parameter is nearer than a namespace-scope constant of the same spelling, so `T` must not resolve to qpi.h's `Ch` constant.
               (context.thisBind?.types.has(expression.name) ? null : context.programAnalysis.typeOfConstant(expression.name)) ??
-              null)
-            : (context.lowering.resolveExpressionAddress(context, expression)?.type ?? null);
-    return type ? scalarStorageInfo(context.programAnalysis, type) : null;
+              // the null pointer constant reads as the literal 0 it expands to
+              (expression.name === "NULL" ? INT_TYPE : null))
+            : (context.lowering.resolveExpressionAddress(context, expression)?.type ??
+              (expression.kind === AstKind.MEMBER_ACCESS ? memberOfValueType(context, expression.object, expression.member) : null))
+    );
+}
+// a member that has no address of its own: a static constant reached through an object, or a limb read straight off a 128-bit result.
+function memberOfValueType(context: FunctionEmissionContext, object: Expression, member: string): TypeSpec | null {
+    const objectType = context.lowering.resolveExpressionAddress(context, object)?.type;
+    if (objectType) return staticMemberType(context, objectType, member);
+    return context.lowering.isU128Expr(context, object) ? (context.programAnalysis.fieldOf(UINT128_TYPE, member)?.type ?? null) : null;
+}
+const UINT128_TYPE: TypeSpec = { kind: AstKind.NAME, name: "uint128_t" };
+const INT_TYPE: TypeSpec = { kind: AstKind.NAME, name: "int" };
+// a static constexpr member is folded to its value where it is read; its declaration still says how wide that value is.
+function staticMemberType(context: FunctionEmissionContext, ownerType: TypeSpec | null | undefined, member: string): TypeSpec | null {
+    if (!ownerType) return null;
+    const programAnalysis = context.programAnalysis;
+    const owner = resolveAliasType(programAnalysis, programAnalysis.derefType(ownerType));
+    const ownBindings = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
+    const members =
+        owner.kind === AstKind.TEMPLATE_INSTANCE ? programAnalysis.templateByName(owner.name)?.members : programAnalysis.structOf(owner, ownBindings)?.members;
+    const declaration = members?.find((candidate) => candidate.kind === AstKind.VARIABLE && (candidate as VariableDecl).name === member) as VariableDecl | undefined;
+    if (!declaration || !(declaration.isStatic || declaration.isConstexpr)) return null;
+    const bindings = owner.kind === AstKind.TEMPLATE_INSTANCE ? programAnalysis.bindContainer(owner.name, owner.callArguments, ownBindings) : ownBindings;
+    return programAnalysis.substInBindings(declaration.type, bindings);
 }
 // (byte width, signedness) of a declared type once const, reference and aliases are stripped; null for a non-scalar.
 export function scalarStorageInfo(programAnalysis: ProgramAnalysis, type: TypeSpec): ScalarInfo | null {
-    let resolvedType = type;
-    if (resolvedType.kind === AstKind.CONST) resolvedType = resolvedType.valueType;
-    if (resolvedType.kind === AstKind.REFERENCE) resolvedType = resolvedType.referentType;
-    resolvedType = programAnalysis.scalarStorageType(resolvedType);
+    // a typedef such as uint64_t names its scalar only once the alias is followed
+    const resolvedType = programAnalysis.scalarStorageType(resolveAliasType(programAnalysis, programAnalysis.derefType(type)));
     const byteWidth = resolvedType.kind === AstKind.NAME ? SCALAR_SIZE[resolvedType.name] : undefined;
     return byteWidth ? { width: byteWidth, unsigned: unsignedScalar(resolvedType) } : null;
 }
@@ -330,13 +385,58 @@ function contextCallInfo(context: FunctionEmissionContext, expression: Expressio
     }
     if ((expression.kind !== AstKind.CALL && expression.kind !== AstKind.TEMPLATE_CALL) || expression.callee?.kind !== AstKind.IDENTIFIER) return null;
     const nm = expression.callee.name;
-    const set = context.programAnalysis.helperOverloads.get(nm);
-    const helper = set?.length ? context.lowering.pickHelperOverload(context, set, expression.callArguments ?? []) : context.programAnalysis.helpers.get(nm);
-    const rt = helper?.retType;
-    const byteWidth = rt?.kind === AstKind.NAME ? SCALAR_SIZE[rt.name] : undefined;
-    if (byteWidth !== undefined && byteWidth <= 8) return { width: byteWidth, unsigned: unsignedScalar(rt) };
+    const programAnalysis = context.programAnalysis;
+    const declared = (type: TypeSpec | null | undefined): ScalarInfo | null => {
+        const info = type ? scalarStorageInfo(programAnalysis, type) : null;
+        return info && info.width <= 8 ? info : null;
+    };
+    // `static_cast<T>(x)` with a dependent `T` arrives as a call; the cast names its own type.
+    if (expression.kind === AstKind.TEMPLATE_CALL && nm === "static_cast") {
+        return declared(programAnalysis.substInBindings(expression.templateArguments[0], context.thisBind ?? EMPTY_TEMPLATE_BINDINGS));
+    }
+    const primitive = platformPrimitive(nm);
+    if (primitive?.result === PrimitiveResultChannel.VALUE) {
+        // the bit counts and the 128-bit multiply return a 64-bit integer, every other value-returning intrinsic an int
+        if (primitive.kind === PlatformPrimitiveKind.WASM_UNARY) return { width: 8, unsigned: true };
+        if (primitive.kind === PlatformPrimitiveKind.MULTIPLY_HIGH) return { width: 8, unsigned: !primitive.signed };
+        return { width: 4, unsigned: false };
+    }
+    // inside a class body an unqualified call is a sibling method, and `Param::method` a static of the type bound to that parameter.
+    if (context.thisType?.kind === AstKind.TEMPLATE_INSTANCE) {
+        const separator = nm.lastIndexOf("::");
+        const qualifier = separator >= 0 ? nm.slice(0, separator) : null;
+        const owner = qualifier === null || qualifier === context.thisType.name ? context.thisType : context.thisBind?.types.get(qualifier);
+        const sibling = declared(methodReturnType(programAnalysis, owner, separator >= 0 ? nm.slice(separator + 2) : nm, expression.callArguments.length));
+        if (sibling) return sibling;
+    }
+    const set = programAnalysis.helperOverloads.get(nm);
+    const helper = set?.length ? context.lowering.pickHelperOverload(context, set, expression.callArguments ?? []) : programAnalysis.helpers.get(nm);
+    if (helper) return declared(helper.retType);
+    // a free function not yet compiled still declares what it returns, as long as its overloads agree
+    for (const key of programAnalysis.namespaceCandidates(nm, context.sourceNamespace, context.usingNamespaces)) {
+        const definitions = programAnalysis.libFnOverloads.get(key);
+        if (definitions?.length) {
+            const first = declared(definitions[0].returnType);
+            return first && definitions.every((definition) => sameScalar(declared(definition.returnType), first)) ? first : null;
+        }
+    }
+    // `Owner::method(...)` outside any class body is a static of the struct it names
+    const scope = nm.lastIndexOf("::");
+    if (scope > 0) {
+        const qualifier = nm.slice(0, scope);
+        const owner = context.thisBind?.types.get(qualifier) ?? ({ kind: AstKind.NAME, name: qualifier } as TypeSpec);
+        const result = declared(methodReturnType(programAnalysis, owner, nm.slice(scope + 2), expression.callArguments.length));
+        if (result) return result;
+    }
+    // a functional cast names a scalar directly, through an alias, or through a bound template parameter
+    if (expression.callArguments.length === 1) {
+        const bound = context.thisBind?.types.get(nm);
+        const scalarName = resolvedScalarName(programAnalysis, bound?.kind === AstKind.NAME ? bound.name : nm);
+        if (SCALAR_SIZE[scalarName] !== undefined) return declared({ kind: AstKind.NAME, name: scalarName });
+    }
     return null;
 }
+const sameScalar = (left: ScalarInfo | null, right: ScalarInfo): boolean => left?.width === right.width && left.unsigned === right.unsigned;
 // Best-effort (byte width, signedness) of a scalar expression, mirroring isUnsignedExpr's coverage.
 export function scalarTypeInfo(context: FunctionEmissionContext, expression: Expression): ScalarInfo | null {
     return scalarInfoOf(expression, contextLeaves(context));

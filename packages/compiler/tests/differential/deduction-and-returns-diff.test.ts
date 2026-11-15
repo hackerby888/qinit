@@ -125,6 +125,15 @@ const CASES: Record<string, { source: string; expect: bigint }> = {
         source: wrap("", "", `auto tick = qpi.tick(); state.mut().a = tick - (tick + 1u);`),
         expect: 4294967295n,
     },
+    // The same 64-bit fallback behind two more spellings: a cast written as a call, and an assignment used as a value.
+    "a functional cast keeps the width it names": {
+        source: wrap("", "", `state.mut().a = uint32(state.get().seed) - 1u;`),
+        expect: 4294967295n,
+    },
+    "an assignment used as a value has its left operand's type": {
+        source: wrap("", "uint32 narrow;", `state.mut().a = (locals.narrow = (uint32)state.get().seed) - 1u;`),
+        expect: 4294967295n,
+    },
     // `T` went unbound for a member-call argument, so this row was refused with "unknown type 'T'" while clang compiled it.
     "K12 of a qpi call hashes the same bytes as K12 of a local holding it": {
         source: wrap(
