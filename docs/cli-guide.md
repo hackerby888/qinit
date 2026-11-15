@@ -815,6 +815,10 @@ written; about 0.2 s). Three outcomes:
   TypeScript backend, to be fixed there and pinned in
   `packages/compiler/tests/differential/clang-refusal-diff.test.ts`.
 
+`skipClangCheck` turns the check off for the tools that measure the two backends against each
+other (`scripts/solidity-port`): with clang's verdict folded in, a contract only clang refuses
+would read there as refused by both. No command exposes it.
+
 With no WASI SDK the check cannot run; the build still succeeds and carries the warning
 `clang syntax check skipped: …` rather than staying silent. The browser IDE imports only
 `@qinit/compiler` and never runs this check. The check adds refusals and never removes one:

@@ -187,7 +187,8 @@ async function buildOne(
             arenaSizeBytes: env.arenaSizeBytes,
             ...(dynCallees ? { dynCallees } : {}),
         };
-        const built = backend === "clang" ? await buildContractWithClang(shared) : await buildContractWithTypeScript(shared);
+        // the sweep compares two verdicts, so this backend must give its own: with clang's check inside it a contract only clang refuses would read as refused by both
+        const built = backend === "clang" ? await buildContractWithClang(shared) : await buildContractWithTypeScript({ ...shared, skipClangCheck: true });
         // A clang build that wrote a wasm succeeded whatever the IDL says, since buildContractWithClang
         // reports `ok: !idlError` and the sweep never reads the IDL. The path alone is not proof it wrote.
         const wroteWasm = Boolean(built.wasmPath) && existsSync(built.wasmPath!);

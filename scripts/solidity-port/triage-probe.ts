@@ -33,6 +33,7 @@ for (const [backend, build] of [
         corePath: process.env.QINIT_CORE!,
         outDir: `/tmp/qinit-triage-probe/${name}/${backend}`,
         skipVerify: true,
+        skipClangCheck: true,
     });
     // A clang build that wrote a wasm succeeded whatever the IDL says: `ok: !idlError` otherwise reports a
     // TypeScript parse refusal as clang's. The probe drives entries by number and never reads the IDL.

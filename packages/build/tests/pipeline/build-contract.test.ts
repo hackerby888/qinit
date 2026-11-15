@@ -331,6 +331,18 @@ test.skipIf(!HAS_CORE || wasiSdkPaths() === null)(
             const accepted = await build("accepted", "state.mut().a = 1;");
             expect(accepted.ok, accepted.stderr).toBe(true);
             expect(accepted.warnings).toBeUndefined();
+
+            // the differential tools ask for this backend's verdict alone
+            const alone = await buildContractWithTypeScript({
+                source: SYNTAX_PROBE("state.mut().who = state.get().a;"),
+                contractName: "Probe",
+                slot: 28,
+                corePath: CORE_PATH,
+                outDir: join(directory, "alone"),
+                skipVerify: true,
+                skipClangCheck: true,
+            });
+            expect(alone.ok, alone.stderr).toBe(true);
         } finally {
             rmSync(directory, { recursive: true, force: true });
         }

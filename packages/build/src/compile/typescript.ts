@@ -30,6 +30,7 @@ export interface TypeScriptBuildOptions {
     strict?: boolean; // default true; false keeps fidelity-only findings from failing the build
     cheats?: CheatMode; // development cheatcodes; OFF is what Core sees
     skipVerify?: boolean; // skip the protocol verifier; the same gate clang runs
+    skipClangCheck?: boolean; // build on this backend's verdict alone; for the tools that measure it against clang, never for a build someone ships
     contractKind?: ContractKind; // "system" for core's own contracts, which skip the user-scope build rules (default "user")
     buildRules?: boolean; // false skips the user-scope build rules (`--no-build-rules`); the protocol rules always run
     arenaSizeBytes?: number; // scratch arena (WASM_ARENA_SIZE on clang), default 1 GiB like core
@@ -187,7 +188,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         return rejected;
     }
 
-    const clangVerdict = clangSyntaxVerdict(o, contractPath, source, contractStateType);
+    const clangVerdict = o.skipClangCheck ? Promise.resolve<{ refused?: string; skipped?: string }>({}) : clangSyntaxVerdict(o, contractPath, source, contractStateType);
     const result = await compileContractWithTypeScript({
         source,
         contractName: contractStateType,

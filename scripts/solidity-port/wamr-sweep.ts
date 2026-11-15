@@ -146,6 +146,7 @@ async function runJob(job: Job): Promise<void> {
                 corePath: CORE,
                 outDir: `${OUT}/typescript/${script.contract}`,
                 skipVerify: true,
+                skipClangCheck: true,
             });
             if (built.ok) artifacts.push({ backend: "typescript", path: built.wasmPath! });
             else rows.push({ id: `${family}/${script.contract}`, backend: "typescript", simulator: "-", wamr: "-", verdict: "build-rejected" });
