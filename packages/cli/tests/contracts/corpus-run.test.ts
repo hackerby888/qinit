@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
-import { clangErrorExcerpt, systemGtestCorpora, systemGtestTier } from "../../src/ops/corpus-run";
+import { clangErrorExcerpt } from "@qinit/build";
+import { systemGtestCorpora, systemGtestTier } from "../../src/ops/corpus-run";
 
 // the campaign saw "compiler IDL analysis failed: lin…" and nothing else; the cause was on the lines the panel cut.
 test("a build failure keeps the lines that explain the first error", () => {

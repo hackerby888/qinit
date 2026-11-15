@@ -85,6 +85,7 @@ export interface ClangBuildOptions {
     testSource?: string; // core-lite contract_testing.h-style source compiled into a private Wasm runner
     testPath?: string; // display path for the test source (a #line directive maps EXPECT_* file:line back to it)
     extraCompileFlags?: string[]; // appended to the consuming compile only (not the PCH); used by the gtest corpus to relax harness-only diagnostics
+    syntaxOnly?: boolean; // check that the contract is well-formed and stop: nothing is linked and no artifact is written
     sharedMemoryBaseOffsetBytes?: number; // shared-memory gtest: --import-memory + --global-base=<this>; the module sits in the runner's memory at that offset
 }
 
@@ -168,6 +169,16 @@ ${o.testSource}
 `;
 }
 
+// the first clang error with the lines that explain it: notes, carets and the include chain, which one line never showed.
+export function clangErrorExcerpt(stderr: string, lines = 25): string {
+    const all = stderr.split("\n");
+    const first = all.findIndex((line) => /error:/.test(line));
+    return all
+        .slice(Math.max(0, first), Math.max(0, first) + lines)
+        .join("\n")
+        .trim();
+}
+
 export interface WasmCompileResult {
     ok: boolean;
     wasm: string;
@@ -245,13 +256,13 @@ export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: s
     const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang;
     const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT ?? sdk?.sysroot;
     // a host clang++ has no wasm32-wasi sysroot, so trying it only trades this message for a cryptic compiler error.
-    if (!clang) {
+    if (!clang || !existsSync(clang)) {
         return {
             ok: false,
             wasm,
             wrapper,
             exitCode: null,
-            stderr: "no WASI SDK: run `qinit setup` to fetch it, or set WASM_CLANG and WASI_SYSROOT",
+            stderr: clang ? `no clang at ${clang}: fix WASM_CLANG, or run \`qinit setup\`` : "no WASI SDK: run `qinit setup` to fetch it, or set WASM_CLANG and WASI_SYSROOT",
         };
     }
     await mkdir(o.outDir, { recursive: true });
@@ -284,7 +295,9 @@ export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: s
     const pch = await ensureWasmPch(clang, [...compileFlags, ...shimFlag]);
 
     const runClang = async (prefixArgs: string[], withShim: boolean) => {
-        const args = [...prefixArgs, ...compileFlags, ...(withShim ? shimFlag : []), ...(o.extraCompileFlags ?? []), ...linkFlags, wrapper, "-o", wasm];
+        // a syntax check stops before code generation, and the driver refuses link options it would then have no use for
+        const output = o.syntaxOnly ? ["-fsyntax-only", wrapper] : [...linkFlags, wrapper, "-o", wasm];
+        const args = [...prefixArgs, ...compileFlags, ...(withShim ? shimFlag : []), ...(o.extraCompileFlags ?? []), ...output];
         const clangProcess = Bun.spawn([clang, ...args], { stdout: "pipe", stderr: "pipe" });
         const stderr = await new Response(clangProcess.stderr).text();
         await clangProcess.exited;
@@ -300,7 +313,7 @@ export async function compileWasmContract(o: ClangBuildOptions & { wasmClang?: s
     }
 
     // Shared memory reserves no journal room, so it is skipped.
-    if (exitCode === 0 && o.sharedMemoryBaseOffsetBytes === undefined && process.env.QINIT_NO_STATE_JOURNAL !== "1") {
+    if (exitCode === 0 && !o.syntaxOnly && o.sharedMemoryBaseOffsetBytes === undefined && process.env.QINIT_NO_STATE_JOURNAL !== "1") {
         stderr += bakeStateJournal(wasm, o.journalCapBytes) ?? "";
     }
     return {

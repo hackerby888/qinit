@@ -300,3 +300,68 @@ struct Committee : public ContractBase {
     },
     120_000,
 );
+
+const SYNTAX_PROBE = (body: string) => `
+using namespace QPI;
+struct Probe2 {};
+struct Probe : public ContractBase {
+  struct StateData { uint64 a; id who; };
+  struct Go_input {};
+  struct Go_output {};
+  PUBLIC_PROCEDURE(Go) { ${body} }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_PROCEDURE(Go, 1);
+  }
+};`;
+
+// clang is the judge of whether a contract is C++ at all: what the TypeScript backend lets through and clang does not fails the build, with clang's own diagnostic.
+test.skipIf(!HAS_CORE || wasiSdkPaths() === null)(
+    "a TypeScript build fails on a contract only clang refuses",
+    async () => {
+        const directory = mkdtempSync(join(tmpdir(), "qinit-clang-verdict-"));
+        const build = (name: string, body: string) =>
+            buildContractWithTypeScript({ source: SYNTAX_PROBE(body), contractName: "Probe", slot: 28, corePath: CORE_PATH, outDir: join(directory, name), skipVerify: true });
+
+        try {
+            const refused = await build("refused", "state.mut().who = state.get().a;");
+            expect(refused.ok).toBe(false);
+            expect(refused.stderr).toContain("[oracle/clang-rejects]");
+            expect(refused.stderr).toMatch(/Probe\.h:8:\d+: error: no viable overloaded '='/);
+
+            const accepted = await build("accepted", "state.mut().a = 1;");
+            expect(accepted.ok, accepted.stderr).toBe(true);
+            expect(accepted.warnings).toBeUndefined();
+        } finally {
+            rmSync(directory, { recursive: true, force: true });
+        }
+    },
+    120_000,
+);
+
+test.skipIf(!HAS_CORE)("a TypeScript build with no wasi-sdk still builds, and says the clang check was skipped", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "qinit-clang-verdict-skipped-"));
+    const saved = { QINIT_CACHE: process.env.QINIT_CACHE, WASM_CLANG: process.env.WASM_CLANG, WASI_SYSROOT: process.env.WASI_SYSROOT };
+    process.env.QINIT_CACHE = join(directory, "cache");
+    delete process.env.WASM_CLANG;
+    delete process.env.WASI_SYSROOT;
+
+    try {
+        const result = await buildContractWithTypeScript({
+            source: SYNTAX_PROBE("state.mut().a = 1;"),
+            contractName: "Probe",
+            slot: 28,
+            corePath: CORE_PATH,
+            outDir: join(directory, "out"),
+            skipVerify: true,
+        });
+
+        expect(result.ok, result.stderr).toBe(true);
+        expect(result.warnings).toEqual(["clang syntax check skipped: no WASI SDK: run `qinit setup` to fetch it, or set WASM_CLANG and WASI_SYSROOT"]);
+    } finally {
+        for (const [name, value] of Object.entries(saved)) {
+            if (value === undefined) delete process.env[name];
+            else process.env[name] = value;
+        }
+        rmSync(directory, { recursive: true, force: true });
+    }
+});

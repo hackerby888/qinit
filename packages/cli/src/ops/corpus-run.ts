@@ -1,7 +1,15 @@
 // buildCorpusRunner replaces core-lite's contract_testing.h with the engine-backed test harness.
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { buildContractWithClang, buildCorpusRunner, KNOWN_LOG_HEADER_VIOLATIONS, systemContracts, type ContractKind, type DynCallees } from "@qinit/build";
+import {
+    buildContractWithClang,
+    buildCorpusRunner,
+    clangErrorExcerpt,
+    KNOWN_LOG_HEADER_VIOLATIONS,
+    systemContracts,
+    type ContractKind,
+    type DynCallees,
+} from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { compileContractWithTypeScript, DEFAULT_COMPILE_ARENA_SIZE_BYTES, DiagnosticSeverity, loadQpiHeader, type ContractIdl } from "@qinit/compiler";
 import { initK12, type BuildProfile } from "@qinit/core";
@@ -100,16 +108,6 @@ function stateSizeOf(wasm: Uint8Array): number {
         state_size(): number;
     };
     return ex.state_size() >>> 0;
-}
-
-// the first clang error with the lines that explain it: notes, carets and the include chain, which one line never showed.
-export function clangErrorExcerpt(stderr: string, lines = 25): string {
-    const all = stderr.split("\n");
-    const first = all.findIndex((line) => /error:/.test(line));
-    return all
-        .slice(Math.max(0, first), Math.max(0, first) + lines)
-        .join("\n")
-        .trim();
 }
 
 // Sibling SYSTEM contracts referenced by the test or the contract source — built + deployed alongside the main.

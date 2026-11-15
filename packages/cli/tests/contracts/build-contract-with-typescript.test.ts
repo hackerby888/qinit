@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { wasiSdkPaths } from "@qinit/core";
 import { CORE_PATH, HAS_CORE } from "../../../../test-utils/paths";
 import { buildContractWithTypeScript } from "../../src/ops/typescript-build";
 
@@ -108,6 +109,15 @@ test.skipIf(!HAS_CORE)("buildContractWithTypeScript analyzes transitive cyclic c
             Relay: { header: relayPath, slot: 29 },
         },
     });
+
+    // two contracts that name each other's types are not C++ in any include order, so wherever clang can run it refuses the build;
+    // what holds everywhere is that the cycle is analysed once instead of recursing.
+    if (wasiSdkPaths() !== null) {
+        expect(result.ok).toBe(false);
+        expect(result.stderr).toContain("[oracle/clang-rejects]");
+        expect(result.stderr).toContain("use of undeclared identifier 'Mirror'");
+        return;
+    }
 
     expect(result.stderr).toBeUndefined();
     expect(result.ok).toBe(true);

@@ -8,6 +8,8 @@ import { verifyForBuild, verifyRejection } from "./verify";
 import { isCoreStateType, knownLogHeaderViolation } from "../contracts/system-contracts";
 import { resolveContractSource } from "./source";
 import { buildGateRejection, buildGateViolations, buildGateWarnings, type ContractKind } from "./build-rules";
+import { clangErrorExcerpt, compileWasmContract } from "./clang";
+import { buildCalleePrelude } from "../contracts/intercontract";
 
 export interface TypeScriptCalleeBuildOptions {
     header: string;
@@ -71,6 +73,9 @@ function requireCalleeIdl(callee: DynamicCalleeSource, result: SourceAnalysisRes
     };
 }
 
+export const CLANG_REFUSAL =
+    "error: clang rejects this contract, so core's build is expected to as well. The TypeScript backend accepted it, which is a Qinit gap worth reporting. [oracle/clang-rejects]";
+
 // The compiler remaps a span onto the contract's own text (compiler driver/diagnostics.ts); what lies outside it — the QPI prelude, a library
 // helper's body — lands on offset 0 or one past the end and names no line of this file, so only a span inside it gets clang's `path:line:col:`.
 export function formatCompileError(
@@ -84,6 +89,33 @@ export function formatCompileError(
     }
     // a backend diagnostic knows its line only, which the remapper reports as column 1
     return `${contractPath}:${span.line}${span.column > 1 ? `:${span.column}` : ""}: error: ${diagnostic.message}`;
+}
+
+// Clang decides whether the source is C++ at all; this backend only has to agree on what it means. The check reports nothing unless clang
+// refuses a contract this backend accepted, which core's own build would refuse too.
+async function clangSyntaxVerdict(o: TypeScriptBuildOptions, contractPath: string, source: string, stateType: string): Promise<{ refused?: string; skipped?: string }> {
+    try {
+        const checked = await compileWasmContract({
+            contractPath,
+            contractName: o.contractName,
+            stateType,
+            slot: o.slot,
+            corePath: o.corePath,
+            // its own directory, so the wrapper it writes never sits beside the artifact as if clang had built it
+            outDir: join(o.outDir, ".clang-check"),
+            calleePrelude: buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}, stateType),
+            cheats: o.cheats,
+            dynCallees: o.dynCallees,
+            arenaSizeBytes: o.arenaSizeBytes,
+            syntaxOnly: true,
+        });
+        if (checked.exitCode === null) {
+            return { skipped: `clang syntax check skipped: ${checked.stderr}` };
+        }
+        return checked.ok ? {} : { refused: clangErrorExcerpt(checked.stderr) };
+    } catch (error: any) {
+        return { skipped: `clang syntax check skipped: ${String(error?.message ?? error)}` };
+    }
 }
 
 export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Promise<ContractBuildResult> {
@@ -155,6 +187,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         return rejected;
     }
 
+    const clangVerdict = clangSyntaxVerdict(o, contractPath, source, contractStateType);
     const result = await compileContractWithTypeScript({
         source,
         contractName: contractStateType,
@@ -173,6 +206,10 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
             stderr: errors.map((diagnostic) => formatCompileError(contractPath, source, diagnostic)).join("\n"),
         };
     }
+    const clang = await clangVerdict;
+    if (clang.refused) {
+        return { ok: false, stderr: `${CLANG_REFUSAL}\n${clang.refused}` };
+    }
     if (!result.idl) {
         // carried in `idlError` as well, so the reason is in the same field on either backend.
         return { ok: false, stderr: "compiler did not produce IDL", idlError: "compiler did not produce IDL" };
@@ -187,6 +224,7 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
                   name: o.contractName,
               };
 
+    const buildWarnings = clang.skipped ? [...gateWarnings, clang.skipped] : gateWarnings;
     mkdirSync(o.outDir, { recursive: true });
     const wasmPath = join(o.outDir, `${o.contractName}.wasm`);
     writeFileSync(wasmPath, Buffer.from(result.wasm));
@@ -198,6 +236,6 @@ export async function buildContractWithTypeScript(o: TypeScriptBuildOptions): Pr
         idl,
         verify,
         stderr: warnings.length ? warnings.map((diagnostic) => `warning: ${diagnostic.message}`).join("\n") : undefined,
-        warnings: gateWarnings.length ? gateWarnings : undefined,
+        warnings: buildWarnings.length ? buildWarnings : undefined,
     };
 }

@@ -1,7 +1,7 @@
 // qinit build: contract source -> wasm module, IDL extraction, contract catalogs, generated clients.
 export { buildContractWithClang, buildCorpusRunner, buildSystemContract } from "./compile/pipeline";
 export type { ContractBuildResult, SystemContractCompiler } from "./compile/types";
-export { generateWasmWrapperSource } from "./compile/clang";
+export { clangErrorExcerpt, generateWasmWrapperSource } from "./compile/clang";
 export type { ClangBuildOptions } from "./compile/clang";
 export { buildContractWithTypeScript } from "./compile/typescript";
 export type { TypeScriptBuildOptions, TypeScriptCalleeBuildOptions } from "./compile/typescript";

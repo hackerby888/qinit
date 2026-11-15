@@ -797,9 +797,29 @@ buildContractWithTypeScript()
        -> load resolved qpi.h
        -> analyze transitive custom and system callee sources
        -> compileContractWithTypeScript()
+       -> clang -fsyntax-only on the same source, when a WASI SDK is present
        -> write returned Wasm
        -> compute K12 hash
 ```
+
+The TypeScript backend does not decide alone whether a contract is C++. Every build also runs
+the clang path's own compile in syntax-only mode (`syntaxOnly` on `compileWasmContract`: the
+same wrapper, flags, callee prelude and precompiled header, with nothing linked and no artifact
+written; about 0.2 s). Three outcomes:
+
+- Both accept: the build goes on, and nothing is printed.
+- The TypeScript backend refuses: its own diagnostic stands, and clang's verdict is not consulted.
+- Only clang refuses: the build fails with `[oracle/clang-rejects]` followed by clang's
+  diagnostic, which already names the contract's own `path:line:col` because the wrapper
+  `#include`s it. The contract would not build for Core either, so this is a gap in the
+  TypeScript backend, to be fixed there and pinned in
+  `packages/compiler/tests/differential/clang-refusal-diff.test.ts`.
+
+With no WASI SDK the check cannot run; the build still succeeds and carries the warning
+`clang syntax check skipped: …` rather than staying silent. The browser IDE imports only
+`@qinit/compiler` and never runs this check. The check adds refusals and never removes one:
+what clang on wasm32 accepts but Core must not (`long`, `size_t`, `#include`) stays with the
+analyzer rules.
 
 The shared implementation is
 [`packages/build/src/compile/typescript.ts`](../packages/build/src/compile/typescript.ts); the
@@ -828,6 +848,7 @@ Successful build artifacts normally include:
 dist/contracts/<Name>.wasm
 dist/contracts/<Name>.idl.json
 dist/contracts/<Name>.wasm.wrapper.cpp     clang path
+dist/contracts/.clang-check/               the syntax check's wrapper, TypeScript path
 ```
 
 The built Wasm's K12 digest is shown and included in build JSON.
