@@ -1749,9 +1749,16 @@ It records:
 
 ```text
 $QINIT_CACHE/active-node-scratch
+$QINIT_CACHE/node-index.json
 <scratch>/node.pid
 <scratch>/node.log
 ```
+
+`node-index.json` maps each RPC URL to the scratch directory serving it; both
+launchers write it. `status`, `stop` and `logs` find their node the same way:
+`--scratch-dir`, else the index entry for `--rpc`, else the active pointer.
+Stopping a node drops its index entry, so after `node stop` a node that ran in
+a custom `--scratch-dir` is found again only by passing that flag.
 
 The default scratch directory is `$QINIT_CACHE/run`. A core node also creates its
 runtime data relative to that working directory.
@@ -1785,15 +1792,26 @@ Simulator deployment state is memory-only. `--keep` preserves scratch files; it
 does not make simulator contract state survive a restart. To carry state across
 one, dump it with `qinit state --dump` and redeploy with `--state` (§8.3).
 
-### 12.4 `node status`, `stop`, and `get`
+### 12.4 `node status`, `stop`, `get`, and `logs`
 
 [`commands/node/node.tsx`](../packages/cli/src/commands/node/node.tsx) owns the remaining
 subcommands:
 
 - `status` samples ticks, reads the registry and epoch window, and reports
-  cached header/node version drift.
+  cached header/node version drift. It also says where the node is: the runtime
+  the node itself reports (`whoami`), the RPC URL, the tracked pid, and the log
+  path when the file exists. A down node still gets the `rpc`, `pid` and `log`
+  rows, and its `runtime` is the saved choice, marked as not running.
 - `stop` stops the tracked PID only.
 - `get` fetches only a node binary; it does not synchronize headers.
+- `logs` prints the last `--lines` lines (default 50) of `<scratch>/node.log` as
+  plain text, with no Ink frame around it. `--follow` polls the file with
+  `fs.watchFile`, opens it only for each read (a held handle would block Windows
+  from clearing the directory), starts over when the file shrinks, and stops when
+  it is removed. `--json` returns `{log, logLines}`; `--follow --json` is
+  refused. A closed pipe (`qinit node logs | head`) exits 0, for this subcommand
+  only: elsewhere an EPIPE stays fatal, because a command cut off by its reader
+  may not have done its work.
 
 `nodeStatus()` samples twice about 1.2 seconds apart. A slow but healthy node may
 therefore appear up but not ticking.
@@ -2250,7 +2268,7 @@ Paths below are relative to `packages/cli/src/`.
 | `update`               | `commands/setup/update.tsx`           | `ops/update.ts`, `@qinit/core` release helpers              |
 | `uninstall`            | `commands/setup/uninstall.tsx`        | filesystem/cache helpers                                    |
 | `node run`             | `commands/node/node-run.tsx`          | `ops/node-core.ts`, `ops/node.ts`, engine                   |
-| `node status/stop/get` | `commands/node/node.tsx`              | `ops/node.ts`, `LiteRpc`                                    |
+| `node status/stop/get/logs` | `commands/node/node.tsx`         | `ops/node.ts`, `LiteRpc`                                    |
 | `tick`                 | `commands/node/tick.tsx`              | `LiteRpc` testnet controls                                  |
 | `oracle`               | `commands/node/oracle.tsx`            | `LiteRpc` oracle dev routes, `@qinit/proto` input format    |
 | `epoch`                | `commands/node/epoch.tsx`             | `LiteRpc` testnet controls                                  |
@@ -2387,7 +2405,7 @@ These are current behaviors, not desired architectural rules. A maintainer
 should know them before relying on metadata or a successful exit status.
 
 - Every command `META` advertises as JSON-capable emits a document: `node run` and
-  `node status|stop|get`, `tick`, `epoch`, `call`, `state` (a decoded target as well
+  `node status|stop|get|logs`, `tick`, `epoch`, `call`, `state` (a decoded target as well
   as `--digest` and `--dump`), plus `build`, `verify`, `deploy`, `ls`, `ext`, `info`,
   and `version`. An argument error or a crash also emits `{ok, error}` when `--json`
   is set, so a machine caller never has to parse a rendered frame.

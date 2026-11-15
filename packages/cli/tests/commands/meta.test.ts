@@ -107,7 +107,7 @@ test("release-smoke flags are exposed in command metadata", () => {
 });
 
 test("node subcommands are declared for routing and option scoping", () => {
-    expect(Object.keys(META.node.subcommands ?? {})).toEqual(["run", "status", "stop", "get"]);
+    expect(Object.keys(META.node.subcommands ?? {})).toEqual(["run", "status", "stop", "get", "logs"]);
 });
 
 test("accepted develop and call options are documented", () => {

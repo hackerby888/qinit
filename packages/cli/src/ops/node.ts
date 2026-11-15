@@ -22,6 +22,7 @@ import {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const defaultNodeScratchDir = () => join(cacheRoot(), "run");
 const pidFile = (scratch: string) => join(scratch, "node.pid");
+export const logFile = (scratch: string) => join(scratch, "node.log");
 const activeScratchFile = () => join(cacheRoot(), "active-node-scratch");
 
 const isWindows = process.platform === "win32";
@@ -186,6 +187,15 @@ function trackedNodePid(scratch: string): number | undefined {
     forgetNodeScratch(scratch);
     return undefined;
 }
+
+/** the pid of the node this scratch dir tracks, while that process is still running. */
+export function liveNodePid(scratch: string): number | undefined {
+    const pid = trackedNodePid(resolve(scratch));
+    return pid !== undefined && pidAlive(pid) ? pid : undefined;
+}
+
+// how a backend reads on screen, for the run summary and the status rows alike.
+export const runtimeLabel = (backend: "core" | "simulator") => (backend === "simulator" ? "simulator (in-process)" : "core-lite node");
 
 // a node dying on a taken port only says so in its own log; probing first names the port and the flag that moves it.
 export function busyPorts(ports: readonly number[]): number[] {
@@ -358,7 +368,7 @@ export function launchNode(options: LaunchOptions): { pid: number; scratch: stri
 
     mkdirSync(scratch, { recursive: true });
 
-    const log = join(scratch, "node.log");
+    const log = logFile(scratch);
     const logFd = openSync(log, "a");
     const args = ["--peers", options.peers || LOOPBACK_HOST, "--node-mode", options.nodeMode || "3", "--ticking-delay", "1000"];
     if (options.httpPort !== undefined) {
@@ -411,7 +421,7 @@ export function launchSimulatorNode(options: {
 
     mkdirSync(scratch, { recursive: true });
 
-    const log = join(scratch, "node.log");
+    const log = logFile(scratch);
     const logFd = openSync(log, "a");
 
     const executable = process.execPath;
@@ -448,6 +458,7 @@ export function launchSimulatorNode(options: {
     const pid = child.pid ?? 0;
     writeFileSync(pidFile(scratch), String(pid));
     rememberActiveScratch(scratch);
+    rememberNodeRpc(rpcBaseUrl, scratch);
     return { pid, scratch, log };
 }
 

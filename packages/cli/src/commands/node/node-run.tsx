@@ -15,6 +15,7 @@ import {
     defaultNodeScratchDir,
     launchNode,
     launchSimulatorNode,
+    runtimeLabel,
     waitTicking,
 } from "../../ops/node";
 import { loadConfig, resolveCompilerBackend, resolveFeeMode, resolveRuntime, resolveRpc, assertLoopbackRpc } from "../../config";
@@ -218,7 +219,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                     tick = w.tick;
                     if (w.ticking) {
                         set("run", "ok", `launched pid ${launched.pid}, ticking at ${tick}`);
-                    } else set("run", "fail", w.exited ? "exited early — see node.log" : "not ticking — see node.log");
+                    } else set("run", "fail", `${w.exited ? "exited early" : "not ticking"} — see ${launched.log} (qinit node logs)`);
                 }
 
                 // Arm trace capture: a node released before it recorded by default still fills its ring, so a later `qinit debug` can look back.
@@ -234,7 +235,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                 // Trust the run verdict above; just read contracts once (no extra tick sampling).
                 const contracts = await nodeContracts(rpcBaseUrl);
                 const rows: [string, string][] = [
-                    ["runtime", useSimulator ? "simulator (in-process)" : "core-lite node"],
+                    ["runtime", runtimeLabel(requestedBackend)],
                     ["version", version],
                     ["rpc", rpcBaseUrl],
                     ["tick", String(tick)],

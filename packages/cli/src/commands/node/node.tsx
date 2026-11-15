@@ -1,19 +1,34 @@
 import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
+import { closeSync, existsSync, openSync, readFileSync, readSync, unwatchFile, watchFile } from "node:fs";
 import { resolve } from "node:path";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { readCurrent, LiteRpc } from "@qinit/core";
-import { assertLoopbackRpc, loadConfig, resolveRpc } from "../../config";
-import { activeNodeScratchDir, ensureNodeBinary, killNode, nodeAlive, nodeStatus, scratchForRpc, versionDrift } from "../../ops/node";
+import { DEFAULT_RUNTIME, assertLoopbackRpc, loadConfig, resolveRpc, savedRuntime } from "../../config";
+import {
+    activeNodeScratchDir,
+    ensureNodeBinary,
+    killNode,
+    liveNodePid,
+    logFile,
+    nodeAlive,
+    nodeStatus,
+    runtimeLabel,
+    scratchForRpc,
+    versionDrift,
+} from "../../ops/node";
 import { describeFault } from "../../ops/fault";
-import { output, type CommandArguments } from "../../args";
+import { invalidArgs, output, type CommandArguments } from "../../args";
 const dlLabel = (recv: number, total: number) =>
     total ? `downloading node ${(recv / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB` : `downloading node ${(recv / 1e6).toFixed(0)} MB`;
 
 type Line = { t: string; ok?: boolean };
 // The rendered rows fuse values into display strings, so --json reports the facts each sub-path actually saw rather than reparsing them back out.
 type NodeFacts = Record<string, unknown>;
-type State = { phase: "run"; spin: string } | { phase: "done"; title: string; color: string; lines: Line[]; rows?: [string, string][]; facts?: NodeFacts };
+// `raw` marks a result already written to stdout as plain text, which a panel around it would only corrupt.
+type State =
+    | { phase: "run"; spin: string }
+    | { phase: "done"; title: string; color: string; lines: Line[]; rows?: [string, string][]; facts?: NodeFacts; raw?: boolean };
 
 // Absent keys mean "this sub-path never looked", the way a call without --trace omits its trace keys.
 export function nodeJsonResult(action: string, lines: Line[], facts: NodeFacts | undefined) {
@@ -27,6 +42,16 @@ export function nodeJsonResult(action: string, lines: Line[], facts: NodeFacts |
     };
 }
 
+/** the last `count` lines of a log, and how many bytes were read so a follower knows where to resume. */
+export function logTail(path: string, count: number): { lines: string[]; bytes: number } {
+    const data = readFileSync(path);
+    // core's node ends its lines in CRLF
+    const all = data.toString("utf8").split(/\r?\n/);
+    // a log ends in a newline, which split reports as one empty line more than was written
+    if (all.at(-1) === "") all.pop();
+    return { lines: count > 0 ? all.slice(-count) : [], bytes: data.length };
+}
+
 export function Node({ commandArgs, subcommand }: { commandArgs: CommandArguments; subcommand?: string }) {
     const { exit } = useApp();
     const sub = subcommand ?? commandArgs.positionals[0] ?? "status";
@@ -38,19 +63,43 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
             const lines: Line[] = [];
             const add = (text: string, ok?: boolean) => lines.push({ t: text, ok });
             try {
+                // the node this command names: --scratch-dir wins, then the launch index for --rpc, and
+                // only a node this machine never launched falls back to the global pointer.
+                const target = commandArgs.get("scratch-dir") ? resolve(commandArgs.get("scratch-dir")!) : (scratchForRpc(rpcBaseUrl) ?? activeNodeScratchDir());
+                const log = logFile(target);
+
                 if (sub === "status") {
                     const st = await nodeStatus(rpcBaseUrl);
+                    const pid = liveNodePid(target) ?? null;
+                    const where: [string, string][] = [
+                        ["rpc", rpcBaseUrl],
+                        ["pid", pid === null ? "untracked" : String(pid)],
+                    ];
+                    if (existsSync(log)) where.push(["log", log]);
+                    const whereFacts = { rpc: rpcBaseUrl, pid, log: existsSync(log) ? log : null };
                     if (!st.up) {
                         add("rpc: down (node not reachable)", false);
-                        setS({ phase: "done", title: "node down", color: theme.err, lines, facts: { up: false } });
+                        const saved = savedRuntime();
+                        const runtime = saved ?? DEFAULT_RUNTIME;
+                        setS({
+                            phase: "done",
+                            title: "node down",
+                            color: theme.err,
+                            lines,
+                            rows: [["runtime", `${runtime} (${saved ? "saved" : "default"}, not running)`], ...where],
+                            facts: { up: false, runtime, ...whereFacts },
+                        });
                         return;
                     }
+                    const runtime = (await new LiteRpc(rpcBaseUrl).whoami()).backend;
                     if (st.fault) {
                         add(await describeFault(new LiteRpc(rpcBaseUrl), st.fault), false);
                     } else {
                         add(st.ticking ? "rpc: up, ticking" : "rpc: up, not yet ticking", st.ticking);
                     }
                     const rows: [string, string][] = [
+                        ["runtime", runtimeLabel(runtime)],
+                        ...where,
                         ["tick", String(st.tick)],
                         ["epoch", String(st.epoch)],
                         ["contract slots", `${st.armed} armed / ${st.slotCount}`],
@@ -61,7 +110,7 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                         const ei = await new LiteRpc(rpcBaseUrl).epochInfo();
                         epochLastTick = ei.epochLastTick;
                         ticksLeft = ei.ticksLeft;
-                        rows.splice(2, 0, ["epoch last tick", `${ei.epochLastTick}  (${ei.ticksLeft} left)`]);
+                        rows.splice(rows.length - 1, 0, ["epoch last tick", `${ei.epochLastTick}  (${ei.ticksLeft} left)`]);
                     } catch {}
                     if (st.contracts.length) rows.push(["contracts", st.contracts.join(", ")]);
                     const cur = readCurrent();
@@ -76,6 +125,8 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                         rows,
                         facts: {
                             up: true,
+                            runtime,
+                            ...whereFacts,
                             ticking: st.ticking,
                             fault: st.fault,
                             tick: st.tick,
@@ -95,11 +146,6 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
 
                 if (sub === "stop") {
                     assertLoopbackRpc(rpcBaseUrl);
-                    // the node this command names: --scratch-dir wins, then the launch index for --rpc, and
-                    // only a node this machine never launched falls back to the global pointer.
-                    const target = commandArgs.get("scratch-dir")
-                        ? resolve(commandArgs.get("scratch-dir")!)
-                        : (scratchForRpc(rpcBaseUrl) ?? activeNodeScratchDir());
                     if (!nodeAlive(target)) {
                         add("no node running", true);
                         setS({ phase: "done", title: "stopped", color: theme.info, lines, facts: { stopped: true, wasRunning: false } });
@@ -137,7 +183,53 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
                     return;
                 }
 
-                add(`unknown: node ${sub} (run|status|stop|get)`, false);
+                if (sub === "logs") {
+                    const follow = commandArgs.has("follow");
+                    const count = Number(commandArgs.get("lines") ?? 50);
+                    if (!Number.isInteger(count) || count < 0) invalidArgs("--lines must be a whole number, 0 or more");
+                    if (follow && output.json) invalidArgs("--follow streams text and cannot be combined with --json");
+                    if (!existsSync(log)) {
+                        add(`no node log at ${log} (a node started here writes it; --scratch-dir names another node's directory)`, false);
+                        setS({ phase: "done", title: "node logs", color: theme.err, lines, facts: { log } });
+                        return;
+                    }
+                    const tail = logTail(log, count);
+                    if (output.json) {
+                        setS({ phase: "done", title: "", color: "", lines, facts: { log, logLines: tail.lines } });
+                        return;
+                    }
+                    // a reader that closes the pipe (`| head`) has what it asked for
+                    process.stdout.on("error", (error: NodeJS.ErrnoException) => process.exit(error.code === "EPIPE" ? 0 : 1));
+                    if (tail.lines.length) process.stdout.write(tail.lines.join("\n") + "\n");
+                    if (!follow) {
+                        setS({ phase: "done", title: "", color: "", lines, raw: true });
+                        return;
+                    }
+                    let offset = tail.bytes;
+                    watchFile(log, { interval: 250 }, (current) => {
+                        if (current.nlink === 0) {
+                            unwatchFile(log);
+                            process.stderr.write(`qinit: ${log} was removed (the node's directory was cleared)\n`);
+                            setS({ phase: "done", title: "", color: "", lines, raw: true });
+                            return;
+                        }
+                        // a restarted node starts its log over, so a shorter file is read from the top
+                        if (current.size < offset) offset = 0;
+                        if (current.size === offset) return;
+                        const chunk = Buffer.alloc(current.size - offset);
+                        // opened per read: a handle held across polls blocks windows from clearing the directory
+                        const file = openSync(log, "r");
+                        try {
+                            offset += readSync(file, chunk, 0, chunk.length, offset);
+                        } finally {
+                            closeSync(file);
+                        }
+                        process.stdout.write(chunk);
+                    });
+                    return;
+                }
+
+                add(`unknown: node ${sub} (run|status|stop|get|logs)`, false);
                 setS({ phase: "done", title: "node", color: theme.warn, lines });
             } catch (e: any) {
                 add("ERROR: " + String(e?.message ?? e), false);
@@ -153,7 +245,8 @@ export function Node({ commandArgs, subcommand }: { commandArgs: CommandArgument
         }
     }, [s, exit]);
 
-    if (output.json) return null;
+    // logs writes plain text itself, so it draws nothing unless it has a failure to explain
+    if (output.json || (sub === "logs" && (s.phase === "run" || s.raw))) return null;
 
     return (
         <Box flexDirection="column">

@@ -159,7 +159,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                             setS({ phase: "done", lines, ok: false, output: "", rows: [] });
                             return;
                         }
-                        launchNode({
+                        const launched = launchNode({
                             nodeBinary,
                             nodeMode: commandArgs.get("node-mode"),
                             peers: commandArgs.get("peers"),
@@ -170,7 +170,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                         spin("waiting for ticking");
                         const w = await waitTicking(activeRpc, Number(commandArgs.get("wait") || 60));
                         if (!w.ticking) {
-                            add("node", false, w.exited ? "exited early — see log" : "not ticking");
+                            add("node", false, `${w.exited ? "exited early" : "not ticking"} — see ${launched.log}`);
                             setS({ phase: "done", lines, ok: false, output: "", rows: [] });
                             return;
                         }

@@ -82,7 +82,7 @@ const commandMeta = {
         group: "node",
         json: true,
         summary: "manage the local node",
-        usage: "<run|status|stop|get> [--ref <tag>] [--rpc <url>]",
+        usage: "<run|status|stop|get|logs> [--ref <tag>] [--rpc <url>]",
         options: [stringOption("ref", "<tag>", "node and headers release"), stringOption("rpc", "<url>", "RPC URL")],
         subcommands: {
             run: {
@@ -106,10 +106,17 @@ const commandMeta = {
                     booleanOption("keep", "preserve existing node data"),
                 ],
             },
-            status: { options: [] },
-            // --scratch-dir names a specific node; otherwise `stop` resolves --rpc through the launch index.
+            // --scratch-dir names a specific node; otherwise these resolve --rpc through the launch index.
+            status: { options: [stringOption("scratch-dir", "<path>", "node data and log directory")] },
             stop: { options: [stringOption("scratch-dir", "<path>", "node data and log directory")] },
             get: { options: [] },
+            logs: {
+                options: [
+                    stringOption("lines", "<n>", "how many of the last lines to print (default: 50)"),
+                    booleanOption("follow", "keep printing as the node writes"),
+                    stringOption("scratch-dir", "<path>", "node data and log directory"),
+                ],
+            },
         },
     },
     tick: {
