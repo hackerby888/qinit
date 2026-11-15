@@ -704,7 +704,18 @@ late semantic resolution during codegen
 typed Wasm instruction IR
 ```
 
-It does not first build a completely typed C++ AST.
+It does not first build a completely typed C++ AST. Scalar types are worked out on demand,
+when lowering needs an operand's width or signedness. `scalarInfoOf`
+([`conversions.ts`](../packages/compiler/src/backend/wasm/expressions/conversions.ts)) holds the
+C++ rules (literal typing, integral promotion, the usual arithmetic conversions), and resolves
+every name and call through the declaration it comes from: a local, a field, a static or template
+constant, a helper, a method of the object's class or of the enclosing one, an intrinsic, a cast
+written as a call.
+
+An operand those rules cannot place is not given a default width. A pointer or an aggregate has a
+type that is simply not a scalar, and passes; anything else is the error
+`cannot type expression [...]`, at the operand's own line and column. A line that already failed
+for its own reason (an unknown identifier, an unsupported call) does not get this second message.
 
 ### 9.1 Callee context
 

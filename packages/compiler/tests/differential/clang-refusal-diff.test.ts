@@ -104,6 +104,8 @@ const REFUSED: Record<
     "a mutator on an Array element reference": { source: constView(`state.mut().entries.get(0).flags.set(1, true);`), diagnostic: READ_ONLY },
     "a mutator on a LinkedList element reference": { source: constView(`state.mut().l.element(0).flags.set(40, true);`), diagnostic: READ_ONLY },
     "a hash key that declares no operator==": { source: hashKey(`state.mut().byPair.set(locals.key, input.x);`), diagnostic: /operator==/ },
+    // an operand with no type used to be computed as a 64-bit integer; it is refused, at its own column
+    "a dereference of a value that is not a pointer": { source: constView(`state.mut().a = *state.get().a + 1;`), diagnostic: /cannot type expression/ },
 };
 
 const ACCEPTED: Record<string, string> = {
@@ -116,6 +118,9 @@ const ACCEPTED: Record<string, string> = {
     ),
     "a by-value element is a temporary, so its members stay mutable": constView(`state.mut().coll.element(0).flags.set(1, true);`),
     "a hash container whose body never compares its keys": hashKey(`state.mut().a = state.get().byPair.population();`),
+    "operands the typer has to place itself: a dereferenced address, a bool and a char literal": constView(
+        `uint64 x = 5; state.mut().a = *(&x) + true + 'a';`,
+    ),
     "a struct named like a container's private node type": `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
