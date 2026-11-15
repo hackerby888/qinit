@@ -90,6 +90,32 @@ struct Acc : public ContractBase {
     ]);
 });
 
+// a struct's own method is a call like any accessor: what it declares it returns is what the print ships.
+test("a struct method prints as what it returns", async () => {
+    const source = `using namespace QPI;
+struct Meth2 {};
+struct Meth : public ContractBase {
+    struct Wrapped { uint32 value; uint32 get() const { return value; } sint16 small() const { return -2; } };
+    struct StateData { uint64 total; };
+    struct Get_input { sint64 i; };
+    struct Get_output { uint64 v; };
+    struct Get_locals { Wrapped wrapped; };
+    PUBLIC_FUNCTION_WITH_LOCALS(Get) {
+        CC_PRINT(locals.wrapped.get(), locals.wrapped.small(), qpi.tick(), locals.wrapped.get() + 1);
+    }
+    REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+};`;
+    const compiled = await compileContractWithTypeScript({ source, contractName: "Meth", slot: 28, arenaSizeBytes: 1024 * 1024 });
+
+    expect(compiled.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(valueParts(compiled.idl!.cheats)).toEqual([
+        ["locals.wrapped.get()", "uint32", 4],
+        ["locals.wrapped.small()", "sint16", 2],
+        ["qpi.tick()", "uint32", 4],
+        ["locals.wrapped.get() + 1", "uint32", 4],
+    ]);
+});
+
 // an rvalue rides the register sign-extended, so its C++ type decides how many of those bytes are the value and whether they are signed.
 test("an arithmetic temporary prints as its C++ type", async () => {
     const source = `using namespace QPI;

@@ -9,7 +9,7 @@ import type { PreparedContractModule } from "../module/module-analysis";
 import type { AbiTypeBuilder } from "./abi-type-builder";
 import { collectPayloadRoots, visitStatement, type PayloadRoots } from "../module/log-call-validation";
 import { stripPtrRefConst } from "../memory/address-resolution";
-import { scalarStorageInfo, valueTypeName, type ScalarLeaves } from "../expressions/conversions";
+import { methodReturnType, scalarStorageInfo, valueTypeName, type ScalarLeaves } from "../expressions/conversions";
 
 export const CHEAT_PRINT_INTRINSIC = "__qinit_cheat_print";
 
@@ -168,7 +168,8 @@ function argumentType(scope: CheatScope, expression: Expression): TypeSpec | und
 
         if (!rootLayout(scope.roots, object)) {
             const owner = argumentType(scope, object);
-            return owner ? containerMethodType(scope, owner, member) : undefined;
+
+            return owner ? (containerMethodType(scope, owner, member) ?? scalarMethodType(scope, owner, member, expression.callArguments.length)) : undefined;
         }
     }
 
@@ -195,6 +196,13 @@ function containerMethodType(scope: CheatScope, owner: TypeSpec, method: string)
     return declared.kind === AstKind.NAME && !found.ownerBindings.types.has(declared.name)
         ? declared
         : scope.programAnalysis.resolveType(declared, found.ownerBindings);
+}
+
+// A struct's own method ships its scalar result by register, typed as declared; an aggregate result stays with the paths that know how it is carried.
+function scalarMethodType(scope: CheatScope, owner: TypeSpec, method: string, argumentCount: number): TypeSpec | undefined {
+    const returned = methodReturnType(scope.programAnalysis, owner, method, argumentCount);
+
+    return returned && scalarStorageInfo(scope.programAnalysis, returned) ? returned : undefined;
 }
 
 // `qpi.<method>()` carries the return type the context declares, searched through its bases the way the address emitter binds the call.
