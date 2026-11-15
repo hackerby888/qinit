@@ -17,11 +17,11 @@ const HEADERS = () => loadQpiHeader(CORE);
 
 // `seed` keeps the operands out of reach of constant folding, so the argument stays a computed
 // expression rather than collapsing to a literal before deduction ever sees it.
-const wrap = (members: string, locals: string, body: string) => `using namespace QPI;
+const wrap = (members: string, locals: string, body: string, state = "") => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   ${members}
-  struct StateData { uint64 a; uint64 seed; };
+  struct StateData { uint64 a; uint64 seed; ${state} };
   struct Go_input {}; struct Go_output {}; struct Go_locals { ${locals} };
   PUBLIC_PROCEDURE_WITH_LOCALS(Go) { ${body} }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
@@ -93,6 +93,49 @@ const CASES: Record<string, { source: string; expect: bigint }> = {
        state.mut().a = locals.returned.low;`,
         ),
         expect: 5n,
+    },
+    // A call through a member (`qpi.tick()`, a container's `get`, a struct's own method) carried only its signedness into arithmetic and was computed at
+    // 64 bits: `0u - 1u` came out as 2^64-1. Every operand below is zero, so the answers hold at any tick.
+    "a qpi call keeps its declared 32-bit width in arithmetic": {
+        source: wrap("", "", `state.mut().a = qpi.tick() - (qpi.tick() + 1u);`),
+        expect: 4294967295n,
+    },
+    "a struct method's result keeps its declared width": {
+        source: wrap(
+            "struct Wrapped { uint32 value; uint32 get() const { return value; } };",
+            "Wrapped wrapped;",
+            `locals.wrapped.value = (uint32)state.get().seed;
+       state.mut().a = locals.wrapped.get() - 1u;`,
+        ),
+        expect: 4294967295n,
+    },
+    "a container read in locals keeps its element width": {
+        source: wrap("", "Array<uint32, 4> values;", `state.mut().a = locals.values.get(0) - 1u;`),
+        expect: 4294967295n,
+    },
+    "a container read in state keeps its element width": {
+        source: wrap("", "", `state.mut().a = state.get().values.get(0) - 1u;`, "Array<uint32, 4> values;"),
+        expect: 4294967295n,
+    },
+    "a division helper deduces its width from a container read": {
+        source: wrap("", "Array<uint32, 4> values;", `state.mut().a = QPI::div(locals.values.get(1) - 1u, 2u);`),
+        expect: 2147483647n,
+    },
+    "auto takes the declared type of a qpi call": {
+        source: wrap("", "", `auto tick = qpi.tick(); state.mut().a = tick - (tick + 1u);`),
+        expect: 4294967295n,
+    },
+    // `T` went unbound for a member-call argument, so this row was refused with "unknown type 'T'" while clang compiled it.
+    "K12 of a qpi call hashes the same bytes as K12 of a local holding it": {
+        source: wrap(
+            "",
+            "uint32 tick; id ofLocal; id ofExpression;",
+            `locals.tick = qpi.tick();
+       locals.ofLocal = qpi.K12(locals.tick);
+       locals.ofExpression = qpi.K12(qpi.tick());
+       state.mut().a = (locals.ofLocal == locals.ofExpression) ? 1 : 0;`,
+        ),
+        expect: 1n,
     },
 };
 

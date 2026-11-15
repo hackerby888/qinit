@@ -321,8 +321,13 @@ export function scalarStorageInfo(programAnalysis: ProgramAnalysis, type: TypeSp
     const byteWidth = resolvedType.kind === AstKind.NAME ? SCALAR_SIZE[resolvedType.name] : undefined;
     return byteWidth ? { width: byteWidth, unsigned: unsignedScalar(resolvedType) } : null;
 }
-// a member helper's declared return type gives the call its width and signedness.
+// a call's declared return type gives it its width and signedness, whether it names a helper or goes through an object.
 function contextCallInfo(context: FunctionEmissionContext, expression: Expression): ScalarInfo | null {
+    if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.MEMBER_ACCESS) {
+        const returned = memberCallReturnType(context, expression);
+        const info = returned ? scalarStorageInfo(context.programAnalysis, returned) : null;
+        return info && info.width <= 8 ? info : null;
+    }
     if ((expression.kind !== AstKind.CALL && expression.kind !== AstKind.TEMPLATE_CALL) || expression.callee?.kind !== AstKind.IDENTIFIER) return null;
     const nm = expression.callee.name;
     const set = context.programAnalysis.helperOverloads.get(nm);

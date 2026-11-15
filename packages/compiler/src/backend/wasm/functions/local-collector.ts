@@ -4,7 +4,7 @@ import { contextLeaves, isAutoType, memberCallReturnType, resolveAliasType, valu
 import { adviseUnsupported, reportUnsupported } from "../../../semantics/unsupported";
 import { castInfo } from "../memory/address-resolution";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
-import type { Expression, TypeSpec, Statement, StructDecl, FunctionDecl, VariableDecl } from "../../../ast";
+import type { Expression, TypeSpec, Statement, StructDecl, VariableDecl } from "../../../ast";
 import { isProxyAliasLocal } from "../qpi-names";
 export function collectFunctionLocals(statement: Statement, context: FunctionEmissionContext): void {
     switch (statement.kind) {
@@ -63,19 +63,6 @@ export function collectFunctionLocals(statement: Statement, context: FunctionEmi
                             dType;
                     } else if (variableDeclaration.initializer.kind === AstKind.CALL && variableDeclaration.initializer.callee.kind === AstKind.IDENTIFIER) {
                         dType = context.programAnalysis.helpers.get(variableDeclaration.initializer.callee.name)?.retType ?? dType;
-                    } else if (
-                        variableDeclaration.initializer.kind === AstKind.CALL &&
-                        variableDeclaration.initializer.callee.kind === AstKind.MEMBER_ACCESS &&
-                        variableDeclaration.initializer.callee.object.kind === AstKind.IDENTIFIER
-                    ) {
-                        const callee = variableDeclaration.initializer.callee;
-                        const objectName = variableDeclaration.initializer.callee.object.name;
-                        const objectType = context.localVars.get(objectName)?.type ?? context.params?.get(objectName)?.type;
-                        const objectStruct = objectType ? context.programAnalysis.structOf(objectType, templateBindings) : null;
-                        const named = objectStruct?.members.find(
-                            (member) => member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === callee.member,
-                        ) as FunctionDecl | undefined;
-                        dType = named?.returnType ?? dType;
                     } else if (
                         variableDeclaration.initializer.kind === AstKind.SUBSCRIPT &&
                         variableDeclaration.initializer.object.kind === AstKind.IDENTIFIER
