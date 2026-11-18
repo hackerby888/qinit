@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { LiteRpc, deriveIdentity, type DebugEntry, type DynamicContractRegistryEntry } from "@qinit/core";
-import { invokeProcedure, resolveDeploymentSlot, sendTransfer } from "../../src/call";
+import { invokeProcedure, resolveDeploymentSlot, sendTransfer, traceDescendants } from "../../src/call";
 import { u64 } from "../codec/abi-builders";
 
 const realFetch = globalThis.fetch;
@@ -371,6 +371,19 @@ test("without recorded children the callees are the same-tick frames before the 
     } finally {
         globalThis.fetch = realFetch;
     }
+});
+
+test("traceDescendants lists a callee's own callees before its siblings, each with its depth", () => {
+    const entries = [
+        traceEntry({ seq: 1, children: [] }),
+        traceEntry({ seq: 2, children: [1] }),
+        traceEntry({ seq: 3, children: [] }),
+        traceEntry({ seq: 4, children: [2, 3] }),
+        traceEntry({ seq: 5, children: [] }),
+    ];
+
+    expect(traceDescendants(entries[3], entries, 0).map(({ entry, depth }) => [entry.seq, depth])).toEqual([[2, 0], [1, 1], [3, 0]]);
+    expect(traceDescendants(entries[0], entries, 0)).toEqual([]);
 });
 
 test("a procedure that trapped carries its trace entry and no output", async () => {

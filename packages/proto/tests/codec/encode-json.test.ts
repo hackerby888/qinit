@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { jsonToInputFormat, encodeInputJson, encodeInputFormat, decodeAbi, hasOverlappingAbiType, zeroInputFormat } from "../../src/abi";
+import { jsonToInputFormat, encodeInputJson, encodeInputFormat, decodeAbi, decodedAbiToJson, hasOverlappingAbiType, zeroInputFormat } from "../../src/abi";
 import { callFunction } from "../../src/call";
 import { linkedListGeometry } from "../../src/qpi-layout";
 import { AbiScalarKind, AbiTypeKind, type AbiStruct, type AbiType } from "../../src/contract-idl";
@@ -143,6 +143,24 @@ test("encodeInputJson: deep nested array-of-structs (positional) round-trips", a
         [1, 2],
         [3, 4],
     ]);
+});
+
+test("decodedAbiToJson names what decodeAbi unwrapped, and the named value encodes back to the same bytes", async () => {
+    const empty = validated(st());
+    expect(decodedAbiToJson(await decodeAbi(new Uint8Array(empty.size), empty), empty)).toEqual({});
+
+    // one field: decodeAbi hands back the field's bare value, so the JSON is that value and not { pair: ... }.
+    const single = validated(named(["pair", named(["lo", u8], ["hi", u16])]));
+    const singleBytes = Uint8Array.of(7, 0, 0x34, 0x12);
+    const pair = decodedAbiToJson(await decodeAbi(singleBytes, single), single);
+    expect(pair).toEqual({ lo: 7, hi: 0x1234 });
+    expect(await encodeInputJson(single, { pair })).toEqual(singleBytes);
+
+    const several = validated(named(["a", u8], ["b", i8], ["c", u16]));
+    const severalBytes = Uint8Array.of(1, 0xff, 0x34, 0x12);
+    const json = decodedAbiToJson(await decodeAbi(severalBytes, several), several);
+    expect(json).toEqual({ a: 1, b: -1, c: 0x1234 });
+    expect(await encodeInputJson(several, json)).toEqual(severalBytes);
 });
 
 test("typed codec honors explicit field offsets", async () => {

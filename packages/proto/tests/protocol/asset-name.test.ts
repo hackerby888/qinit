@@ -9,6 +9,20 @@ test("asset names pack little-endian and unpack back", () => {
     expect(packAssetName("ABCDEFGH")).toBe(packAssetName("ABCDEFG"));
 });
 
+test("names of every valid length survive name -> number -> name", () => {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    for (let length = 1; length <= 7; length++) {
+        for (let start = 0; start < 26; start++) {
+            const name = Array.from({ length }, (_, index) => alphabet[index === 0 ? start : (start * 7 + index * 11) % alphabet.length]).join("");
+            const packed = packAssetName(assetNameOrThrow(name));
+            expect({ name, back: unpackAssetName(packed) }).toEqual({ name, back: name });
+            expect(packAssetName(unpackAssetName(packed))).toBe(packed);
+            // seven bytes at most: the top byte of the uint64 stays clear.
+            expect(packed >> 56n).toBe(0n);
+        }
+    }
+});
+
 test("an asset name is one to seven capitals or digits, letter first", () => {
     expect(assetNameOrThrow("QX")).toBe("QX");
     expect(assetNameOrThrow("A1B2C3D")).toBe("A1B2C3D");

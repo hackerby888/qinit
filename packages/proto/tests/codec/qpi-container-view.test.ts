@@ -31,6 +31,7 @@ import {
 } from "../../src";
 import { bytesToIdentity } from "@qinit/core";
 import { decodeAbiValue } from "../../src/abi";
+import { occupiedRanges, qpiBorrowedSource, readQpiBytes, sint64At, uint64At } from "../../src/qpi-container-view/source";
 import { arr, ba, co, hm, id, ll, st, u8, u16, u64, u128, validated } from "./abi-builders";
 
 const uint8Type: AbiScalar = {
@@ -71,6 +72,71 @@ function sourceOf(bytes: Uint8Array, maxReadLength = bytes.length || 1): { sourc
         },
     };
 }
+
+const rejection = (promise: Promise<unknown>): Promise<Error | undefined> => promise.then(() => undefined, (error: Error) => error);
+
+test("readQpiBytes stitches capped reads and refuses a range or a reply that falls short", async () => {
+    const bytes = Uint8Array.from({ length: 10 }, (_, index) => index + 1);
+    const { source, reads } = sourceOf(bytes, 4);
+    expect([...(await readQpiBytes(source, 1, 9))]).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(reads).toEqual([[1, 4], [5, 4], [9, 1]]);
+
+    // nothing to read asks the source nothing.
+    expect(await readQpiBytes(source, 10, 0)).toEqual(new Uint8Array());
+    expect(reads).toHaveLength(3);
+
+    for (const [offset, length, range] of [[8, 3, "8..11"], [-1, 2, "-1..1"], [0.5, 1, "0.5..1.5"], [0, -1, "0..-1"]] as const) {
+        const refused = await rejection(readQpiBytes(source, offset, length));
+        expect(refused).toBeInstanceOf(QpiIncompleteReadError);
+        expect(refused?.message).toBe(`QPI byte range ${range} exceeds 10 bytes`);
+    }
+    expect(reads).toHaveLength(3);
+
+    const uncapped = await rejection(readQpiBytes(sourceOf(bytes, 0).source, 0, 1));
+    expect(uncapped).not.toBeInstanceOf(QpiIncompleteReadError);
+    expect(uncapped?.message).toBe("QPI byte source has an invalid maxReadLength");
+
+    // the second chunk comes back one byte short.
+    const short: QpiByteSource = { byteLength: 10, maxReadLength: 4, read: async (offset, length) => bytes.slice(offset, offset + (offset === 0 ? length : length - 1)) };
+    const cut = await rejection(readQpiBytes(short, 0, 8));
+    expect(cut).toBeInstanceOf(QpiIncompleteReadError);
+    expect(cut?.message).toBe("QPI byte source returned 3 of 4 bytes at 4");
+});
+
+test("64-bit words are read relative to the view they are given", () => {
+    const window = new Uint8Array(24).fill(0xee).subarray(8, 24);
+    setUint64(window, 0, 0x0102030405060708n);
+    setInt64(window, 8, -2n);
+
+    expect(uint64At(window, 0)).toBe(0x0102030405060708n);
+    expect(sint64At(window, 8)).toBe(-2n);
+    expect(uint64At(window, 8)).toBe(0xfffffffffffffffen);
+
+    for (const offset of [9, -1, 1.5]) {
+        expect(() => uint64At(window, offset)).toThrow(QpiContainerConsistencyError);
+        expect(() => uint64At(window, offset)).toThrow("uint64 exceeds container range");
+        expect(() => sint64At(window, offset)).toThrow("sint64 exceeds container range");
+    }
+});
+
+test("occupied slots merge into a range only where they are neighbours", () => {
+    expect(occupiedRanges([])).toEqual([]);
+    expect(occupiedRanges([5])).toEqual([{ start: 5, end: 5 }]);
+    expect(occupiedRanges([0, 1, 2, 4, 6, 7])).toEqual([{ start: 0, end: 2 }, { start: 4, end: 4 }, { start: 6, end: 7 }]);
+});
+
+test("a borrowed source sees later writes that a snapshot source does not", async () => {
+    const bytes = Uint8Array.of(1, 2, 3, 4);
+    const borrowed = qpiBorrowedSource(bytes);
+    const snapshot = qpiSnapshotSource(bytes);
+    bytes[0] = 9;
+
+    expect([...(await borrowed.read(0, 4))]).toEqual([9, 2, 3, 4]);
+    expect([...(await snapshot.read(0, 4))]).toEqual([1, 2, 3, 4]);
+    expect((await rejection(borrowed.read(2, 3)))?.message).toBe("QPI byte range 2..5 exceeds 4 bytes");
+    // an empty buffer still reports a cap readQpiBytes accepts.
+    expect(qpiBorrowedSource(new Uint8Array(0)).maxReadLength).toBe(1);
+});
 
 test("Array view preserves nested values and exposes strict indexes", async () => {
     const element: AbiStruct = {

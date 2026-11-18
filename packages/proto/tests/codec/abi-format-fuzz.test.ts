@@ -1,6 +1,6 @@
 // Generated type trees run through every layer that must agree: qpi-layout geometry, formatAbiType, the parser and both decoders — shapes nobody thought of.
 import { test, expect } from "bun:test";
-import { decodeAbiValue, decodeAbi, encodeInputFormat, layoutOf, structFieldOffsets, zeroInputFormat } from "../../src/abi";
+import { abiValueToJson, decodeAbiValue, decodeAbi, encodeInputFormat, encodeInputJson, layoutOf, structFieldOffsets, zeroInputFormat } from "../../src/abi";
 import { formatAbiType, type AbiType } from "../../src/contract-idl";
 import { arr, ba, bit, co, hm, hs, i8, i16, i32, i64, i128, id, ll, m256i, st, u8, u16, u32, u64, u128, validated } from "./abi-builders";
 
@@ -19,12 +19,12 @@ const COUNTS = [1, 2, 3, 4];
 const pick = <T>(next: () => number, xs: readonly T[]): T => xs[Math.floor(next() * xs.length)];
 
 // Scalars, arrays and structs — the shapes both dialects and both decoders are supposed to handle.
-function genPlain(next: () => number, depth: number): AbiType {
+function genPlain(next: () => number, depth: number, leaves: readonly AbiType[] = LEAVES): AbiType {
     const roll = next();
-    if (depth <= 0 || roll < 0.45) return pick(next, LEAVES);
-    if (roll < 0.7) return arr(genPlain(next, depth - 1), pick(next, COUNTS));
+    if (depth <= 0 || roll < 0.45) return pick(next, leaves);
+    if (roll < 0.7) return arr(genPlain(next, depth - 1, leaves), pick(next, COUNTS));
     const fields = 1 + Math.floor(next() * 3);
-    return st(...Array.from({ length: fields }, () => genPlain(next, depth - 1)));
+    return st(...Array.from({ length: fields }, () => genPlain(next, depth - 1, leaves)));
 }
 
 // Containers only appear at the outside of a shape here; their contents reuse the plain generator.
@@ -87,6 +87,27 @@ test("the string decoder and the typed decoder read a generated type identically
         const fromString = await decodeAbi(bytes, fmt);
         const fromType = await decodeAbiValue(bytes, type);
         expect({ seed, fmt, value: fromString }).toEqual({ seed, fmt, value: fromType });
+        checked++;
+    }
+    expect(checked).toBeGreaterThan(150);
+});
+
+// A bit decodes to its whole byte and encodes only 0 or 1, so filler bytes cannot stand in for one; abi-format.test.ts round-trips bits on their own.
+const BYTE_LEAVES = LEAVES.filter((leaf) => leaf !== bit);
+
+test("a generated type's bytes survive value -> JSON -> bytes -> value", async () => {
+    let checked = 0;
+    for (let seed = 1; seed <= 200; seed++) {
+        const next = rng(seed + 17000);
+        const type = validated(genPlain(next, 4, BYTE_LEAVES) as AbiType);
+        if (type.size > SIZE_CAP) continue;
+
+        const fmt = formatAbiType(type);
+        const value = await decodeAbiValue(filler(type.size), type);
+        const bytes = await encodeInputJson(type, abiValueToJson(value, type));
+        const again = await decodeAbiValue(bytes, type);
+        expect({ seed, fmt, value: again }).toEqual({ seed, fmt, value });
+        expect({ seed, fmt, bytes: await encodeInputJson(type, abiValueToJson(again, type)) }).toEqual({ seed, fmt, bytes });
         checked++;
     }
     expect(checked).toBeGreaterThan(150);

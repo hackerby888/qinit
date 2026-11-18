@@ -1,6 +1,8 @@
 import { test, expect } from "bun:test";
 import {
+    assertBounds,
     assertInputSize,
+    parseInputFormat,
     encodeInputFormat,
     encodeInputJson,
     encodeInputFormatAs,
@@ -281,6 +283,59 @@ test("encodeInputFormat rejects an array whose declared count does not match its
     await expect(encodeInputFormat("[5; 1uint8]")).rejects.toThrow(/array of 5 needs 5 values, got 1/);
     await expect(encodeInputFormat("[0; 1uint8, 2uint8]")).rejects.toThrow(/array of 0 needs 0 values, got 2/);
     await expect(encodeInputFormat("[2;{}]")).rejects.toThrow(/array of 2 needs 2 values, got 1/);
+});
+
+test("parseInputFormat keeps each token's spelling, spelled type and nesting", () => {
+    const text = "1uint8, 5, { 0id, [2; 1uint64, 2uint64] }, [7sint16]";
+    expect(parseInputFormat(text)).toEqual({
+        kind: "struct",
+        raw: text,
+        items: [
+            { kind: "scalar", type: "uint8", text: "1", raw: "1uint8" },
+            // a value spelled without its type takes the type of the field it lands in.
+            { kind: "scalar", type: null, text: "5", raw: "5" },
+            {
+                kind: "struct",
+                raw: "{ 0id, [2; 1uint64, 2uint64] }",
+                items: [
+                    { kind: "scalar", type: "id", text: "0", raw: "0id" },
+                    {
+                        kind: "array",
+                        count: 2,
+                        raw: "[2; 1uint64, 2uint64]",
+                        items: [
+                            { kind: "scalar", type: "uint64", text: "1", raw: "1uint64" },
+                            { kind: "scalar", type: "uint64", text: "2", raw: "2uint64" },
+                        ],
+                    },
+                ],
+            },
+            { kind: "array", count: null, raw: "[7sint16]", items: [{ kind: "scalar", type: "sint16", text: "7", raw: "7sint16" }] },
+        ],
+    });
+
+    for (const blank of ["", "   ", undefined as unknown as string]) {
+        expect(parseInputFormat(blank)).toEqual({ kind: "struct", items: [], raw: "" });
+    }
+});
+
+test("parseInputFormat refuses the same malformed values the encoder does", () => {
+    expect(() => parseInputFormat("{ 1uint8, 2uint8x")).toThrow("struct value is missing its closing '}': '{ 1uint8, 2uint8x'");
+    expect(() => parseInputFormat("[2; 1uint8, 2uint8}")).toThrow("array value is missing its closing ']': '[2; 1uint8, 2uint8}'");
+    expect(() => parseInputFormat("[x; 1uint8]")).toThrow("array count 'x' must be a non-negative integer");
+    expect(() => parseInputFormat("[3; 1uint8]")).toThrow("array of 3 needs 3 values, got 1");
+    expect(() => parseInputFormat("1uint8,, 2uint8")).toThrow("empty entry between ',' separators at position 1");
+});
+
+test("assertBounds names the offset, size and buffer it refused", () => {
+    const view = new DataView(new ArrayBuffer(8));
+    expect(assertBounds(view, 0, 8)).toBeUndefined();
+    expect(assertBounds(view, 8, 0)).toBeUndefined();
+
+    expect(() => assertBounds(view, 1, 8)).toThrow(RangeError);
+    expect(() => assertBounds(view, 1, 8)).toThrow("ABI value at 1 with size 8 exceeds 8 bytes");
+    expect(() => assertBounds(view, -1, 1)).toThrow("ABI value at -1 with size 1 exceeds 8 bytes");
+    expect(() => assertBounds(view, 0, -1)).toThrow("ABI value at 0 with size -1 exceeds 8 bytes");
 });
 
 test("the value dialect needs the bracket that closes what it opened", async () => {
