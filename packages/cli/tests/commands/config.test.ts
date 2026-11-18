@@ -1,6 +1,6 @@
 // Project config, global seed/theme stores and resolution precedence: a bug here silently signs with the wrong seed or builds against the wrong core.
 import { test, expect, afterEach } from "bun:test";
-import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE } from "@qinit/core";
+import { DEFAULT_FUNDED_SEED, DEFAULT_RPC_BASE, loadConfigSafe } from "@qinit/core";
 import { mkdirSync, mkdtempSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,6 +58,17 @@ test("loadConfig: missing -> {}, valid -> parsed, malformed -> throws", () => {
     const bad = join(x, "bad.json");
     writeFileSync(bad, "{not json");
     expect(() => loadConfig(bad)).toThrow(/could not be read/);
+});
+
+test("loadConfigSafe: a malformed file comes back as an error beside an empty config, never a throw", () => {
+    const x = isolate();
+    const bad = join(x, "bad.json");
+    writeFileSync(bad, "{not json");
+
+    const result = loadConfigSafe(bad);
+    expect(result.config).toEqual({});
+    expect(result.error).toStartWith(`qinit.json at ${bad} could not be read: `);
+    expect(loadConfigSafe(join(x, "nope.json"))).toEqual({ config: {} });
 });
 
 test("loadConfig: a UTF-8 BOM does not discard the config", () => {

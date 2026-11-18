@@ -7,6 +7,15 @@ describe("hex byte conversion", () => {
         expect(hexToBytes("")).toEqual(new Uint8Array(0));
     });
 
+    test("bytes of every length up to 64 survive bytes -> hex -> bytes", () => {
+        for (let length = 0; length <= 64; length++) {
+            const bytes = Uint8Array.from({ length }, (_, index) => (index * 37 + length * 11) & 0xff);
+            const hex = bytesToHex(bytes);
+            expect(hex).toHaveLength(length * 2);
+            expect(hexToBytes(hex, length)).toEqual(bytes);
+        }
+    });
+
     test("rejects malformed or incorrectly sized input", () => {
         expect(() => hexToBytes("abc")).toThrow(/invalid hex/);
         expect(() => hexToBytes("zz")).toThrow(/invalid hex/);

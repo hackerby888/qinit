@@ -10,6 +10,9 @@ import {
     sha256Hex,
     cacheRoot,
     cacheDir,
+    currentPath,
+    readCurrent,
+    updateCurrent,
     loadManifest,
     loadVerifyManifest,
     resolveCliTag,
@@ -62,6 +65,34 @@ test("cacheRoot honors QINIT_CACHE; cacheDir composes under it", () => {
     expect(cacheDir("v1")).toBe(join(tmpdir(), "qinit-cache-x", "v1"));
     if (prev === undefined) delete process.env.QINIT_CACHE;
     else process.env.QINIT_CACHE = prev;
+});
+
+test("updateCurrent merges into the pointer readCurrent already holds", () => {
+    const prev = process.env.QINIT_CACHE;
+    const dir = tmp();
+    process.env.QINIT_CACHE = join(dir, "nested", "cache");
+    try {
+        expect(readCurrent()).toBeNull();
+        updateCurrent({ headersVersion: "h1", coreHeaders: "/headers" });
+        const merged = updateCurrent({ nodeVersion: "n1" });
+        expect(merged).toMatchObject({ headersVersion: "h1", coreHeaders: "/headers", nodeVersion: "n1" });
+        expect(readCurrent()).toEqual(merged);
+
+        // a pointer that no longer parses reads as absent, so the next update starts clean.
+        writeFileSync(currentPath(), "{ not json");
+        expect(readCurrent()).toBeNull();
+    } finally {
+        if (prev === undefined) delete process.env.QINIT_CACHE;
+        else process.env.QINIT_CACHE = prev;
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("release manifests reject a nodes table that is not an object", async () => {
+    for (const nodes of [[], "Qubic-linux-x64", 7, null]) {
+        globalThis.fetch = (async () => Response.json({ version: "core-v1", nodes })) as unknown as typeof fetch;
+        await expect(loadManifest("latest", "new-org/core-lite")).rejects.toThrow("core node assets must be an object");
+    }
 });
 
 test("release manifests expand asset filenames and preserve HTTPS URLs", async () => {

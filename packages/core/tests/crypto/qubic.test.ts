@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { k12Hex, deriveIdentity, bytesToIdentity, identityToBytes, contractIndexFromIdentity } from "../../src/crypto/qubic";
+import { k12Hex, deriveIdentity, bytesToIdentity, identityToBytes, contractIndexFromIdentity, cryptoSmoke } from "../../src/crypto/qubic";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const hx = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -44,6 +44,18 @@ test("identity codec: pubkey <-> 60-char identity round-trips", async () => {
         }
         expect(code).toBe("INVALID_IDENTITY");
     }
+});
+
+test("identity codec: 32 different keys survive key -> identity -> key", async () => {
+    for (let n = 0; n < 32; n++) {
+        const key = Uint8Array.from({ length: 32 }, (_, index) => (n * 73 + index * 151 + 5) & 0xff);
+        expect({ n, key: hx(identityToBytes(await bytesToIdentity(key))) }).toEqual({ n, key: hx(key) });
+    }
+});
+
+test("cryptoSmoke derives the known key and reports a valid identity", async () => {
+    const { identity } = await deriveIdentity("a".repeat(55));
+    expect(await cryptoSmoke()).toEqual({ ok: true, identity, publicKeyHex: PUB, note: "K12 + FourQ ran and produced a valid identity" });
 });
 
 test("contractIndexFromIdentity: decodes contract addresses, rejects everything else", async () => {

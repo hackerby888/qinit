@@ -172,10 +172,6 @@ export class ByteWriter {
     }
 }
 
-export function encodeU32(value: number): Uint8Array<ArrayBuffer> {
-    return new ByteWriter().u32(value).toBytes();
-}
-
 /** Splits a module into its sections, keeping order and custom sections intact. */
 export function splitSections(wasm: Uint8Array): WasmSection[] {
     for (let index = 0; index < WASM_MAGIC.length; index++) {

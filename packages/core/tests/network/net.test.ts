@@ -1,6 +1,6 @@
 // broadcastTx verdict logic plus the response-body stall watchdog: ok may only be reported when the node accepted and relayed the tx, or a dropped tx hides.
 import { test, expect, afterEach } from "bun:test";
-import { DEFAULT_RPC_BASE, RequestTimeoutError, broadcastTx, fetchWithTimeout, readResponseBodyWithTimeout } from "../../src/net/http";
+import { DEFAULT_RPC_BASE, RequestTimeoutError, broadcastTx, broadcastTxs, fetchWithTimeout, readResponseBodyWithTimeout } from "../../src/net/http";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -34,6 +34,19 @@ test("broadcastTx: a fetch failure throws 'node unreachable'", async () => {
         throw new Error("ECONNREFUSED");
     }) as any;
     await expect(broadcastTx(tx, "http://127.0.0.1:1")).rejects.toThrow(/node unreachable/);
+});
+
+test("broadcastTxs: sends each tx in the order given and keeps each verdict", async () => {
+    const sent: string[] = [];
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+        sent.push(JSON.parse(String(init?.body)).encodedTransaction);
+        return new Response(JSON.stringify({ peersBroadcasted: sent.length === 2 ? 0 : 1, transactionId: `tx${sent.length}` }));
+    }) as typeof fetch;
+
+    const results = await broadcastTxs([Uint8Array.of(1), Uint8Array.of(2), Uint8Array.of(3)]);
+    expect(sent).toEqual(["AQ==", "Ag==", "Aw=="]);
+    expect(results.map((result) => `${result.transactionId}:${result.ok}`)).toEqual(["tx1:true", "tx2:false", "tx3:true"]);
+    expect(await broadcastTxs([])).toEqual([]);
 });
 
 test("readResponseBodyWithTimeout: a stalled body stream aborts via the inactivity watchdog", async () => {
