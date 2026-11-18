@@ -22,6 +22,62 @@ test("readHeader returns null on a short buffer", () => {
     expect(codec.readHeader(new Uint8Array(4))).toBeNull();
 });
 
+test("frame then readHeader agree at the limits of payload length, type and dejavu", () => {
+    for (const length of [0, 1, 255, 65535]) {
+        for (const type of [0, 255]) {
+            for (const dejavu of [0, 0xffffffff]) {
+                const payload = Uint8Array.from({ length }, (_, index) => (index * 31 + 7) & 0xff);
+                const framed = codec.frame(type, payload, dejavu);
+                const expected = { size: codec.HEADER_SIZE + length, type, dejavu };
+                expect(codec.readHeader(framed)).toEqual(expected);
+                expect(framed.subarray(codec.HEADER_SIZE)).toEqual(payload);
+
+                // a header is read at the offset given, not at the start of the buffer.
+                const shifted = new Uint8Array(3 + framed.length).fill(0xee);
+                shifted.set(framed, 3);
+                expect(codec.readHeader(shifted, 3)).toEqual(expected);
+            }
+        }
+    }
+});
+
+// header.h: a size field of zero stands for the largest message, which the server then refuses as oversized.
+test("a zero size field reads as the largest size", () => {
+    expect(codec.readHeader(new Uint8Array(codec.HEADER_SIZE))).toEqual({ size: 0x7fffffff, type: 0, dejavu: 0 });
+});
+
+test("log range and prune replies are little-endian int64s, the negative range codes included", () => {
+    expect([...codec.encodeLogRange(1n, 2n)]).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0]);
+    expect([...codec.encodeLogRange(-2n, -3n)]).toEqual([0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+    expect([...codec.encodePruneResult(4)]).toEqual([4, 0, 0, 0, 0, 0, 0, 0]);
+    expect([...codec.encodePruneResult(0)]).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+});
+
+test("a prune request reads its id span, and needs the exact size and the zero passcode", () => {
+    const request = new Uint8Array(48);
+    dv(request).setBigUint64(32, 5n, true);
+    dv(request).setBigUint64(40, 9n, true);
+    expect(codec.decodePruneLogRequest(request)).toEqual({ from: 5n, to: 9n });
+    expect(codec.decodePruneLogRequest(request.subarray(0, 47))).toBeNull();
+
+    request[31] = 1;
+    expect(codec.decodePruneLogRequest(request)).toBeNull();
+});
+
+test("the log passcode check needs all 32 bytes present and zero", () => {
+    expect(codec.hasZeroLogPasscode(new Uint8Array(32))).toBe(true);
+    expect(codec.hasZeroLogPasscode(new Uint8Array(31))).toBe(false);
+    expect(codec.hasZeroLogPasscode(new Uint8Array(0))).toBe(false);
+
+    const lastByteSet = new Uint8Array(40);
+    lastByteSet[31] = 1;
+    expect(codec.hasZeroLogPasscode(lastByteSet)).toBe(false);
+    // byte 32 is the request body, not the passcode.
+    lastByteSet[31] = 0;
+    lastByteSet[32] = 1;
+    expect(codec.hasZeroLogPasscode(lastByteSet)).toBe(true);
+});
+
 test("handshake is an ExchangePublicPeers packet (type 0, 16-byte payload)", () => {
     const f = codec.exchangePublicPeers();
     const h = codec.readHeader(f)!;

@@ -3,8 +3,17 @@ import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, k12Bytes, toHex, deriveKeysSync, verifySync } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import { Committee, merkleRoot, quorumOf, tickVoteMessage, tickVoteSignature, buildTickVote, voteIsAligned } from "../../src/chain/consensus";
+import { Committee, merkleRoot, quorumOf, randomSeed, tickVoteMessage, tickVoteSignature, buildTickVote, voteIsAligned } from "../../src/chain/consensus";
 import { readUint64LE } from "../support/helpers";
+
+// a seat past the generated committee gets one of these; it has to be a seed the signer accepts, and not the same one twice.
+test("randomSeed gives 55 lowercase letters, different on each call", () => {
+    const seeds = Array.from({ length: 8 }, randomSeed);
+    for (const seed of seeds) {
+        expect(seed).toMatch(/^[a-z]{55}$/);
+    }
+    expect(new Set(seeds).size).toBe(8);
+});
 
 // the dev committee is a table: the same 676 identities in every process, and no key derivation on construction.
 test("the default committee is the generated dev committee, keys included", async () => {

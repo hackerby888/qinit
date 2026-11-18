@@ -3,6 +3,7 @@ import wabtInit from "../../../compiler/node_modules/wabt";
 import { WASM_ABI_VERSION } from "@qinit/core";
 import { encodeDeploy, LITE_TX } from "@qinit/proto";
 import { VirtualNode } from "../../src/transport";
+import { validateContractIndexSignature } from "../../src/contract/wasm-contract-index";
 
 type ContractIndexBody = "missing" | "malformed" | "trapping" | number;
 
@@ -68,6 +69,20 @@ describe("Wasm artifact slot identity", () => {
         const wasm = await artifact(value);
 
         expect(() => node.deploy(29, wasm, "Rejected")).toThrow(message);
+    });
+
+    // shapes wabt will not write, built by hand: a header, then an export section whose entries are name, kind, index.
+    test("the signature check refuses a bad header, a duplicate export and a non-function export", () => {
+        const header = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        const withExports = (...exports: [name: string, kind: number][]): Uint8Array => {
+            const entries = exports.flatMap(([name, kind]) => [name.length, ...new TextEncoder().encode(name), kind, 0]);
+            return Uint8Array.of(...header, 7, entries.length + 1, exports.length, ...entries);
+        };
+
+        expect(() => validateContractIndexSignature(Uint8Array.of(0x00, 0x61, 0x73, 0x6d, 0x02, 0x00, 0x00, 0x00))).toThrow("invalid Wasm module header");
+        expect(() => validateContractIndexSignature(withExports(["contract_index", 0], ["contract_index", 0]))).toThrow("duplicate contract_index export");
+        expect(() => validateContractIndexSignature(withExports(["contract_index", 3]))).toThrow("contract_index export must be a function");
+        expect(() => validateContractIndexSignature(withExports(["memory", 2]))).toThrow("missing required contract_index export");
     });
 
     test("a mismatch leaves the resident instance, state, registry, and metadata unchanged", async () => {

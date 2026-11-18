@@ -154,6 +154,61 @@ test("native logging messages expose core-lite records and tick ranges", async (
     }
 });
 
+test("one tx's log range and a prune request answer over the peer protocol", async () => {
+    await initK12();
+    const engine = new VirtualNode();
+    const server = new PeerServer(engine);
+    const { port, stop } = await server.start(0, 1000);
+
+    try {
+        const tick = engine.sim.currentTick + 1;
+        engine.logger.begin(tick, 2);
+        engine.logger.log(28, 6, Uint8Array.of(0, 0, 0, 0, 9, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0), engine.sim.currentEpoch);
+        engine.logger.end();
+        engine.advanceTick(1);
+
+        // every reply here follows the handshake the server opens with.
+        const replies = (frames: Frame[]) => frames.filter((f) => f.type !== MSG.EXCHANGE_PUBLIC_PEERS);
+
+        const rangeOf = async (ofTick: number, txId: number, dejavu: number): Promise<bigint[]> => {
+            const request = new Uint8Array(40);
+            dv(request).setUint32(32, ofTick, true);
+            dv(request).setUint32(36, txId, true);
+            const [reply] = replies(await exchange(port, codec.frame(MSG.REQUEST_LOG_ID_RANGE_FROM_TX, request, dejavu)));
+            expect(reply.type).toBe(MSG.RESPOND_LOG_ID_RANGE_FROM_TX);
+            return [dv(reply.payload).getBigInt64(0, true), dv(reply.payload).getBigInt64(8, true)];
+        };
+        expect(await rangeOf(tick, 2, 93)).toEqual([1n, 1n]);
+        // a tx that logged nothing answers -1 in both fields, a tick not finalized yet -3.
+        expect(await rangeOf(tick, 3, 94)).toEqual([-1n, -1n]);
+        expect(await rangeOf(tick + 1000, 2, 95)).toEqual([-3n, -3n]);
+
+        const spanRequest = (from: bigint, to: bigint): Uint8Array => {
+            const request = new Uint8Array(48);
+            dv(request).setBigUint64(32, from, true);
+            dv(request).setBigUint64(40, to, true);
+            return request;
+        };
+        const prune = async (request: Uint8Array, dejavu: number): Promise<(number | bigint)[]> => {
+            const [reply] = replies(await exchange(port, codec.frame(MSG.REQUEST_PRUNING_LOG, request, dejavu)));
+            return reply.type === MSG.RESPOND_PRUNING_LOG ? [reply.type, dv(reply.payload).getBigInt64(0, true)] : [reply.type];
+        };
+
+        // a span past the last finalized id is refused whole, and a request without the zero passcode is not answered at all.
+        expect(await prune(spanRequest(1n, 99n), 96)).toEqual([MSG.RESPOND_PRUNING_LOG, 4n]);
+        const locked = spanRequest(1n, 1n);
+        locked[0] = 1;
+        expect(await prune(locked, 97)).toEqual([MSG.END_RESPONSE]);
+
+        const logTypes = async (dejavu: number) => replies(await exchange(port, codec.frame(MSG.REQUEST_LOG, spanRequest(1n, 1n), dejavu))).map((f) => f.type);
+        expect(await logTypes(98)).toEqual([MSG.RESPOND_LOG]);
+        expect(await prune(spanRequest(1n, 1n), 99)).toEqual([MSG.RESPOND_PRUNING_LOG, 0n]);
+        expect(await logTypes(100)).toEqual([MSG.END_RESPONSE]);
+    } finally {
+        stop();
+    }
+});
+
 test("entity request returns the funded balance", async () => {
     await initK12();
     const engine = new VirtualNode();

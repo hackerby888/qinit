@@ -16,6 +16,11 @@ import {
     RespondOwnedAssets,
     RespondPossessedAssets,
     RespondTxStatusHeader,
+    OracleReplyCommitTransactionItem,
+    OracleMachineReply,
+    OracleNotificationInput,
+    OracleSubscription,
+    OracleNotificationData,
     DIGEST_SIZE,
     SIG_SIZE,
     TXS_PER_TICK,
@@ -24,6 +29,22 @@ import {
     ASSETS_DEPTH,
 } from "../../src/protocol/wire";
 import { bytesEqual } from "../../src/support/bytes";
+import { MAX_ORACLE_QUERY_SIZE, MAX_ORACLE_REPLY_SIZE } from "@qinit/proto";
+import {
+    Asset,
+    AssetSelect,
+    ContractId,
+    PostIncomingTransferInput,
+    PreManagementRightsTransferInput,
+    PreManagementRightsTransferOutput,
+    QpiContext,
+} from "../../src/contract/abi";
+import { OcRequest } from "../../src/oc-interfaces/mock";
+import * as dogeShareOracle from "../../src/oracle-interfaces/doge-share-validation";
+import * as evmLogOracle from "../../src/oracle-interfaces/evm-log-read";
+import * as mockOracle from "../../src/oracle-interfaces/mock";
+import * as priceOracle from "../../src/oracle-interfaces/price";
+import * as qubicLogOracle from "../../src/oracle-interfaces/qubic-log-read";
 
 const TRIALS = 64;
 
@@ -67,7 +88,7 @@ interface SubClass {
     wrap(buf: Uint8Array, off?: number): { bytes: Uint8Array };
 }
 
-type Kind = "u8" | "u16" | "u24" | "u32" | "i16" | "i32" | "i64" | "u64" | "m256" | { blob: number } | { arr: "m256" | "i64"; n: number } | { sub: SubClass };
+type Kind = "u8" | "u16" | "u24" | "u32" | "i16" | "i32" | "i64" | "u64" | "m256" | { blob: number } | { arr: "m256" | "i64" | "u8"; n: number } | { sub: SubClass };
 
 function sizeOf(k: Kind): number {
     if (typeof k === "string") {
@@ -88,7 +109,7 @@ function sizeOf(k: Kind): number {
         return k.blob;
     }
     if ("arr" in k) {
-        return (k.arr === "m256" ? DIGEST_SIZE : 8) * k.n;
+        return { m256: DIGEST_SIZE, i64: 8, u8: 1 }[k.arr] * k.n;
     }
     return k.sub.SIZE;
 }
@@ -112,7 +133,7 @@ function alignOf(k: Kind): number {
         return 1;
     }
     if ("arr" in k) {
-        return 8; // m256 and i64 elements are both 8-aligned
+        return k.arr === "u8" ? 1 : 8; // m256 and i64 elements are both 8-aligned
     }
     return 8; // the embedded Qubic structs are 8-aligned
 }
@@ -168,12 +189,16 @@ function fuzzField(view: Record<string, unknown>, name: string, k: Kind, r: () =
     if ("arr" in k) {
         const arr = view[name] as { set(i: number, v: unknown): void };
         const idxs = sampleIndices(k.n, r);
-        const vals = new Map<number, Uint8Array | bigint>();
+        const vals = new Map<number, Uint8Array | bigint | number>();
         for (const i of idxs) {
             if (k.arr === "m256") {
                 const b = randBytes(r, DIGEST_SIZE);
                 arr.set(i, b);
                 vals.set(i, b);
+            } else if (k.arr === "u8") {
+                const x = Math.floor(r() * 0x100);
+                arr.set(i, x);
+                vals.set(i, x);
             } else {
                 const x = BigInt.asIntN(64, randBig(r));
                 arr.set(i, x);
@@ -222,7 +247,7 @@ function saturate(view: Record<string, unknown>, name: string, k: Kind): void {
     } else if ("arr" in k) {
         const arr = view[name] as { set(i: number, v: unknown): void };
         for (let i = 0; i < k.n; i++) {
-            arr.set(i, k.arr === "m256" ? new Uint8Array(DIGEST_SIZE).fill(0xff) : -1n);
+            arr.set(i, k.arr === "m256" ? new Uint8Array(DIGEST_SIZE).fill(0xff) : k.arr === "u8" ? 0xff : -1n);
         }
     } else {
         const inst = k.sub.alloc();
@@ -402,6 +427,170 @@ const STRUCTS: StructSpec[] = [
         name: "RespondTxStatusHeader",
         klass: RespondTxStatusHeader as never,
         fields: { currentTick: "u32", tick: "u32", txCount: "u32" },
+    },
+    {
+        name: "OracleReplyCommitTransactionItem",
+        klass: OracleReplyCommitTransactionItem as never,
+        fields: { queryId: "u64", replyDigest: "m256", replyKnowledgeProof: "m256" },
+    },
+    {
+        name: "OracleMachineReply",
+        klass: OracleMachineReply as never,
+        fields: { oracleQueryId: "u64", oracleMachineErrorFlags: "u16", _padding0: "u16", _padding1: "u32" },
+    },
+    {
+        name: "OracleNotificationInput",
+        klass: OracleNotificationInput as never,
+        fields: { queryId: "i64", subscriptionId: "i32", status: "u8", _padding: { blob: 3 } },
+    },
+    {
+        name: "OracleSubscription",
+        klass: OracleSubscription as never,
+        fields: {
+            initialQueryStorageOffset: "u64",
+            interfaceIndex: "u32",
+            queryTimestampOffset: "u16",
+            subscriberCount: "u16",
+            lastPendingQueryId: "i64",
+            lastRevealedQueryId: "i64",
+            nextQueryTimestamp: "u64",
+            generatedQueriesCount: "u32",
+            firstSubscriberIndex: "i32",
+        },
+    },
+    {
+        name: "OracleNotificationData",
+        klass: OracleNotificationData as never,
+        fields: { procedureId: "u32", contractIndex: "u16", inputSize: "u16", inputBuffer: { blob: 16 + MAX_ORACLE_REPLY_SIZE } },
+    },
+    // the contract ABI views. a pad field has no accessor, so it is left out and its bytes must stay zero like any other gap.
+    {
+        name: "QpiContext",
+        klass: QpiContext as never,
+        fields: {
+            currentContractIndex: "u32",
+            stackIndex: "i32",
+            currentContractId: "u64",
+            originator: { blob: 32 },
+            invocator: { blob: 32 },
+            invocationReward: "i64",
+            entryPoint: "u8",
+        },
+    },
+    {
+        name: "Asset",
+        klass: Asset as never,
+        fields: { issuer: { blob: 32 }, assetName: "u64" },
+    },
+    {
+        name: "AssetSelect",
+        klass: AssetSelect as never,
+        fields: { id: { blob: 32 }, mgmt: "u16", anyId: "u8", anyMgmt: "u8" },
+    },
+    {
+        name: "PreManagementRightsTransferInput",
+        klass: PreManagementRightsTransferInput as never,
+        fields: {
+            asset: { sub: Asset as never },
+            owner: { blob: 32 },
+            possessor: { blob: 32 },
+            shares: "i64",
+            offeredFee: "i64",
+            otherContractIndex: "u16",
+        },
+    },
+    {
+        name: "PreManagementRightsTransferOutput",
+        klass: PreManagementRightsTransferOutput as never,
+        fields: { allowTransfer: "u8", requestedFee: "i64" },
+    },
+    {
+        name: "PostIncomingTransferInput",
+        klass: PostIncomingTransferInput as never,
+        fields: { source: { blob: 32 }, amount: "i64", type: "u8" },
+    },
+    {
+        name: "ContractId",
+        klass: ContractId as never,
+        fields: { lane0: "u64", lane1: "u64", lane2: "u64", lane3: "u64" },
+    },
+    // the oracle and off-chain-computation interfaces.
+    {
+        name: "PriceOracleQuery",
+        klass: priceOracle.OracleQuery as never,
+        fields: { oracle: { blob: 32 }, timestamp: "u64", currency1: { blob: 32 }, currency2: { blob: 32 } },
+    },
+    {
+        name: "PriceOracleReply",
+        klass: priceOracle.OracleReply as never,
+        fields: { numerator: "i64", denominator: "i64" },
+    },
+    {
+        name: "MockOracleQuery",
+        klass: mockOracle.OracleQuery as never,
+        fields: { value: "u64" },
+    },
+    {
+        name: "MockOracleReply",
+        klass: mockOracle.OracleReply as never,
+        fields: { echoedValue: "u64", doubledValue: "u64" },
+    },
+    {
+        name: "EvmLogReadOracleQuery",
+        klass: evmLogOracle.OracleQuery as never,
+        fields: { chainId: "u64", txHash: { arr: "u8", n: 32 }, logIndex: "u64" },
+    },
+    {
+        name: "EvmLogReadOracleReply",
+        klass: evmLogOracle.OracleReply as never,
+        fields: {
+            code: "u64",
+            address: { arr: "u8", n: 32 },
+            topicCount: "u64",
+            topics: { arr: "u8", n: 128 },
+            dataLen: "u64",
+            data: { arr: "u8", n: 256 },
+        },
+    },
+    {
+        name: "QubicLogReadOracleQuery",
+        klass: qubicLogOracle.OracleQuery as never,
+        fields: { tick: "u64", txHash: { arr: "u8", n: 32 }, logId: "u64" },
+    },
+    {
+        name: "QubicLogReadOracleReply",
+        klass: qubicLogOracle.OracleReply as never,
+        fields: { code: "u64", contractIndex: "u64", logType: "u64", dataLen: "u64", data: { arr: "u8", n: 256 } },
+    },
+    {
+        name: "DogeShareValidationOracleQuery",
+        klass: dogeShareOracle.OracleQuery as never,
+        fields: {
+            jobId: "u64",
+            solutionTime: { arr: "u8", n: 4 },
+            solutionNonce: { arr: "u8", n: 4 },
+            solutionExtraNonce2: { arr: "u8", n: 8 },
+            target: { arr: "u8", n: 32 },
+            taskPartialHeaderVersion: { arr: "u8", n: 4 },
+            taskPartialHeaderDifficultyNBits: { arr: "u8", n: 4 },
+            taskPartialHeaderPrevBlockHash: { arr: "u8", n: 32 },
+            extraNonce1NumBytes: "u32",
+            coinbase1NumBytes: "u32",
+            coinbase2NumBytes: "u32",
+            numMerkleBranches: "u32",
+            // the fixed fields above take 112 bytes; the rest of a query is free-form.
+            additionalData: { arr: "u8", n: MAX_ORACLE_QUERY_SIZE - 112 },
+        },
+    },
+    {
+        name: "DogeShareValidationOracleReply",
+        klass: dogeShareOracle.OracleReply as never,
+        fields: { compIndex: "u32", isValid: "u8" },
+    },
+    {
+        name: "MockOcRequest",
+        klass: OcRequest as never,
+        fields: { value: "u64" },
     },
 ];
 
