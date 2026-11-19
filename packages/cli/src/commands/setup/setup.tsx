@@ -120,27 +120,35 @@ async function runStep(step: SetupStepKey, operation: (onProgress: Progress) => 
     }
 }
 
-// the same four assets an online run installs; any one missing keeps the network error.
-function setupFromCacheOffline(deps: SetupDeps, emit: (event: SetupEvent) => void, cause: unknown): boolean {
+// Report the installed assets without asking the release server. False when one of the four an online run
+// installs is missing, so the caller goes to the network for it. `verifierRequired` is off where a missing
+// verifier could not be fetched anyway.
+function setupFromCache(deps: SetupDeps, emit: (event: SetupEvent) => void, why: string, verifierRequired = true): boolean {
     const current = deps.readCurrent();
     const headers = current?.coreHeaders && deps.existsSync(current.coreHeaders) ? (current.headersVersion ?? "cached") : undefined;
     const node = current?.node && deps.existsSync(current.node) ? (current.nodeVersion ?? "cached") : undefined;
     const sdk = deps.configuredWasiSdk() ?? deps.wasiSdkPaths()?.root;
     const verifier = deps.configuredVerifyTool() ?? (current?.verify && deps.existsSync(current.verify) ? current.verify : undefined);
-    if (!headers || !node || !sdk || !verifier) {
+    if (!headers || !node || !sdk || (verifierRequired && !verifier)) {
         return false;
     }
 
-    const why = `offline, update check skipped (${cause instanceof Error ? cause.message : String(cause)})`;
     emit({ step: "headers", state: "ok", detail: `cached ${headers} · ${why}` });
     emit({ step: "node", state: "ok", detail: `cached ${node}` });
     emit({ step: "wasi", state: "ok", detail: `cached ${sdk}` });
-    emit({ step: "verifier", state: "ok", detail: `cached ${verifier}` });
+    emit({ step: "verifier", state: "ok", detail: verifier ? `cached ${verifier}` : "skipped — updates disabled" });
     return true;
 }
 
 export async function runSetup(emit: (event: SetupEvent) => void = () => {}, injected: Partial<SetupDeps> = {}, options: SetupRunOptions = {}): Promise<void> {
     const deps = { ...defaultDeps, ...injected };
+    // QINIT_NO_UPDATE turns the release check off: with everything installed there is nothing left to ask the server,
+    // and a part that is missing is still installed below, with no update offered for the rest. --force asks for
+    // updates outright, so it wins.
+    const checkUpdates = Boolean(options.force) || !deps.updatesDisabled();
+    if (!checkUpdates && setupFromCache(deps, emit, "update check skipped (QINIT_NO_UPDATE is set)", false)) {
+        return;
+    }
     const manifestStartedAt = Date.now();
     emit({ step: "headers", state: "active", detail: "checking", pct: 0 });
     let manifest: Manifest;
@@ -149,7 +157,7 @@ export async function runSetup(emit: (event: SetupEvent) => void = () => {}, inj
         emit({ step: "headers", state: "pending" });
     } catch (error) {
         // every asset already installed: an unreachable release only means no update check, which is not a setup failure.
-        if (setupFromCacheOffline(deps, emit, error)) {
+        if (setupFromCache(deps, emit, `offline, update check skipped (${error instanceof Error ? error.message : String(error)})`)) {
             return;
         }
         emit({
@@ -173,7 +181,7 @@ export async function runSetup(emit: (event: SetupEvent) => void = () => {}, inj
     const managedSdk = configuredSdk ? undefined : deps.managedWasiSdkStatus();
     const updates: SetupUpdate[] = [];
 
-    if (coreUpdateAvailable) {
+    if (checkUpdates && coreUpdateAvailable) {
         updates.push({
             key: "core",
             label: nodePublished ? "core release" : "core headers",
@@ -181,7 +189,7 @@ export async function runSetup(emit: (event: SetupEvent) => void = () => {}, inj
             available: manifest.version,
         });
     }
-    if (managedSdk?.updateAvailable) {
+    if (checkUpdates && managedSdk?.updateAvailable) {
         updates.push({
             key: "wasi",
             label: "WASI SDK",

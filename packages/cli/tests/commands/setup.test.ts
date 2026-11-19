@@ -325,6 +325,94 @@ test("setup offline with any asset missing still fails on the network error", as
     ).rejects.toThrow("request timed out");
 });
 
+// QINIT_NO_UPDATE used to stop only the verifier step: setup still asked the release server and offered updates.
+test("setup with updates disabled uses a complete cache without asking the release server", async () => {
+    const events: SetupEvent[] = [];
+    let requests = 0;
+    const refuse = async (): Promise<never> => {
+        requests++;
+        throw new Error("must not reach the network");
+    };
+
+    await runSetup(
+        (event) => events.push(event),
+        setupDeps({
+            updatesDisabled: () => true,
+            loadManifest: refuse,
+            readCurrent: () => installed,
+            existsSync: () => true,
+            prepareNodeRunCore: refuse,
+            fetchNodeBinary: refuse,
+            ensureNodeBinary: refuse,
+            fetchWasiSdk: refuse,
+            autoUpdateVerifyTool: refuse,
+        }),
+    );
+
+    expect(requests).toBe(0);
+    const finished = events.filter((event) => event.state === "ok");
+    expect(finished.map((event) => event.step)).toEqual(["headers", "node", "wasi", "verifier"]);
+    expect(finished[0].detail).toBe("cached qinit-v1 · update check skipped (QINIT_NO_UPDATE is set)");
+});
+
+test("setup --force checks for updates even when they are disabled", async () => {
+    let manifestLoads = 0;
+
+    await runSetup(
+        () => {},
+        setupDeps({
+            updatesDisabled: () => true,
+            loadManifest: async () => {
+                manifestLoads++;
+                return manifest;
+            },
+            readCurrent: () => installed,
+            existsSync: () => true,
+        }),
+        { force: true },
+    );
+
+    expect(manifestLoads).toBe(1);
+});
+
+test("setup with updates disabled installs a missing part and offers no update for the rest", async () => {
+    let offered: SetupUpdate[] | undefined;
+    let prompts = 0;
+    let nodeInstalls = 0;
+
+    await runSetup(
+        () => {},
+        setupDeps({
+            updatesDisabled: () => true,
+            // headers from an older release are installed; the node is not.
+            readCurrent: () => ({ headersVersion: "qinit-v0", coreHeaders: "/cache/qinit-v0/headers" }),
+            existsSync: (path) => path === "/cache/qinit-v0/headers",
+            managedWasiSdkStatus: () => ({ expectedRoot: "/cache/wasi-sdk/wasi-sdk-29", currentRoot: "/cache/wasi-sdk/wasi-sdk-28", updateAvailable: true }),
+            fetchNodeBinary: async () => {
+                nodeInstalls++;
+                return { nodeBinaryPath: "/cache/Qubic", version: manifest.version };
+            },
+            ensureNodeBinary: async () => {
+                nodeInstalls++;
+                return { nodeBinaryPath: "/cache/Qubic", version: manifest.version, cached: false };
+            },
+        }),
+        {
+            onUpdates: (updates) => {
+                offered = [...updates];
+            },
+            confirmUpdates: async () => {
+                prompts++;
+                return true;
+            },
+        },
+    );
+
+    expect(offered).toEqual([]);
+    expect(prompts).toBe(0);
+    expect(nodeInstalls).toBe(1);
+});
+
 test("setup treats verifier download failure as fatal unless updates are disabled", async () => {
     await expect(
         runSetup(
