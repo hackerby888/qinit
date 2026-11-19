@@ -112,7 +112,7 @@ already pass.
 
 - `qinit call --trace --json` emits the diff rows non-interactively (`state[]`, with `label`, `detail`,
   `text`, `internal`, `before`/`after`, `change`). Prefer it for capture.
-- `--trace-full` adds container internals, `--all` shows zero and empty fields. Run both: a row hidden behind
+- `--trace-full` adds container internals, `--all` shows every item of a long output. Run both: a row hidden behind
   `internal` that should be visible, or the reverse, is a finding.
 - `qinit debug` is an Ink TUI. If you need it, drive it with tmux and `capture-pane` for true frames, one key
   per `send-keys`. Do not scrape its stdout.

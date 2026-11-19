@@ -85,7 +85,7 @@ test("command help is parsed strictly before it is shown", async () => {
 
     expect(result.code).toBe(1);
     expect(result.stdout).toContain("invalid arguments: Unknown option '--bogus'");
-    expect(result.stdout).not.toContain("usage: qinit build <file.h>");
+    expect(result.stdout).not.toContain("usage: qinit build [<file.h>]");
 });
 
 test("help command and help flag share command usage", async () => {
@@ -93,7 +93,7 @@ test("help command and help flag share command usage", async () => {
 
     for (const result of [commandHelp, flagHelp]) {
         expect(result.code).toBe(0);
-        expect(result.stdout).toContain("usage: qinit build <file.h>");
+        expect(result.stdout).toContain("usage: qinit build [<file.h>]");
         expect(result.stdout).toContain("--callee <n>=<hdr>[@<i>]");
         expect(result.stderr).toBe("");
     }

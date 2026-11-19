@@ -199,7 +199,7 @@ const commandMeta = {
         group: "develop",
         json: true,
         summary: "build a contract",
-        usage: "<file.h>",
+        usage: "[<file.h>]",
         options: [
             booleanOption("production", "build without cheatcodes, as Core will"),
             stringOption("contract", "<file.h>", "contract header"),
@@ -220,7 +220,7 @@ const commandMeta = {
         group: "develop",
         json: true,
         summary: "generate a TypeScript client",
-        usage: "<file.h>",
+        usage: "[<file.h>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
             stringOption("contract-name", "<name>", "deploy name; defaults to the struct the header declares"),
@@ -233,7 +233,7 @@ const commandMeta = {
         group: "develop",
         json: true,
         summary: "remove cheatcodes from a contract",
-        usage: "<file.h>",
+        usage: "[<file.h>]",
         options: [stringOption("contract", "<file.h>", "contract header"), stringOption("out", "<file.h>", "write here instead of stdout")],
         examples: ["qinit strip contracts/Mytoken.h --out /tmp/Mytoken.clean.h"],
     },
@@ -241,7 +241,7 @@ const commandMeta = {
         group: "develop",
         json: true,
         summary: "check QPI compatibility",
-        usage: "<file.h>",
+        usage: "[<file.h>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
             stringOption("contract-name", "<name>", "deploy name; defaults to the struct the header declares"),
@@ -257,7 +257,7 @@ const commandMeta = {
         group: "deploy & interact",
         json: true,
         summary: "deploy a contract and its dependencies",
-        usage: "<file.h> [--contract-name <name>] [--slot <n>]",
+        usage: "[<file.h>] [--contract-name <name>] [--slot <n>]",
         options: [
             stringOption("contract", "<file.h>", "contract header"),
             stringOption("contract-name", "<name>", "deploy name; defaults to the struct the header declares"),
@@ -294,7 +294,7 @@ const commandMeta = {
             stringOption("amount", "<n>", "transfer amount"),
             booleanOption("trace", "show state changes and contract calls"),
             booleanOption("trace-full", "include container details"),
-            booleanOption("all", "show zero and empty fields"),
+            booleanOption("all", "show every item of a long output"),
             booleanOption("no-settle", "return without waiting for processing"),
             stringOption("rpc", "<url>", "RPC URL"),
             stringOption("seed", "<seed>", "signer seed"),
@@ -356,7 +356,7 @@ const commandMeta = {
     debug: {
         group: "deploy & interact",
         summary: "inspect contract calls and state changes",
-        usage: "<Contract>",
+        usage: "[<Contract>]",
         options: [stringOption("contract", "<name|slot>", "contract name or slot"), stringOption("rpc", "<url>", "RPC URL")],
     },
     test: {
