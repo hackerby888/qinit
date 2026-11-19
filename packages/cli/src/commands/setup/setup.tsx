@@ -120,9 +120,8 @@ async function runStep(step: SetupStepKey, operation: (onProgress: Progress) => 
     }
 }
 
-// Report the installed assets without asking the release server. False when one of the four an online run
-// installs is missing, so the caller goes to the network for it. `verifierRequired` is off where a missing
-// verifier could not be fetched anyway.
+// report the installed assets without asking the release server; false when one is missing, so the caller fetches it.
+// `verifierRequired` is off where a missing verifier could not be fetched anyway.
 function setupFromCache(deps: SetupDeps, emit: (event: SetupEvent) => void, why: string, verifierRequired = true): boolean {
     const current = deps.readCurrent();
     const headers = current?.coreHeaders && deps.existsSync(current.coreHeaders) ? (current.headersVersion ?? "cached") : undefined;
@@ -142,9 +141,8 @@ function setupFromCache(deps: SetupDeps, emit: (event: SetupEvent) => void, why:
 
 export async function runSetup(emit: (event: SetupEvent) => void = () => {}, injected: Partial<SetupDeps> = {}, options: SetupRunOptions = {}): Promise<void> {
     const deps = { ...defaultDeps, ...injected };
-    // QINIT_NO_UPDATE turns the release check off: with everything installed there is nothing left to ask the server,
-    // and a part that is missing is still installed below, with no update offered for the rest. --force asks for
-    // updates outright, so it wins.
+    // QINIT_NO_UPDATE turns the release check off: a complete install answers from the cache, a missing part is still
+    // installed below with no update offered for the rest. --force asks for updates outright, so it wins.
     const checkUpdates = Boolean(options.force) || !deps.updatesDisabled();
     if (!checkUpdates && setupFromCache(deps, emit, "update check skipped (QINIT_NO_UPDATE is set)", false)) {
         return;
