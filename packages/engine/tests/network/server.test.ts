@@ -55,12 +55,28 @@ test("/live/v1/tick-info carries core-lite's envelope and keeps the flat keys", 
         const flat = await bare.json();
         expect(await prefixed.json()).toEqual({
             ...flat,
+            tickMs: 50,
             tickInfo: { tick: flat.tick, epoch: flat.epoch, initialTick: engine.epochInfo().initialTick, duration: 0 },
             alignedVotes: 0,
             misalignedVotes: 0,
             mainAuxStatus: 3,
         });
         expect((await new LiteRpc(base).tickInfo()).tick).toBe(flat.tick);
+    } finally {
+        stop();
+    }
+});
+
+// `qinit tick rate` with no value reads the rate here. It could be set but not read, so the command always
+// answered "not reported by this node".
+test("/live/v1/tick-info reports the tick rate, and the new one after it is changed", async () => {
+    const { base, stop } = await serve();
+    try {
+        const rpc = new LiteRpc(base);
+        expect((await rpc.tickInfo()).tickMs).toBe(50);
+
+        await rpc.setTickMs(200);
+        expect((await rpc.tickInfo()).tickMs).toBe(200);
     } finally {
         stop();
     }

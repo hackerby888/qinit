@@ -48,9 +48,11 @@ export class EngineServer {
 
         if (path === "/live/v1/tick-info") {
             const info = await engine.tickInfo();
-            // Core-lite's envelope; the flat keys stay for clients written against the older shape.
+            // Core-lite's envelope; the flat keys stay for clients written against the older shape. `tickMs` is the
+            // simulator's own: the rate could be set over the dev route but not read back.
             return json({
                 ...info,
+                tickMs: this.tickMs,
                 tickInfo: { tick: info.tick, epoch: info.epoch, initialTick: engine.epochInfo().initialTick, duration: 0 },
                 alignedVotes: 0,
                 misalignedVotes: 0,

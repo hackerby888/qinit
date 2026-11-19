@@ -150,9 +150,9 @@ export function Tick({ commandArgs }: { commandArgs: CommandArguments }) {
                     // no argument reports; `Number("")` is 0, so without this a read-shaped command wrote.
                     if (!o.arg) {
                         const current = await rpc.tickInfo();
-                        const tickMs = Number((current as { tickMs?: unknown }).tickMs ?? NaN);
-                        factsRef.current = { ...NO_TICK_FACTS, tickMs: Number.isFinite(tickMs) ? tickMs : null };
-                        setRows([["tick rate", Number.isFinite(tickMs) ? `${tickMs} ms/tick${tickMs === 0 ? "  (fastest)" : ""}` : "not reported by this node"]]);
+                        const tickMs = typeof current.tickMs === "number" && Number.isFinite(current.tickMs) ? current.tickMs : null;
+                        factsRef.current = { ...NO_TICK_FACTS, tickMs };
+                        setRows([["tick rate", tickMs === null ? "not reported by this node" : `${tickMs} ms/tick${tickMs === 0 ? "  (fastest)" : ""}`]]);
                         setProg(null);
                         setBusy("");
                         return;

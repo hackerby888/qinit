@@ -3,6 +3,8 @@ export interface TickInfo {
     tick: number;
     epoch: number;
     fault?: EngineFaultInfo;
+    // milliseconds per tick. Only the simulator reports it; a Core node's answer has no such field.
+    tickMs?: number;
     [k: string]: unknown;
 }
 
