@@ -125,6 +125,14 @@ export async function buildSnapshot(corePath: string, outRoot: string, options: 
         copy(file, join(root, relativePath));
     }
 
+    // core's licence has to go with every copy of its files, and the bundle is one
+    for (const licence of ["LICENSE.md", "LICENSE-MIT.md"]) {
+        const source = join(corePath, licence);
+        if (existsSync(source)) {
+            copy(source, join(root, licence));
+        }
+    }
+
     if (options.includeSdkHeaders) {
         const sdkFiles = new Set(dependencies.map((file) => resolve(file)));
         for (const file of sdkFiles) {

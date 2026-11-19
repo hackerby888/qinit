@@ -2,6 +2,7 @@
     "name": "@qinit/core",
     "version": "0.0.0",
     "private": true,
+    "license": "MIT",
     "type": "module",
     "module": "src/index.ts",
     "types": "./dist/browser.d.ts",

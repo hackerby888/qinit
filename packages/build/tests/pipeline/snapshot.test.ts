@@ -1,7 +1,7 @@
 import { CORE_PATH, HAS_CORE, HAS_WASI } from "../../../../test-utils/paths";
 // A header bundle is all a fresh install has, so it must carry everything a project's gtest includes.
 import { test, expect } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
@@ -14,6 +14,8 @@ test.skipIf(!HAS_WASI || !HAS_CORE)(
         const dir = mkdtempSync(join(tmpdir(), "qinit-snapshot-"));
         try {
             const snapshot = await buildSnapshot(CORE_PATH, dir);
+            // core's licence travels with its headers
+            expect(existsSync(join(snapshot.root, "LICENSE.md"))).toBe(existsSync(join(CORE_PATH, "LICENSE.md")));
             const contractPath = join(dir, "Probe.h");
             const corpusPath = join(dir, "Probe.test.cpp");
             writeFileSync(contractPath, templateSource("counter", "Probe"));

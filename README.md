@@ -47,3 +47,10 @@ qinit node stop
 
 `qinit <command> --help` lists every option, and `qinit call` with no arguments picks the contract and entry point
 interactively.
+
+## License
+
+Qinit is released under the [MIT License](LICENSE).
+
+The Qubic Core headers, the QPI snapshot generated from them, and the node binary that `qinit setup` downloads
+are Qubic's, under the Anti-Military License. See [NOTICE.md](NOTICE.md).
