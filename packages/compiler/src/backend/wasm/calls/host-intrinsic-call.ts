@@ -9,6 +9,7 @@ import { CHEAT_OP } from "@qinit/core";
 import { foldCheatLine } from "../idl/collect-cheats";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";
+import { argumentAddress } from "./call-shape";
 
 export function tryEmitHostIntrinsicCall(context: FunctionEmissionContext, expression: CallExpression): boolean {
     if (expression.callee.kind !== AstKind.IDENTIFIER) {
@@ -111,9 +112,7 @@ function emitCheat(context: FunctionEmissionContext, op: number, a: WatNode, b: 
 }
 
 function emitKangarooTwelveCall(context: FunctionEmissionContext, expression: CallExpression): void {
-    const inputAddress = expression.callArguments[0]
-        ? (context.lowering.emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)")
-        : "(i32.const 0)";
+    const inputAddress = argumentAddress(context, expression, 0);
     const inputSize = expression.callArguments[1] ? context.lowering.lowerValueExpression(context, expression.callArguments[1]) : watIr.i64Constant(0);
     const digestAddress = context.lowering.allocateScratchSlotNode(context, 32);
 

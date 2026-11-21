@@ -1,10 +1,67 @@
-import { AstKind, BinaryOp, UpdateOp, WatNodeType } from "../../../shared/enums";
+import { AstKind, BinaryOp, CAST_TEMPLATE_NAMES, UnaryOp, UpdateOp, WatNodeType } from "../../../shared/enums";
 import { addrIr, emitScalarLoad, isSignedScalarType, emitScalarStore } from "../memory/memory-operations";
 import { isUint128 } from "../memory/address-resolution";
 import { describeShape } from "../calls/call-shape";
+import { subExpressions } from "../module/entry-context-validation";
 import { FunctionEmissionContext } from "../types";
-import type { TypeSpec, Expression } from "../../../ast";
+import type { TypeSpec, Expression, Statement } from "../../../ast";
+import type { CallExpression } from "../calls/call-expression";
 import * as watIr from "../wat-ir";
+
+type TemplateCallExpression = Expression & { kind: AstKind.TEMPLATE_CALL };
+
+const EFFECT_KINDS = new Set<AstKind>([AstKind.ASSIGN, AstKind.CALL, AstKind.TEMPLATE_CALL, AstKind.PREFIX_OP, AstKind.POSTFIX_OP]);
+
+// sizeof never evaluates its operand, so nothing under it runs.
+function evaluatedOperands(expression: Expression): Expression[] {
+    if (expression.kind === AstKind.SIZEOF_EXPR) return [];
+
+    return subExpressions(expression).filter((operand): operand is Expression => !!operand);
+}
+
+function hasEffect(expression: Expression): boolean {
+    return EFFECT_KINDS.has(expression.kind) || evaluatedOperands(expression).some(hasEffect);
+}
+
+function pushDiscarded(context: FunctionEmissionContext, expression: Expression): void {
+    const discardedText = emitDiscardedExpression(context, expression);
+    if (discardedText) context.lines.push(`    ${discardedText}`);
+}
+
+// `c ? a : b;`, `a && b;` and `a || b;` run one side only, so each becomes the if it stands for.
+function branchStatement(expression: Expression): Statement | null {
+    const discarded = (inner: Expression): Statement => ({ kind: AstKind.EXPRESSION, expression: inner, span: inner.span });
+
+    if (expression.kind === AstKind.TERNARY) {
+        return { kind: AstKind.IF, condition: expression.condition, then: discarded(expression.then), else_: discarded(expression.else_), span: expression.span };
+    }
+
+    if (expression.kind === AstKind.BINARY_OP && expression.operator === BinaryOp.LOGICAL_AND) {
+        return { kind: AstKind.IF, condition: expression.left, then: discarded(expression.right), span: expression.span };
+    }
+
+    if (expression.kind === AstKind.BINARY_OP && expression.operator === BinaryOp.LOGICAL_OR) {
+        const leftIsFalse: Expression = { kind: AstKind.UNARY_OP, operator: UnaryOp.LOGICAL_NOT, argument: expression.left, span: expression.left.span };
+
+        return { kind: AstKind.IF, condition: leftIsFalse, then: discarded(expression.right), span: expression.span };
+    }
+
+    return null;
+}
+
+// `f<T>(x);` and `object.method<T>(x);` take the handlers their value forms take, with the result dropped.
+function emitTemplateCallStatement(context: FunctionEmissionContext, expression: TemplateCallExpression): void {
+    if (expression.callee.kind === AstKind.IDENTIFIER && context.lowering.emitHelperCall(context, expression as unknown as CallExpression, false) !== null) {
+        return;
+    }
+
+    if (context.lowering.emitTemplateContainerCall(context, expression, false) !== null) {
+        return;
+    }
+
+    context.programAnalysis.warn(`unsupported template call statement [${describeShape(expression.callee)}]`, expression.span.line);
+}
+
 // Emit a statement expression; calls and assignments record their own effects.
 export function emitDiscardedExpression(context: FunctionEmissionContext, expression: Expression): string {
     if (expression.kind === AstKind.ASSIGN) {
@@ -19,10 +76,30 @@ export function emitDiscardedExpression(context: FunctionEmissionContext, expres
     // comma sequence (for-update `i++, flags >>= 2`): emit each side effect in order.
     if (expression.kind === AstKind.SEQUENCE) {
         for (const sequenceExpression of expression.expressions) {
-            const discardedText = emitDiscardedExpression(context, sequenceExpression);
-            if (discardedText) context.lines.push(`    ${discardedText}`);
+            pushDiscarded(context, sequenceExpression);
         }
         return "";
+    }
+    // a statement that changes nothing emits nothing, as in C++.
+    if (!hasEffect(expression)) return "";
+
+    const castSpelledAsTemplate = expression.kind === AstKind.TEMPLATE_CALL && expression.callee.kind === AstKind.IDENTIFIER && CAST_TEMPLATE_NAMES.has(expression.callee.name);
+
+    if (expression.kind === AstKind.TEMPLATE_CALL && !castSpelledAsTemplate) {
+        emitTemplateCallStatement(context, expression);
+        return "";
+    }
+
+    const branch = branchStatement(expression);
+
+    if (branch) {
+        context.lowering.emitStatement(context, branch);
+        return "";
+    }
+
+    // parens, casts and the other operators add no effect of their own: only their operands' effects are emitted.
+    for (const operand of evaluatedOperands(expression)) {
+        pushDiscarded(context, operand);
     }
     return "";
 }
@@ -86,5 +163,5 @@ export function emitIncrementOrDecrement(context: FunctionEmissionContext, expre
         const stored = `(${operator} ${load} (i64.const 1))`;
         return emitScalarStore(addr.addr, addr.size, stored);
     }
-    return "";
+    throw new Error(`cannot increment or decrement '${describeShape(argument)}': not addressable`);
 }

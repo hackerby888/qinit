@@ -79,7 +79,7 @@ function visitCalls(
     inStatement(statement);
 }
 
-function subExpressions(expression: Expression): (Expression | undefined)[] {
+export function subExpressions(expression: Expression): (Expression | undefined)[] {
     switch (expression.kind) {
         case AstKind.UNARY_OP:
         case AstKind.PREFIX_OP:

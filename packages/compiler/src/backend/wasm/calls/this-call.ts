@@ -1,4 +1,5 @@
 import { AstKind, UnaryOp, WatNodeType } from "../../../shared/enums";
+import { argumentAddress } from "./call-shape";
 import { compileContainerMethod } from "./containers";
 import { addrIr } from "../memory/memory-operations";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
@@ -16,9 +17,9 @@ export function emitThisCall(
     const methodName = expression.callee.name;
     // memory builtins used by container bodies: reset → setMem(this, ...); removeByIndex → setMem(&elem, ...).
     if ((methodName === "setMem" || methodName === "copyMem") && !valueWanted) {
-        const destination = context.lowering.emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)";
+        const destination = argumentAddress(context, expression, 0);
         if (methodName === "copyMem") {
-            const src = context.lowering.emitAddress(context, expression.callArguments[1]) ?? "(i32.const 0)";
+            const src = argumentAddress(context, expression, 1);
             context.lines.push(
                 `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(destination), addrIr(src), watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[2]))))}`,
             );
@@ -93,9 +94,7 @@ export function emitThisCall(
     const call = `(call ${cm.label} (local.get $this) ${methodArgumentOperands.join(" ")})`;
     if (valueWanted) {
         if (cm.retKind !== WatNodeType.I64) {
-            context.lines.push(`    ${call}`);
-            context.lines.push(...writeBacks);
-            return "(i64.const 0)";
+            throw new Error(`void or aggregate method ${context.thisType.name}::${methodNameOnly} used as a scalar`);
         }
         if (!writeBacks.length) return call;
         const returnScratch = `tmp${context.tmpCount++}`;

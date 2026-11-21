@@ -2,7 +2,7 @@ import { AstKind, ContainerEmissionMode, WatNodeType } from "../../../shared/enu
 import * as watIr from "../wat-ir";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";
-import { qpiWrapperMethod } from "./call-shape";
+import { argumentAddress, qpiWrapperMethod } from "./call-shape";
 
 export function tryEmitContractStatementCall(context: FunctionEmissionContext, expression: CallExpression): boolean {
     if (context.proxyClass && context.lowering.emitProxySiblingCall(context, expression, false) !== null) {
@@ -47,12 +47,8 @@ function tryEmitSelfContractCall(context: FunctionEmissionContext, expression: C
         return false;
     }
 
-    const inputAddress = expression.callArguments[1]
-        ? (context.lowering.emitAddress(context, expression.callArguments[1]) ?? "(i32.const 0)")
-        : "(i32.const 0)";
-    const outputAddress = expression.callArguments[2]
-        ? (context.lowering.emitAddress(context, expression.callArguments[2]) ?? "(i32.const 0)")
-        : "(i32.const 0)";
+    const inputAddress = argumentAddress(context, expression, 1);
+    const outputAddress = argumentAddress(context, expression, 2);
     const localsAddress = `(call $qpiAllocLocals (i32.const ${callableRegistration.localsSize}))`;
 
     context.lines.push(
@@ -76,12 +72,8 @@ function tryEmitDirectContractCall(context: FunctionEmissionContext, expression:
         return false;
     }
 
-    const inputAddress = expression.callArguments[2]
-        ? (context.lowering.emitAddress(context, expression.callArguments[2]) ?? "(i32.const 0)")
-        : "(i32.const 0)";
-    const outputAddress = expression.callArguments[3]
-        ? (context.lowering.emitAddress(context, expression.callArguments[3]) ?? "(i32.const 0)")
-        : "(i32.const 0)";
+    const inputAddress = argumentAddress(context, expression, 2);
+    const outputAddress = argumentAddress(context, expression, 3);
     const allocatedLocals = `(call $qpiAllocLocals (i32.const ${callableRegistration.localsSize}))`;
     const localsAddress = expression.callArguments[4]
         ? (context.lowering.emitAddress(context, expression.callArguments[4]) ?? allocatedLocals)

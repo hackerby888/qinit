@@ -4,6 +4,7 @@ import { unsignedScalar } from "../expressions/conversions";
 import { FunctionEmissionContext, CompiledHelperMetadata, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import { MATH_INTRINSIC_NAMES, SCALAR_SIZE, isAuthoritativeSymbol, symbolBaseName } from "../abi/tables";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionTemplateDecl } from "../../../ast";
+import { describeShape } from "./call-shape";
 import { compileLibraryFunction } from "./library-function-compiler";
 import { isMutableScalarReference, spillForMutableReference } from "../memory/reference-arguments";
 import * as watIr from "../wat-ir";
@@ -232,18 +233,17 @@ export function emitHelperCall(
 ): string | null {
     const info = lookupHelper(context, expression);
     if (!info) return null;
-    // Materialize aggregate returns; scalar value contexts receive zero.
+    // an aggregate return is materialized for its effects; it has no scalar value to hand back.
     if (info.retAgg) {
-        const addr = emitAggHelperCall(context, expression, info);
-        return valueWanted ? "(i64.const 0)" : (void addr, "");
+        if (valueWanted) throw new Error(`aggregate helper ${describeShape(expression.callee)} used as a scalar`);
+        emitAggHelperCall(context, expression, info);
+        return "";
     }
     const { operands, writeBacks } = helperCallOps(context, info, expression.callArguments);
     const call = `(call ${info.label}${operands ? " " + operands : ""})`;
     if (valueWanted) {
         if (!info.retIsValue) {
-            context.lines.push(`    ${call}`);
-            context.lines.push(...writeBacks);
-            return "(i64.const 0)";
+            throw new Error(`void helper ${describeShape(expression.callee)} used as a scalar`);
         }
         // The write-backs have to run after the call, so a value-context call carrying any of them is
         // sequenced through a temporary rather than returned inline.
